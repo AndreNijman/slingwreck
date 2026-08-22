@@ -1,0 +1,31 @@
+{
+  "name": "slingwreck",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Slingshot demolition for the browser, with a build-your-own-fortress 1v1 siege mode",
+  "scripts": {
+    "dev": "wrangler dev",
+    "serve": "npx serve . -l 4173",
+    "check": "node tools/check.mjs",
+    "test": "node tools/smoke.mjs",
+    "test:determinism": "node tools/determinism-test.mjs",
+    "test:physics": "node tools/physics-test.mjs",
+    "test:editor": "node tools/editor-test.mjs",
+    "test:abilities": "node tools/playtest.mjs --all",
+    "test:mp": "node tools/mp-smoke.mjs",
+    "test:audit": "node tools/audit-test.mjs",
+    "test:worker": "node --test tools/worker-test.mjs",
+    "balance": "node tools/balance.mjs",
+    "balance:siege": "node tools/balance.mjs --siege -n 400",
+    "balance:campaign": "node tools/balance.mjs --campaign",
+    "stamp": "node tools/stamp.mjs",
+    "card": "node tools/card-shot.mjs",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "serve": "^14.2.4",
+    "wrangler": "^4.33.1"
+  }
+}

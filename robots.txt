@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://slingwreck.andrenijman.com/sitemap.xml

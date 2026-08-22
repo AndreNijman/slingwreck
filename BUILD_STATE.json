@@ -1,0 +1,28 @@
+{
+  "game": "SLINGWRECK",
+  "domain": "slingwreck.andrenijman.com",
+  "relay": "slingwreck-relay",
+  "architectureRevision": 1,
+  "phase": "P0",
+  "phaseName": "Scaffold",
+  "phases": [
+    { "id": "P0", "name": "Scaffold", "status": "done", "gate": "npm run check" },
+    { "id": "P1", "name": "Physics core", "status": "todo", "gate": "npm run check && npm run test:determinism" },
+    { "id": "P2", "name": "Vertical slice", "status": "todo", "gate": "npm test" },
+    { "id": "P3", "name": "Content", "status": "todo", "gate": "node tools/playtest.mjs --all" },
+    { "id": "P4", "name": "Editor", "status": "todo", "gate": "node tools/editor-test.mjs" },
+    { "id": "P5", "name": "Campaign", "status": "todo", "gate": "node tools/balance.mjs --campaign" },
+    { "id": "P6", "name": "Relay and online Siege", "status": "todo", "gate": "npm run test:mp && node tools/audit-test.mjs" },
+    { "id": "P7", "name": "Match flow", "status": "todo", "gate": "node tools/balance.mjs --siege -n 400" },
+    { "id": "P8", "name": "Polish and ship", "status": "todo", "gate": "all gates green plus a live smoke test" }
+  ],
+  "deployed": false,
+  "guardRegistered": false,
+  "dnsConfigured": false,
+  "openRisks": [
+    "Cross-engine float determinism is unproven. P1 gates on it. If it fails, the relay audit degrades to lenient bounds checking and ARCHITECTURE.md section 5 is rewritten.",
+    "The airlift + gale + bedrock card combination may be a defensive lock. Intended fix is mutual exclusion in the draw, not a nerf.",
+    "52 authored campaign levels is the largest single time cost in the plan and depends on the editor being pleasant to use, which is why P4 precedes P5.",
+    "Simultaneous siege means the loser watches their own fortress fall in a 260x150 window. If that reads as noise rather than tension the mode's core hook fails, and it cannot be evaluated before P6."
+  ]
+}
