@@ -72,9 +72,9 @@
     {
       "id": "P3.2",
       "phase": "P3",
-      "status": "todo",
+      "status": "done",
       "title": "Author the underspecified sim params (was P3.0)",
-      "note": "Hulk radius vs '3x volume', Chip spread convention, Pebble payload, Gale units, Kingslayer steering, Airlift drift, Flak Hog pig selection, Mason block choice, Decoy King cost, Second Slingshot height."
+      "note": "All 10 authored in data.js with the reasoning inline, DESIGN.md corrected where it contradicted itself, and a resolved-ambiguities table added. Notable: Hulk is 4x area not 3x volume (sqrt is exactly 2, so the radius stays a clean decimal); Chip fragments keep parent SPEED because splitting momentum would make the tap worse than no tap; Flak Hog's pig is chosen by the builder because every automatic rule was arbitrary, exploitable, or both."
     },
     {
       "id": "P3.3",

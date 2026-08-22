@@ -98,12 +98,12 @@ untapped critter still does its base impact damage.
 | id | name | mass | radius | ability | good against |
 | --- | --- | --- | --- | --- | --- |
 | `nib` | Nib | 1.00 | 0.32 | none | nothing in particular; the baseline |
-| `chip` | Chip | 0.70 | 0.28 | splits into three, spread 22° | glass, wide shallow fronts |
+| `chip` | Chip | 0.70 | 0.28 | splits into three at −22°, 0°, +22°, each keeping the parent's speed | glass, wide shallow fronts |
 | `wedge` | Wedge | 0.95 | 0.30 | accelerates 2.1× along current heading | wood, drilling a single column |
 | `lob` | Lob | 1.60 | 0.36 | detonates: radius 3.6, impulse 130, damage 60 | clusters, TNT, buried pigs |
-| `pebble` | Pebble | 0.85 | 0.30 | drops a heavy payload straight down and recoils up | anything behind a tall front wall |
+| `pebble` | Pebble | 0.85 | 0.30 | drops a 1.4-mass payload downward at 6, recoils up at 4.5 | anything behind a tall front wall |
 | `boomer` | Boomer | 0.90 | 0.30 | reverses horizontal velocity, keeps vertical | the back of the fortress |
-| `hulk` | Hulk | 2.40 | 0.40 → 0.86 | inflates to 3× volume, shoving what it touches | wedged into a gap; splits towers apart |
+| `hulk` | Hulk | 2.40 | 0.40 → 0.80 | inflates to 4× area over 0.12 s, shoving what it touches | wedged into a gap; splits towers apart |
 | `spike` | Spike | 1.30 | 0.26 | hardens: passes through glass without slowing, +80% damage to stone | stone cores |
 | `zip` | Zip | 0.55 | 0.22 | blinks 3.5 units forward, keeping speed | precision, tight windows |
 
@@ -346,3 +346,29 @@ trigger. The editor is drag-to-place with a floating palette.
   design, not a bigger version of this one.
 - No level editor sharing in v1. The editor exists, the export tool exists, but
   hosting other people's levels is a moderation problem and it can wait.
+
+---
+
+## 10. Resolved ambiguities
+
+Writing `data.js` surfaced ten places where this document described a mechanic without
+giving it a number, or gave two numbers that disagreed. They are resolved here and in
+`data.js`; the reasoning lives next to each value in that file, because the reasoning is
+what stops someone "tidying" it later.
+
+| Was ambiguous | Resolved as |
+| --- | --- |
+| Hulk "3× volume" versus "0.40 → 0.86" — neither is 3× and this is a 2D game | **4× area**, radius 0.40 → 0.80. The square root is exactly 2, so the radius is a clean decimal rather than an irrational in a file three hosts must agree on bit for bit |
+| Chip's "spread 22°" — total or per fragment, and momentum or speed | 22° **between adjacent** fragments (−22, 0, +22). Each keeps the parent's **speed** and a third of its mass. Splitting the momentum three ways would make tapping worse than not tapping, which an ability must never be |
+| Pebble's payload had no mass, size, speed or recoil | radius 0.34, mass 1.4, released downward at 6, carrier recoils up at 4.5. The payload outweighs the critter carrying it — that is the mechanic |
+| Gale's "2.5" had no unit | an **acceleration**, 2.5 u/s², about 11% of gravity, on critters only. As a force it would affect a Zip and a Hulk identically, which is wrong |
+| Kingslayer "homes weakly" | 9 u/s² applied **perpendicular to velocity** for 1.5 s. Perpendicular-only bends the arc without adding speed, so it corrects a near miss and cannot rescue a bad shot |
+| Airlift's King drift had no range | the same ±1.5 over 5 s as a Zeppelin Hog. A second drift pattern to learn would be difficulty, not depth. Balloon is a separate 1 hp body |
+| Flak Hog did not say **which** pig | **the builder picks it** with a toggle in the editor. Every automatic rule was arbitrary or exploitable, and all of them hid a decision worth making. A player's explicit choice is also the most replayable input there is |
+| Mason did not say which block returns | the **earliest destroyed** unrestored block whose original space is clear. Rebuilds bottom-up, which is what a defender wants, and is the only option that is both deterministic and legible to the player watching it |
+| Decoy King had no cost or stats | 6 scrap, King stats, identical in the preview, and it does **not** satisfy the one-King rule. Paying for the decoy competes with paying for walls |
+| Second Slingshot had no second height | same x, 3.6 units higher. A different x would change the range of every shot and rebalance the whole bag; height changes only the angles, which is what the card sells |
+
+Two things remain deliberately unauthored until there is evidence to author them from:
+the per-level campaign star thresholds, which arrive with the levels in P5, and the 23
+values in `data.js` marked `// guess`, which `tools/balance.mjs` exists to revisit.

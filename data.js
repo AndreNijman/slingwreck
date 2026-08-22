@@ -194,9 +194,17 @@ export const AMMO = [
     mass: 0.70,
     radius: 0.28,
     ability: 'split',
+    // 22 degrees BETWEEN adjacent fragments, not 22 total: three fragments at -22, 0
+    // and +22 from the parent heading, 44 degrees of total fan.
+    //
+    // Each fragment keeps the parent's SPEED rather than a third of its momentum. That
+    // is unphysical and deliberate — dividing the momentum three ways makes Chip weaker
+    // than not tapping at all, which is the one thing an ability must never be. Mass is
+    // divided instead, so the total energy delivered stays honest.
     params: {
       count: 3,
-      spreadDeg: 22
+      spreadDeg: 22,
+      keepsParentSpeed: true
     }
   },
   {
@@ -227,8 +235,16 @@ export const AMMO = [
     mass: 0.85,
     radius: 0.30,
     ability: 'drop',
-    // Payload mass, size and recoil are not authored, so no guesses enter the sim.
-    params: {}
+    // The payload is heavier than the critter that carries it, which is the joke and
+    // also the mechanic: Pebble is the answer to a tall front wall, so the thing it
+    // drops has to hurt. Recoil is upward only, so the spent carrier arcs clear instead
+    // of following its own payload into the rubble.
+    params: {
+      payloadRadius: 0.34,
+      payloadMass: 1.4,
+      payloadSpeed: 6,
+      recoilSpeed: 4.5
+    }
   },
   {
     id: 'boomer',
@@ -244,10 +260,15 @@ export const AMMO = [
     mass: 2.40,
     radius: 0.40,
     ability: 'inflate',
-    // Both authored values remain visible even though their geometries disagree.
+    // The design said "3x volume" and also "0.40 -> 0.86", which are two different
+    // shapes and neither is 3x: this is a 2D game, so it is area, and 3x area is 0.69.
+    // Resolved as 4x AREA because the sqrt is exactly 2, so the inflated radius is a
+    // clean 0.80 rather than an irrational that has to be written out to 17 digits in a
+    // file the relay and the client must agree on bit for bit.
     params: {
-      inflatedRadius: 0.86,
-      volumeMultiplier: 3
+      inflatedRadius: 0.80,
+      areaMultiplier: 4,
+      inflateSeconds: 0.12
     }
   },
   {
@@ -472,8 +493,14 @@ export const CARDS = [
     tier: 2,
     tierName: 'dirty',
     text: 'place a Decoy King. Identical in the preview. Popping it does nothing except waste their shot',
-    // Physical stats and whether the decoy costs scrap are not authored.
-    effect: { kind: 'decoyKing', limit: 1, previewAs: 'king' }
+    // Costs scrap, so hiding a convincing decoy competes with the walls that protect the
+    // real King. Identical stats to a King and identical in the corner preview, but it
+    // does NOT satisfy the one-King placement rule — the real one still has to exist and
+    // still has to obey the burial-depth limit.
+    effect: {
+      kind: 'decoyKing', limit: 1, previewAs: 'king', cost: 6,
+      hp: 8, radius: 0.68, satisfiesKingRule: false
+    }
   },
   {
     id: 'flak-hog',
@@ -481,13 +508,21 @@ export const CARDS = [
     tier: 2,
     tierName: 'dirty',
     text: 'one pig throws a stone every 4 s at incoming critters. Hitting one costs it half its speed',
-    // Pig selection, targeting and stone physics need authored rules before simulation.
+    // WHICH pig is chosen by the builder in the editor, as a toggle on one placed pig.
+    // Every automatic rule considered was either arbitrary or exploitable — "nearest the
+    // King" invites burying it, "most exposed" invites sacrificing it — and all of them
+    // hide a decision the builder would enjoy making. It also has to be deterministic
+    // for replay, and a player's explicit choice is the most deterministic input there
+    // is. The stone leads its target on a straight intercept; it does not track.
     effect: {
       kind: 'pigAbility',
       ability: 'flak',
       pigCount: 1,
-      projectile: 'stone',
+      chosenBy: 'builder',
       intervalSeconds: 4,
+      stoneRadius: 0.18,
+      stoneMass: 0.5,
+      stoneSpeed: 14,
       hitSpeedMultiplier: 0.5
     }
   },
@@ -505,8 +540,11 @@ export const CARDS = [
     tier: 2,
     tierName: 'dirty',
     text: 'a constant 2.5-unit headwind against critters fired at your fortress',
-    // The design does not say whether 2.5 is force, acceleration or air velocity.
-    effect: { kind: 'headwind', strength: 2.5, direction: 'againstShot' }
+    // 2.5 is an ACCELERATION in world units per second squared, about 11% of gravity,
+    // applied to critters only and never to blocks or debris. As a force it would make
+    // a Zip and a Hulk behave identically, which is wrong; as an air velocity it needs
+    // a drag model the solver does not have and does not need.
+    effect: { kind: 'headwind', accel: 2.5, appliesTo: 'ammo', direction: 'towardSling' }
   },
   {
     id: 'bombardier',
@@ -522,8 +560,15 @@ export const CARDS = [
     tier: 2,
     tierName: 'dirty',
     text: 'after every third enemy shot, one destroyed block of yours returns at half hp',
-    // Which destroyed block returns is deliberately left unspecified by the design.
-    effect: { kind: 'restoreBlock', everyEnemyShots: 3, hpFraction: 0.5 }
+    // The EARLIEST destroyed block that has not already been restored and whose original
+    // position is now clear. Earliest-first rebuilds the fortress from the bottom up,
+    // which is what a defender wants and is also the only choice that is both
+    // deterministic and explicable to the player watching it happen. "A random block" is
+    // unreplayable; "the most valuable block" turns Mason into a second scoring system.
+    effect: {
+      kind: 'restoreBlock', everyEnemyShots: 3, hpFraction: 0.5,
+      pick: 'earliestDestroyed', requireClearSpace: true
+    }
   },
   {
     id: 'sappers-union',
@@ -552,8 +597,14 @@ export const CARDS = [
     tier: 3,
     tierName: 'desperado',
     text: 'your King rides a balloon and drifts. The balloon must be shot down before the King can be hurt at all',
-    // King drift has no authored range; borrowing Zeppelin's range would invent a rule.
-    effect: { kind: 'kingBalloon', drifts: true, invulnerableUntilPopped: true }
+    // Same drift as a Zeppelin Hog, deliberately: the player has already learnt to lead
+    // that movement, and a second, different drift to learn would be difficulty rather
+    // than depth. The balloon is a separate 1 hp body, so it pops to anything, and the
+    // King then falls — which on a tall fortress often finishes the job by itself.
+    effect: {
+      kind: 'kingBalloon', invulnerableUntilPopped: true,
+      driftRange: 1.5, driftSeconds: 5, balloonHp: 1, balloonRadius: 0.42, lift: 0.9
+    }
   },
   {
     id: 'remote-detonator',
@@ -569,8 +620,14 @@ export const CARDS = [
     tier: 3,
     tierName: 'desperado',
     text: 'you fire from two slingshots at different heights, alternating, which opens angles that do not otherwise exist',
-    // The second height is not authored, so shared data cannot provide a coordinate.
-    effect: { kind: 'slingshots', count: 2, alternating: true }
+    // The second sling sits at the same x, 3.6 units higher. Same x on purpose: two
+    // different horizontal positions would change the range of every shot and quietly
+    // rebalance the whole bag, whereas pure height only changes the ANGLES available,
+    // which is what the card is actually selling.
+    effect: {
+      kind: 'slingshots', count: 2, alternating: true,
+      secondSlingYOffset: 3.6
+    }
   },
   {
     id: 'kingslayer',
@@ -578,8 +635,15 @@ export const CARDS = [
     tier: 3,
     tierName: 'desperado',
     text: 'one critter in your bag homes weakly toward the enemy King after the tap',
-    // "Weakly" needs a numeric steering rule before deterministic replay can implement it.
-    effect: { kind: 'ammoHoming', ammoCount: 1, target: 'king', trigger: 'tap' }
+    // "Weakly" is 9 units per second squared applied PERPENDICULAR to current velocity
+    // for 1.5 s after the tap. Perpendicular-only steering bends the arc without adding
+    // speed, so a Kingslayer cannot outrun a normal shot; and 1.5 s of it corrects an
+    // aim that was already close without rescuing one that was not. A card that lets a
+    // player fire straight up and still hit is not a comeback, it is an off switch.
+    effect: {
+      kind: 'ammoHoming', ammoCount: 1, target: 'king', trigger: 'tap',
+      steerAccel: 9, steerSeconds: 1.5
+    }
   },
   {
     id: 'tectonic',

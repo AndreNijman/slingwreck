@@ -171,3 +171,7 @@ abilities' worth of new arithmetic to it.
 - 2026-08-22 `P3.1` **doing** — Extend the determinism test to cover sim.js, not just physics.js
 
 - 2026-08-22 `P3.1` **done** — Extend the determinism test to cover sim.js, not just physics.js. Second scenario: 30+ blocks of every material, every pig type, 3 TNT, 6-shot log. Exercise counts 12 blocks destroyed / 5 pigs killed / 3 explosions / 2 TNT chained, so the paths are genuinely hit. All four engines agree on both tables. The relay audit model is now proven for sim.js, not just the solver.
+
+- 2026-08-22 `P3.2` **doing** — Author the underspecified sim params (was P3.0)
+
+- 2026-08-22 `P3.2` **done** — Author the underspecified sim params (was P3.0). All 10 authored in data.js with the reasoning inline, DESIGN.md corrected where it contradicted itself, and a resolved-ambiguities table added. Notable: Hulk is 4x area not 3x volume (sqrt is exactly 2, so the radius stays a clean decimal); Chip fragments keep parent SPEED because splitting momentum would make the tap worse than no tap; Flak Hog's pig is chosen by the builder because every automatic rule was arbitrary, exploitable, or both.
