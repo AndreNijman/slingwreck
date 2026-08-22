@@ -101,20 +101,20 @@
       "id": "P3.6",
       "phase": "P3",
       "status": "done",
-      "title": "audio.js — WebAudio synthesis driven by the sim event list",
+      "title": "audio.js \u2014 WebAudio synthesis driven by the sim event list",
       "note": "audio.js 259 lines, all synthesis, lazy AudioContext on the Play gesture, 16 voices, 30ms coalescing, compressor bus. Added tools/audio-render-test.mjs because the coverage check only proved a handler EXISTS - it renders every event kind offline and measures peak/tail, so a handler that outputs silence now fails. All 15 audible, none clipping, none ringing, settled verified exactly silent. Also found pages.yml only ran 'check', so the browser smoke test had never run in CI at all; added chromium + npm test + test:audio to the workflow."
     },
     {
       "id": "P3.7",
       "phase": "P3",
       "status": "doing",
-      "title": "tools/playtest.mjs --all — assert every tap ability measurably changes the outcome"
+      "title": "tools/playtest.mjs --all \u2014 assert every tap ability measurably changes the outcome"
     },
     {
       "id": "P3.8",
       "phase": "P3",
       "status": "todo",
-      "title": "P3 gate — playtest --all green, re-run all suites and the four-engine determinism, commit"
+      "title": "P3 gate \u2014 playtest --all green, re-run all suites and the four-engine determinism, commit"
     },
     {
       "id": "P5.0",
@@ -133,5 +133,8 @@
     "52 authored campaign levels is the largest single time cost in the plan and depends on the editor being pleasant to use, which is why P4 precedes P5.",
     "Simultaneous siege means the loser watches their own fortress fall in a 260x150 window. If that reads as noise rather than tension the mode's core hook fails, and it cannot be evaluated before P6.",
     "The trajectory preview dots are drawn very faint against the sage hills and are hard to read while aiming. Cosmetic, deferred from P2."
+  ],
+  "balanceNotes": [
+    "P3.7 tap-timing sweep, winning timings (tap beats no tap) out of ~47: spike 47, hulk 46, pebble 32, wedge 20, boomer 10, chip 5, zip 5, lob 2. Lob's 2/46 was a design fault and is being fixed (tap was only legal in the flying phase, so a bomb could not be detonated after landing; adding rest-phase tap plus a fuse). Chip and Zip at 5/47 are being left alone deliberately: both must be triggered at a particular distance to work - split too early and the fragments fan wide of the target, too late and it has already hit - which is genuine skill expression rather than a reflex test, and it is how the equivalent abilities behave in the games this borrows from. Revisit with tools/balance.mjs in P7 using human play data rather than a fixed draw vector; a narrow window against ONE scripted shot is not the same as a narrow window in play."
   ]
 }

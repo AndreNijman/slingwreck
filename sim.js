@@ -318,6 +318,7 @@ function reverseAbility(round, body, ammo) {
 }
 
 function inflateAbility(round, body, ammo) {
+  wakeBody(round.world, body);
   body.inflation = {
     startRadius: body.r,
     targetRadius: ammo.params.inflatedRadius,
@@ -395,7 +396,10 @@ function addAmmoBody(round, ammo, vx, vy, options = {}) {
     tag: options.tag ?? `ammo:${round.shotIndex}`
   });
   body.role = options.role ?? 'ammo';
-  if (body.role === 'ammo') body.ammoId = ammo.id;
+  if (body.role === 'ammo') {
+    body.ammoId = ammo.id;
+    if (ammo.params.fuseSeconds !== undefined) body.fuseContactStep = null;
+  }
   return body;
 }
 
@@ -952,10 +956,54 @@ function flyingIsOutOfPlay(body) {
     body.y + body.r < -TUNE.gridSnap;
 }
 
+function activeFuse(round) {
+  const body = round.flying;
+  if (!body || body.dead || body.fuseContactStep === undefined) return null;
+  const ammo = AMMO_BY_ID[body.ammoId];
+  const shot = round.shots[round.shots.length - 1];
+  if (!ammo || !shot || shot.tapStep !== null) return null;
+  return { body, ammo };
+}
+
+function recordFuseContact(round) {
+  const fuse = activeFuse(round);
+  if (!fuse || fuse.body.fuseContactStep !== null) return;
+  const contacted = round.world.contacts.some((contact) =>
+    contact.a === fuse.body || contact.b === fuse.body);
+  if (contacted) fuse.body.fuseContactStep = round.stepCount;
+}
+
+function fireReadyFuse(round) {
+  const fuse = activeFuse(round);
+  if (!fuse || fuse.body.fuseContactStep === null) return false;
+  const fuseSteps = Math.ceil(fuse.ammo.params.fuseSeconds / TUNE.step);
+  // Contact is observed at the end of a fixed step. Include the step about to run so
+  // the boom event lands exactly `fuseSteps` later, rather than one step late.
+  if (round.stepCount - fuse.body.fuseContactStep + 1 < fuseSteps) return false;
+  boomAbility(round, fuse.body, fuse.ammo);
+  return true;
+}
+
+function detonateUncontactedFuse(round) {
+  const fuse = activeFuse(round);
+  if (!fuse || fuse.body.fuseContactStep !== null) return false;
+  boomAbility(round, fuse.body, fuse.ammo);
+  return true;
+}
+
+function armedFuseIsPending(round) {
+  const fuse = activeFuse(round);
+  return Boolean(fuse && fuse.body.fuseContactStep !== null);
+}
+
 function retireFlyingBody(round) {
   const body = round.flying;
   if (!body || body.dead || !flyingIsOutOfPlay(body)) return false;
   // This runs after physics.step returns, never while contacts still own the body.
+  if (detonateUncontactedFuse(round)) return true;
+  // Once contact starts the fuse, preserve its exact deadline even if the rebound
+  // carries Lob outside the view before then.
+  if (armedFuseIsPending(round)) return false;
   body.dead = true;
   removeBody(round.world, body);
   return true;
@@ -1058,9 +1106,12 @@ export function launch(round, dx, dy) {
 }
 
 export function tap(round) {
-  if (round.phase !== 'flying' || !round.flying || round.flying.dead) return false;
+  if (!round.flying || round.flying.dead) return false;
   const ammo = AMMO_BY_ID[round.flying.ammoId];
   if (!ammo.ability) return false;
+  const usableNow = round.phase === 'flying' ||
+    round.phase === 'settling' && ammo.params.tappableAtRest;
+  if (!usableNow) return false;
   const shot = round.shots[round.shots.length - 1];
   if (shot.tapStep !== null) return false;
   const handler = ABILITY_HANDLERS[ammo.ability];
@@ -1080,6 +1131,7 @@ export function stepRound(round, dt = TUNE.step) {
   }
 
   const wasSettling = round.phase === 'settling';
+  fireReadyFuse(round);
   round.events = round.queuedEvents;
   round.queuedEvents = [];
   round.deadThisStep = [];
@@ -1090,6 +1142,7 @@ export function stepRound(round, dt = TUNE.step) {
   round.pierceStarts = [];
   round.time += dt;
   round.stepCount++;
+  recordFuseContact(round);
   positionBalloons(round, round.time, false);
   if (round.phase === 'flying' || round.phase === 'settling') round.settleTimer += dt;
   const timedOut = round.phase === 'flying' || round.phase === 'settling'
@@ -1098,15 +1151,17 @@ export function stepRound(round, dt = TUNE.step) {
   removeDeadAtStepEnd(round);
   repairSarges(round);
   const retired = retireFlyingBody(round);
+  const timedOutFuse = timedOut && detonateUncontactedFuse(round);
 
   if (allPigsDead(round)) {
     round.phase = 'won';
     round.flying = null;
     round.events.push({ kind: EVENT_KIND.won });
   } else if (round.phase === 'flying') {
-    const flightFinished = retired || round.flying?.isAsleep || isSettled(round.world) || timedOut;
+    const flightFinished = retired || timedOutFuse || round.flying?.isAsleep ||
+      isSettled(round.world) || timedOut;
     if (flightFinished) round.phase = 'settling';
-  } else if (wasSettling &&
+  } else if (wasSettling && !armedFuseIsPending(round) &&
       (isSettled(round.world) || timedOut)) {
     finishSettling(round);
   }
@@ -1178,6 +1233,7 @@ export function digestRound(round) {
   hash = hashNumber(hash, round.settleTimer);
   hash = hashNumber(hash, round.score);
   hash = hashNumber(hash, round.flying?.id ?? -1);
+  hash = hashNumber(hash, round.flying?.fuseContactStep ?? -1);
   hash = hashNumber(hash, round.world.nextId);
 
   hash = fnvWord(hash, round.bag.length);

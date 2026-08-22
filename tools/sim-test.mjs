@@ -575,9 +575,83 @@ function boomAbilityGate() {
   const boomEvent = trial.tapped.events.some((event) => event.kind === 'boom');
   const abilityEvent = trial.tapped.events.some((event) =>
     event.kind === 'ability' && event.ability === 'boom');
-  report('ability boom', firstTap && !secondTap && tappedDamage > untappedDamage &&
-    boomEvent && abilityEvent,
-    `tapped damage ${tappedDamage.toFixed(5)} vs untapped ${untappedDamage.toFixed(5)}`);
+
+  const restBlueprint = {
+    v: 1,
+    blocks: [['cube', 'glass', TUNE.slingX + 1, 0.5, 0]],
+    pigs: [['runt', 30, 0.3]]
+  };
+  const resting = roundWith(restBlueprint, ['lob'], 54321);
+  const restingBody = launch(resting, 0, 0);
+  while (resting.phase === 'flying' && resting.stepCount < 180) {
+    stepRound(resting, TUNE.step);
+  }
+  const restPhase = resting.phase;
+  const restStep = resting.stepCount;
+  const restDamageBefore = resting.blocks[0].maxHp - resting.blocks[0].hp;
+  const restTap = tap(resting);
+  const restSecondTap = tap(resting);
+  const restEvents = stepRound(resting, TUNE.step);
+  const restDamageAfter = resting.blocks[0].maxHp - resting.blocks[0].hp;
+  const restBoom = restEvents.some((event) => event.kind === 'boom');
+  const restAbility = restEvents.some((event) =>
+    event.kind === 'ability' && event.ability === 'boom');
+  const restReplay = roundWith(restBlueprint, ['lob'], 54321);
+  launch(restReplay, 0, 0);
+  while (restReplay.stepCount < resting.shots[0].tapStep) {
+    stepRound(restReplay, TUNE.step);
+  }
+  const replayWasSettling = restReplay.phase === 'settling';
+  const restReplayTap = tap(restReplay);
+  stepRound(restReplay, TUNE.step);
+  const restReplayDigest = digestRound(restReplay);
+  const restDigest = digestRound(resting);
+
+  const passed = firstTap && !secondTap && tappedDamage > untappedDamage &&
+    boomEvent && abilityEvent && restPhase === 'settling' && restingBody.isAsleep &&
+    restTap && !restSecondTap && resting.shots[0].tapStep === restStep &&
+    restDamageAfter > restDamageBefore && restBoom && restAbility && replayWasSettling &&
+    restReplayTap && restReplay.shots[0].tapStep === restStep &&
+    restReplayDigest === restDigest;
+  report('ability boom', passed,
+    `flight damage ${tappedDamage.toFixed(5)} vs untapped ${untappedDamage.toFixed(5)}; ` +
+    `rest tap accepted at step ${restStep}, damage ${restDamageBefore.toFixed(5)} -> ` +
+    `${restDamageAfter.toFixed(5)}, replay ${restReplayDigest} = ${restDigest}`);
+}
+
+function lobFuseGate() {
+  const round = roundWith({ v: 1, blocks: [], pigs: [['runt', 30, 0.3]] }, ['lob'], 6789);
+  const body = launch(round, 0, 0);
+  let boomStep = null;
+  let fuseFeedback = false;
+  for (let index = 0; index < 500 && boomStep === null; index++) {
+    const events = stepRound(round, TUNE.step);
+    if (events.some((event) => event.kind === 'boom')) {
+      boomStep = round.stepCount;
+      fuseFeedback = events.some((event) =>
+        event.kind === 'ability' && event.ability === 'boom');
+    }
+  }
+  const contactStep = body.fuseContactStep;
+  const fuseSteps = Math.ceil(AMMO_BY_ID.lob.params.fuseSeconds / TUNE.step);
+
+  const culled = roundWith({ v: 1, blocks: [], pigs: [['runt', 60, 10]] }, ['lob'], 9876);
+  culled.world.gravity = 0;
+  culled.world.lastGravity = 0;
+  const culledBody = launch(culled, -TUNE.slingRadius, 0);
+  let culledBoomStep = null;
+  for (let index = 0; index < 500 && culledBoomStep === null; index++) {
+    const events = stepRound(culled, TUNE.step);
+    if (events.some((event) => event.kind === 'boom')) culledBoomStep = culled.stepCount;
+  }
+
+  const passed = contactStep !== null && boomStep === contactStep + fuseSteps &&
+    fuseFeedback && round.shots[0].tapStep === null && body.dead &&
+    culledBody.fuseContactStep === null && culled.shots[0].tapStep === null &&
+    culledBody.dead && culledBoomStep !== null;
+  report('untapped Lob fuse', passed,
+    `contact step ${contactStep} + ${fuseSteps} fixed steps = boom step ${boomStep}; ` +
+    `no-contact cull boomed at step ${culledBoomStep}`);
 }
 
 function dropAbilityGate() {
@@ -632,13 +706,58 @@ function inflateAbilityGate() {
   const untappedRadius = trial.untappedBody.r;
   const pushed = trial.tapped.blocks[0].x - trial.untapped.blocks[0].x;
   const massRatio = (1 / trial.tappedBody.im) / AMMO_BY_ID.hulk.mass;
+  const early = hulkPenetrationTrial(false);
+  const resting = hulkPenetrationTrial(true);
+  const restTappable = Object.values(AMMO_BY_ID)
+    .filter((ammo) => ammo.params.tappableAtRest)
+    .map((ammo) => ammo.id);
   const passed = firstTap && !secondTap &&
     Math.abs(tappedRadius - AMMO_BY_ID.hulk.params.inflatedRadius) < 1e-12 &&
     untappedRadius === AMMO_BY_ID.hulk.radius && Math.abs(massRatio - 4) < 1e-12 &&
-    pushed > 0 && abilityEvent;
+    pushed > 0 && abilityEvent && early.firstTap && !early.secondTap &&
+    resting.phaseAtTap === 'settling' && resting.wasAsleep && resting.firstTap &&
+    !resting.secondTap && resting.tapStep !== null && resting.abilityEvent &&
+    resting.damage > early.damage && resting.finalX > early.finalX &&
+    restTappable.join(',') === 'lob,hulk';
   report('ability inflate', passed,
     `tapped radius ${tappedRadius.toFixed(5)} vs untapped ${untappedRadius.toFixed(5)}; ` +
-    `neighbour pushed ${pushed.toFixed(5)}`);
+    `neighbour pushed ${pushed.toFixed(5)}; rest tap travelled to ` +
+    `${resting.finalX.toFixed(5)} vs flight tap ${early.finalX.toFixed(5)}, damage ` +
+    `${resting.damage.toFixed(5)} vs ${early.damage.toFixed(5)}; rest-tappable ` +
+    `${restTappable.join(', ')}`);
+}
+
+function hulkPenetrationTrial(tapAtRest) {
+  const round = roundWith({
+    v: 1,
+    blocks: [['cube', 'glass', -6, 0.5, 0]],
+    pigs: [['runt', 30, 0.3]]
+  }, ['hulk'], 24680);
+  const body = launch(round, -TUNE.slingRadius * 0.35, 0);
+  let phaseAtTap = round.phase;
+  let wasAsleep = body.isAsleep;
+  if (tapAtRest) {
+    while (round.phase === 'flying' && round.stepCount < 300) {
+      stepRound(round, TUNE.step);
+    }
+    phaseAtTap = round.phase;
+    wasAsleep = body.isAsleep;
+  }
+  const firstTap = tap(round);
+  const tapStep = round.shots[0].tapStep;
+  const secondTap = tap(round);
+  const abilityEvent = hasAbilityEvent(round, 'inflate');
+  runToEnd(round, 400);
+  return {
+    firstTap,
+    secondTap,
+    tapStep,
+    phaseAtTap,
+    wasAsleep,
+    abilityEvent,
+    damage: round.blocks[0].maxHp - round.blocks[0].hp,
+    finalX: body.x
+  };
 }
 
 function hardenGlassTrial(useTap) {
@@ -799,6 +918,7 @@ stoneSplitGate();
 splitAbilityGate();
 accelAbilityGate();
 boomAbilityGate();
+lobFuseGate();
 dropAbilityGate();
 reverseAbilityGate();
 inflateAbilityGate();
@@ -811,5 +931,5 @@ if (failures) {
   console.error(`\n${failures} simulation assertion(s) failed.`);
   process.exitCode = 1;
 } else {
-  console.log('\nAll twenty-four simulation assertions passed.');
+  console.log('\nAll twenty-five simulation assertions passed.');
 }

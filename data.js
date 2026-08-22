@@ -226,6 +226,8 @@ export const AMMO = [
     radius: 0.36,
     ability: 'boom',
     params: {
+      tappableAtRest: true,
+      fuseSeconds: 3,
       blastRadius: 3.6,
       blastImpulse: 130,
       blastDamage: 60
@@ -268,6 +270,7 @@ export const AMMO = [
     // clean 0.80 rather than an irrational that has to be written out to 17 digits in a
     // file the relay and the client must agree on bit for bit.
     params: {
+      tappableAtRest: true,
       inflatedRadius: 0.80,
       areaMultiplier: 4,
       inflateSeconds: 0.12

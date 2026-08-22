@@ -92,18 +92,19 @@ recursive chaining is how a five-crate cluster becomes a stack overflow.
 
 ## 3. The critters
 
-Nine, one tap ability each, fired in a fixed bag order. Ability triggers on tap; an
-untapped critter still does its base impact damage.
+Nine, one tap ability each, fired in a fixed bag order. Ability triggers on tap; Lob and
+Hulk remain tappable while settling so they can be used after coming to rest. An untapped
+critter still does its base impact damage, and Lob also has its automatic fuse.
 
 | id | name | mass | radius | ability | good against |
 | --- | --- | --- | --- | --- | --- |
 | `nib` | Nib | 1.00 | 0.32 | none | nothing in particular; the baseline |
 | `chip` | Chip | 0.70 | 0.28 | splits into three at −22°, 0°, +22°, each keeping the parent's speed | glass, wide shallow fronts |
 | `wedge` | Wedge | 0.95 | 0.30 | accelerates 2.1× along current heading | wood, drilling a single column |
-| `lob` | Lob | 1.60 | 0.36 | detonates: radius 3.6, impulse 130, damage 60 | clusters, TNT, buried pigs |
+| `lob` | Lob | 1.60 | 0.36 | detonates on tap, including at rest: radius 3.6, impulse 130, damage 60; untapped fuse fires 3 s after first contact or when culled without contact | clusters, TNT, buried pigs |
 | `pebble` | Pebble | 0.85 | 0.30 | drops a 1.4-mass payload downward at 6, recoils up at 4.5 | anything behind a tall front wall |
 | `boomer` | Boomer | 0.90 | 0.30 | reverses horizontal velocity, keeps vertical | the back of the fortress |
-| `hulk` | Hulk | 2.40 | 0.40 → 0.80 | inflates to 4× area over 0.12 s, shoving what it touches | wedged into a gap; splits towers apart |
+| `hulk` | Hulk | 2.40 | 0.40 → 0.80 | inflates on tap, including at rest, to 4× area over 0.12 s, shoving what it touches | wedged into a gap; splits towers apart |
 | `spike` | Spike | 1.30 | 0.26 | hardens: passes through glass without slowing, +80% damage to stone | stone cores |
 | `zip` | Zip | 0.55 | 0.22 | blinks 3.5 units forward, keeping speed | precision, tight windows |
 
@@ -351,13 +352,14 @@ trigger. The editor is drag-to-place with a floating palette.
 
 ## 10. Resolved ambiguities
 
-Writing `data.js` surfaced ten places where this document described a mechanic without
+Writing `data.js` surfaced eleven places where this document described a mechanic without
 giving it a number, or gave two numbers that disagreed. They are resolved here and in
 `data.js`; the reasoning lives next to each value in that file, because the reasoning is
 what stops someone "tidying" it later.
 
 | Was ambiguous | Resolved as |
 | --- | --- |
+| Lob had no fallback if the player did not tap before it stopped or left play | Lob remains tappable while settling. Untapped Lob detonates **3 seconds (180 fixed steps) after first contact**, or at the no-contact cull point; manual and automatic detonation emit the same `boom` feedback |
 | Hulk "3× volume" versus "0.40 → 0.86" — neither is 3× and this is a 2D game | **4× area**, radius 0.40 → 0.80. The square root is exactly 2, so the radius is a clean decimal rather than an irrational in a file three hosts must agree on bit for bit |
 | Chip's "spread 22°" — total or per fragment, and momentum or speed | 22° **between adjacent** fragments (−22, 0, +22). Each keeps the parent's **speed** and a third of its mass. Splitting the momentum three ways would make tapping worse than not tapping, which an ability must never be |
 | Pebble's payload had no mass, size, speed or recoil | radius 0.34, mass 1.4, released downward at 6, carrier recoils up at 4.5. The payload outweighs the critter carrying it — that is the mechanic |
