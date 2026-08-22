@@ -3,8 +3,8 @@
   "domain": "slingwreck.andrenijman.com",
   "relay": "slingwreck-relay",
   "architectureRevision": 1,
-  "phase": "P2",
-  "phaseName": "Vertical slice",
+  "phase": "P3",
+  "phaseName": "Content",
   "phases": [
     {
       "id": "P0",
@@ -21,13 +21,13 @@
     {
       "id": "P2",
       "name": "Vertical slice",
-      "status": "doing",
+      "status": "done",
       "gate": "npm test"
     },
     {
       "id": "P3",
       "name": "Content",
-      "status": "todo",
+      "status": "doing",
       "gate": "node tools/playtest.mjs --all"
     },
     {
@@ -63,65 +63,54 @@
   ],
   "tasks": [
     {
-      "id": "P2.1",
-      "phase": "P2",
-      "status": "done",
-      "title": "sim.js — world build from a level blueprint, slingshot launch, camera-independent round state",
-      "note": "sim.js 598 lines: blueprint format, instantiate, slingshot launch, round phases, shot log."
-    },
-    {
-      "id": "P2.2",
-      "phase": "P2",
-      "status": "done",
-      "title": "sim.js — impulse damage model, block destruction, pig death, settle detection, event list",
-      "note": "Impulse damage with directional pig armour, deferred death, queued non-recursive TNT chaining, raycast blast occlusion, event list."
-    },
-    {
-      "id": "P2.3",
-      "phase": "P2",
-      "status": "done",
-      "title": "tools/sim-test.mjs — headless rules assertions: launch, damage thresholds, settle, scoring",
-      "note": "8 assertions incl. shot-log replay determinism. Found and fixed: circles rolled forever with no rolling resistance, so every shot burned the 6 s settle timeout. Now 1.9-2.1 s."
-    },
-    {
-      "id": "P2.4",
-      "phase": "P2",
-      "status": "done",
-      "title": "render.js — canvas 2D, three materials and one critter, art direction settled here",
-      "note": "render.js 1300-line budget. Reviewed by rendering real frames to PNG and looking at them, twice. First pass: camera fitted by width so the fortress was 15% of frame with 70% sky, no slingshot drawn at all, pigs illegible, ground a flat slab. Second pass fixed all five. Trajectory dots still unverified - needs real drag input, do it in P2.5."
-    },
-    {
-      "id": "P2.5",
-      "phase": "P2",
-      "status": "done",
-      "title": "index.html + style.css + game.js — fixed-step accumulator, drag-aim slingshot, win/lose/retry",
-      "note": "game.js 495 lines, index.html, style.css. Reviewed by playing it headlessly and looking at frames. Found: aiming camera could not show sling and fortress together (slingX -16 was too far, and my own 'never zoom below default' rule wedged it), and the camera never returned to the fortress after a shot. Moved slingX to -9, viewMinX to -13, three-state camera, background drag-to-pan. Fixed 4 test fixtures that encoded the old geometry; made the reach test stricter (partial draw lands in plot AND full draw overshoots)."
-    },
-    {
-      "id": "P2.6",
-      "phase": "P2",
-      "status": "done",
-      "title": "tools/stamp.mjs — rewrite the ?v= cache stamp across every importing file",
-      "note": "tools/stamp.mjs; one stamp everywhere, 20260822-1, verified by check."
-    },
-    {
-      "id": "P2.7",
-      "phase": "P2",
-      "status": "todo",
-      "title": "tools/smoke.mjs — Playwright: boot, drag, fire, kill a pig, see the win screen"
-    },
-    {
-      "id": "P2.8",
-      "phase": "P2",
-      "status": "todo",
-      "title": "P2 gate — npm test green, re-run test:determinism:all, commit"
-    },
-    {
-      "id": "P3.0",
+      "id": "P3.1",
       "phase": "P3",
       "status": "todo",
-      "title": "Author the sim params DESIGN.md left underspecified",
-      "note": "Found while writing data.js. Blocks P3, not P1. Hulk radius vs '3x volume' disagree: 0.40->0.86 is neither 3x area (0.69) nor 3x radius. Chip's 22deg spread: total or per-fragment, and does each fragment keep parent speed or parent momentum. Pebble payload has no mass, size, release velocity or recoil. Gale's 2.5 has no unit. Kingslayer 'weakly' has no steering number. Airlift king drift has no range or period. Flak Hog does not say WHICH pig, and it must be deterministic - suggest a builder toggle in the editor. Mason does not say which destroyed block returns. Decoy King has no cost or stats. Second Slingshot has no second height."
+      "title": "Extend the determinism test to cover sim.js, not just physics.js",
+      "note": "The four-engine gate replays 40 falling bodies through physics.js only. The relay audit in ARCHITECTURE.md S5 replays sim.js - launches, damage, explosions, TNT chains, pig armour - and none of that is currently proven portable. Add a seeded round with shots to the cross-engine scenario. Do this FIRST in P3, before adding 8 abilities' worth of new sim arithmetic."
+    },
+    {
+      "id": "P3.2",
+      "phase": "P3",
+      "status": "todo",
+      "title": "Author the underspecified sim params (was P3.0)",
+      "note": "Hulk radius vs '3x volume', Chip spread convention, Pebble payload, Gale units, Kingslayer steering, Airlift drift, Flak Hog pig selection, Mason block choice, Decoy King cost, Second Slingshot height."
+    },
+    {
+      "id": "P3.3",
+      "phase": "P3",
+      "status": "todo",
+      "title": "Implement the 8 remaining critter abilities: split, accel, boom, drop, reverse, inflate, harden, blink"
+    },
+    {
+      "id": "P3.4",
+      "phase": "P3",
+      "status": "todo",
+      "title": "Implement the remaining pig traits: helm/tusk armour verification, zep balloon, sarge repair"
+    },
+    {
+      "id": "P3.5",
+      "phase": "P3",
+      "status": "todo",
+      "title": "Implement remaining material behaviours: spring ammoRestitution, gel absorb, sand chunks, large-stone sub-bodies"
+    },
+    {
+      "id": "P3.6",
+      "phase": "P3",
+      "status": "todo",
+      "title": "audio.js \u2014 WebAudio synthesis driven by the sim event list"
+    },
+    {
+      "id": "P3.7",
+      "phase": "P3",
+      "status": "todo",
+      "title": "tools/playtest.mjs --all \u2014 assert every tap ability measurably changes the outcome"
+    },
+    {
+      "id": "P3.8",
+      "phase": "P3",
+      "status": "todo",
+      "title": "P3 gate \u2014 playtest --all green, re-run all suites and the four-engine determinism, commit"
     },
     {
       "id": "P5.0",
@@ -138,6 +127,7 @@
     "RESOLVED 2026-08-22: cross-engine float determinism holds with the FULL solver. V8, SpiderMonkey and JavaScriptCore produce bit-identical digests over 1800 steps with SAT, manifolds, warm starting, impulses, position solve and sleeping all active. The relay audit model in ARCHITECTURE.md section 5 is viable and the lenient fallback is not needed. Re-run with `npm run test:determinism:all` after any change to physics.js or sim.js (podman; WebKit cannot launch on this host directly).",
     "The airlift + gale + bedrock card combination may be a defensive lock. Intended fix is mutual exclusion in the draw, not a nerf.",
     "52 authored campaign levels is the largest single time cost in the plan and depends on the editor being pleasant to use, which is why P4 precedes P5.",
-    "Simultaneous siege means the loser watches their own fortress fall in a 260x150 window. If that reads as noise rather than tension the mode's core hook fails, and it cannot be evaluated before P6."
+    "Simultaneous siege means the loser watches their own fortress fall in a 260x150 window. If that reads as noise rather than tension the mode's core hook fails, and it cannot be evaluated before P6.",
+    "The trajectory preview dots are drawn very faint against the sage hills and are hard to read while aiming. Cosmetic, deferred from P2."
   ]
 }

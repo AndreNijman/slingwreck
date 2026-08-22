@@ -298,7 +298,8 @@ function showRoundOver() {
     stars.append(star);
   }
   stars.setAttribute('aria-label', `${count} of 3 stars earned`);
-  retryButton.focus({ preventScroll: true });
+  roundTitle.tabIndex = -1;
+  roundTitle.focus({ preventScroll: true });
 }
 
 function canvasPoint(event) {
@@ -577,3 +578,39 @@ document.addEventListener('keydown', (event) => {
 document.documentElement.dataset.gameReady = 'true';
 updateHud(true);
 requestAnimationFrame(frame);
+
+if (new URLSearchParams(window.location.search).has('smoke-test')) {
+  Object.defineProperty(window, '__SLINGWRECK_SMOKE__', {
+    configurable: true,
+    value: () => ({
+      phase: round.phase,
+      shotIndex: round.shotIndex,
+      bagSize: round.bag.length,
+      stepCount: round.stepCount,
+      aim: { active: aim.active, dx: aim.dx, dy: aim.dy },
+      camera: {
+        x: camera.x,
+        y: camera.y,
+        scale: camera.scale,
+        zoom: camera.zoom,
+        mode: cameraMode,
+        viewportX: camera.viewportX,
+        viewportY: camera.viewportY,
+        viewportW: camera.viewportW,
+        viewportH: camera.viewportH
+      },
+      cameraTarget: { x: cameraTarget.x, y: cameraTarget.y, zoom: cameraTarget.zoom },
+      sling: {
+        x: TUNE.slingX,
+        y: TUNE.slingY,
+        radius: TUNE.slingRadius,
+        launchSpeedMax: TUNE.launchSpeedMax,
+        gravity: TUNE.gravity,
+        viewMinX: TUNE.viewMinX,
+        viewMaxX: TUNE.viewMaxX
+      },
+      pigs: round.pigs.map(({ dead, x, y }) => ({ dead, x, y })),
+      blocks: round.blocks.map(({ dead }) => ({ dead }))
+    })
+  });
+}
