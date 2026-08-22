@@ -93,14 +93,16 @@
     {
       "id": "P2.5",
       "phase": "P2",
-      "status": "todo",
-      "title": "index.html + style.css + game.js — fixed-step accumulator, drag-aim slingshot, win/lose/retry"
+      "status": "done",
+      "title": "index.html + style.css + game.js — fixed-step accumulator, drag-aim slingshot, win/lose/retry",
+      "note": "game.js 495 lines, index.html, style.css. Reviewed by playing it headlessly and looking at frames. Found: aiming camera could not show sling and fortress together (slingX -16 was too far, and my own 'never zoom below default' rule wedged it), and the camera never returned to the fortress after a shot. Moved slingX to -9, viewMinX to -13, three-state camera, background drag-to-pan. Fixed 4 test fixtures that encoded the old geometry; made the reach test stricter (partial draw lands in plot AND full draw overshoots)."
     },
     {
       "id": "P2.6",
       "phase": "P2",
-      "status": "todo",
-      "title": "tools/stamp.mjs — rewrite the ?v= cache stamp across every importing file"
+      "status": "done",
+      "title": "tools/stamp.mjs — rewrite the ?v= cache stamp across every importing file",
+      "note": "tools/stamp.mjs; one stamp everywhere, 20260822-1, verified by check."
     },
     {
       "id": "P2.7",

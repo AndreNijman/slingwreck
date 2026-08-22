@@ -110,3 +110,9 @@ Next: P2, the vertical slice. Tasks P2.1 to P2.8 are in `BUILD_STATE.json`.
 - 2026-08-22 `P2.4` **doing** — render.js — canvas 2D, three materials and one critter, art direction settled here
 
 - 2026-08-22 `P2.4` **done** — render.js — canvas 2D, three materials and one critter, art direction settled here. render.js 1300-line budget. Reviewed by rendering real frames to PNG and looking at them, twice. First pass: camera fitted by width so the fortress was 15% of frame with 70% sky, no slingshot drawn at all, pigs illegible, ground a flat slab. Second pass fixed all five. Trajectory dots still unverified - needs real drag input, do it in P2.5.
+
+- 2026-08-22 `P2.5` **doing** — index.html + style.css + game.js — fixed-step accumulator, drag-aim slingshot, win/lose/retry
+
+- 2026-08-22 `P2.5` **done** — index.html + style.css + game.js — fixed-step accumulator, drag-aim slingshot, win/lose/retry. game.js 495 lines, index.html, style.css. Reviewed by playing it headlessly and looking at frames. Found: aiming camera could not show sling and fortress together (slingX -16 was too far, and my own 'never zoom below default' rule wedged it), and the camera never returned to the fortress after a shot. Moved slingX to -9, viewMinX to -13, three-state camera, background drag-to-pan. Fixed 4 test fixtures that encoded the old geometry; made the reach test stricter (partial draw lands in plot AND full draw overshoots).
+
+- 2026-08-22 `P2.6` **done** — tools/stamp.mjs — rewrite the ?v= cache stamp across every importing file. tools/stamp.mjs; one stamp everywhere, 20260822-1, verified by check.

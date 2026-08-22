@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SLINGWRECK — storybook slingshot demolition</title>
+  <meta name="description" content="Pull back a brave little critter and topple a hand-drawn pig fortress in this storybook slingshot game.">
+  <meta name="theme-color" content="#e8d5b0">
+  <link rel="canonical" href="https://slingwreck.andrenijman.com/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="SLINGWRECK — storybook slingshot demolition">
+  <meta property="og:description" content="Pull back, let fly, and turn a pig fortress into a glorious heap.">
+  <meta property="og:url" content="https://slingwreck.andrenijman.com/">
+  <meta property="og:image" content="https://slingwreck.andrenijman.com/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SLINGWRECK — storybook slingshot demolition">
+  <meta name="twitter:description" content="Pull back, let fly, and turn a pig fortress into a glorious heap.">
+  <meta name="twitter:image" content="https://slingwreck.andrenijman.com/og-image.png">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M18 8c0 13 14 18 14 33v15M46 8c0 13-14 18-14 33' fill='none' stroke='%232b211c' stroke-width='8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M18 10l14 16 14-16' fill='none' stroke='%238a5a2b' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='26' r='7' fill='%23d9563f' stroke='%232b211c' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css?v=20260822-1">
+</head>
+<body>
+  <main id="game-shell">
+    <canvas id="game" tabindex="-1" aria-label="SLINGWRECK game world. Drag the critter in the slingshot back and down, then release to fire forward and up." aria-describedby="controls-hint"></canvas>
+
+    <section id="title-screen" class="screen title-screen" aria-labelledby="game-title">
+      <div class="paper-panel title-panel">
+        <p class="eyebrow">A small tale of large collapses</p>
+        <h1 id="game-title">SLING<br>WRECK</h1>
+        <p class="lede">Fling a brave little critter into a pig-built fortress and bring the whole story tumbling down.</p>
+        <button id="play-button" class="button primary" type="button">Play the first wreck</button>
+        <p id="controls-hint" class="controls-hint"><b>Drag</b> to aim · <b>release</b> to fire · <b>R</b> restart · <b>M</b> mute</p>
+      </div>
+    </section>
+
+    <section id="round-hud" class="round-hud" aria-label="Round controls and status" hidden>
+      <div class="hud-card">
+        <div class="ammo-block">
+          <span class="hud-label">Critters left</span>
+          <div id="ammo-list" class="ammo-list" role="list"></div>
+        </div>
+        <div class="score-block">
+          <span class="hud-label">Score</span>
+          <strong id="score-value">0</strong>
+        </div>
+        <div class="hud-actions">
+          <button id="restart-button" class="button icon-button" type="button" aria-label="Restart level (R)" title="Restart level (R)">↻</button>
+          <button id="mute-button" class="button mute-button" type="button" aria-label="Mute sound (M)" title="Mute sound (M)">Sound on</button>
+        </div>
+      </div>
+      <button id="ability-button" class="ability-button" type="button" aria-label="Use critter ability with tap or Space" hidden>
+        <span>Tap or Space</span>
+        <small>Nib has no trick</small>
+      </button>
+    </section>
+
+    <section id="round-over" class="screen round-over" role="dialog" aria-modal="true" aria-labelledby="round-title" hidden>
+      <div class="paper-panel result-panel">
+        <p class="eyebrow">The dust has settled</p>
+        <h2 id="round-title">Fortress wrecked</h2>
+        <p id="round-announcement" class="result-copy" aria-live="assertive"></p>
+        <div id="stars" class="stars" aria-label="No stars"></div>
+        <p class="result-score"><span>Score</span> <strong id="final-score">0</strong></p>
+        <div class="result-actions">
+          <button id="retry-button" class="button primary" type="button">Retry</button>
+          <button id="next-button" class="button secondary" type="button" disabled>Next — P5</button>
+        </div>
+        <button id="menu-button" class="text-button" type="button">Back to title</button>
+      </div>
+    </section>
+
+    <p id="status-message" class="visually-hidden" role="status" aria-live="polite"></p>
+  </main>
+  <script type="module" src="game.js?v=20260822-1"></script>
+</body>
+</html>

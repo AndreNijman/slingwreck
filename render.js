@@ -20,6 +20,7 @@ const DEFAULT_VIEW_H = 13.5;
 const DEFAULT_X = TUNE.plotW / 2;
 const GROUND_LINE = 0.78;
 const DEFAULT_Y = DEFAULT_VIEW_H * (GROUND_LINE - 0.5);
+const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
 const GRADIENT_W = 12;
 const GRADIENT_H = 96;
@@ -78,7 +79,9 @@ function layoutCamera(camera, width, height) {
   camera.viewportW = width; camera.viewportH = height;
   camera.viewportX = 0; camera.viewportY = 0;
   const baseScale = height / camera.viewH;
-  camera.minZoom = Math.max(1, width / (baseScale * VIEW_W));
+  // Keep a real zoom-out range while preventing the camera from exposing more than
+  // the authored playfield unless an unusually narrow viewport needs it.
+  camera.minZoom = Math.max(MIN_ZOOM, width / (baseScale * VIEW_W));
   camera.zoom = clamp(camera.zoom ?? 1, camera.minZoom, MAX_ZOOM);
   camera.scale = baseScale * camera.zoom;
   camera.canvasW = width; camera.canvasH = height;
@@ -88,7 +91,7 @@ function layoutCamera(camera, width, height) {
 export function makeCamera() {
   return {
     x: DEFAULT_X, y: DEFAULT_Y, viewH: DEFAULT_VIEW_H, zoom: 1, scale: 1,
-    viewportX: 0, viewportY: 0, minZoom: 1,
+    viewportX: 0, viewportY: 0, minZoom: MIN_ZOOM,
     viewportW: 24, viewportH: DEFAULT_VIEW_H,
     canvasW: 24, canvasH: DEFAULT_VIEW_H
   };
@@ -97,7 +100,8 @@ function clampCamera(camera) {
   const halfW = camera.viewportW / camera.scale / 2;
   const viewH = camera.viewportH / camera.scale;
   const lowX = TUNE.viewMinX + halfW; const highX = TUNE.viewMaxX - halfW;
-  camera.x = lowX <= highX ? clamp(camera.x, lowX, highX) : DEFAULT_X;
+  camera.x = lowX <= highX ? clamp(camera.x, lowX, highX) :
+    (TUNE.viewMinX + TUNE.viewMaxX) / 2;
   // The lowest pan keeps earth shallow; following upward may move the ground out.
   camera.y = Math.max(camera.y, viewH * (GROUND_LINE - 0.5));
   return camera;
@@ -109,7 +113,7 @@ export function frameRect(camera, x0, y0, x1, y1, pad = 0) {
   const baseScale = camera.canvasH / camera.viewH;
   const fit = Math.min(camera.viewportW / width, camera.viewportH / height);
   camera.x = (x0 + x1) / 2; camera.y = (y0 + y1) / 2;
-  camera.zoom = clamp(fit / baseScale, camera.minZoom ?? 1, MAX_ZOOM);
+  camera.zoom = clamp(fit / baseScale, camera.minZoom ?? MIN_ZOOM, MAX_ZOOM);
   return layoutCamera(camera, camera.canvasW, camera.canvasH);
 }
 export function panTo(camera, x, y, t) {
@@ -388,37 +392,43 @@ function bodyBounds(body) {
   return { minX: -body.hw, maxX: body.hw, minY: -body.hh, maxY: body.hh };
 }
 function interpolatedPose(r, body, alpha) {
-  let pose = r.poses.get(body.id);
-  if (!pose) {
-    pose = {
-      px: body.x, py: body.y, pc: body.c, ps: body.s,
-      x: body.x, y: body.y, c: body.c, s: body.s
-    };
-    r.poses.set(body.id, pose);
-  } else if (pose.x !== body.x || pose.y !== body.y ||
-      pose.c !== body.c || pose.s !== body.s) {
-    pose.px = pose.x;
-    pose.py = pose.y;
-    pose.pc = pose.c;
-    pose.ps = pose.s;
-    pose.x = body.x;
-    pose.y = body.y;
-    pose.c = body.c;
-    pose.s = body.s;
-  }
-  const x = pose.px + (pose.x - pose.px) * alpha;
-  const y = pose.py + (pose.y - pose.py) * alpha;
-  let c = pose.pc + (pose.c - pose.pc) * alpha;
-  let s = pose.ps + (pose.s - pose.ps) * alpha;
+  const pose = r.poses.get(body.id);
+  if (!pose) return body;
+  const x = pose.x + (body.x - pose.x) * alpha;
+  const y = pose.y + (body.y - pose.y) * alpha;
+  let c = pose.c + (body.c - pose.c) * alpha;
+  let s = pose.s + (body.s - pose.s) * alpha;
   const length = Math.sqrt(c * c + s * s);
   if (length > 1e-8) {
     c /= length;
     s /= length;
   } else {
-    c = pose.c;
-    s = pose.s;
+    c = body.c;
+    s = body.s;
   }
   return { x, y, c, s };
+}
+
+export function capturePose(r, round) {
+  if (!r?.poses) throw new TypeError('capturePose requires a renderer');
+  if (r.world !== round?.world) {
+    r.world = round?.world ?? null;
+    r.poses.clear();
+    r.trail = [];
+    r.flightId = null;
+  }
+  for (const body of round?.world?.bodies ?? []) {
+    let pose = r.poses.get(body.id);
+    if (!pose) {
+      pose = { x: body.x, y: body.y, c: body.c, s: body.s };
+      r.poses.set(body.id, pose);
+    } else {
+      pose.x = body.x;
+      pose.y = body.y;
+      pose.c = body.c;
+      pose.s = body.s;
+    }
+  }
 }
 function pointOnItem(item, lx, ly) {
   return {

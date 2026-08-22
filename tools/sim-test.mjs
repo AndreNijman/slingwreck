@@ -42,28 +42,42 @@ function launchSpeedGate() {
 }
 
 function trajectoryGate() {
-  const round = roundWith({ v: 1, blocks: [], pigs: [['runt', 60, 0.3]] });
-  // Full draw starts above ground and slightly overshoots the 24-unit plot. A 95%
-  // draw is still a 45-degree shot, and proves the authored speed reaches its far end.
-  const component = TUNE.slingRadius * 0.95 / Math.sqrt(2);
-  const body = launch(round, -component, -component);
-  let landingX = Infinity;
-  let landingStep = -1;
-  for (let index = 0; index < 240; index++) {
-    stepRound(round, TUNE.step);
-    const touchedGround = round.world.contacts.some((contact) =>
-      contact.a === body && contact.b.role === 'ground' ||
-      contact.b === body && contact.a.role === 'ground');
-    if (touchedGround) {
-      landingX = body.x;
-      landingStep = round.stepCount;
-      break;
+  // Two halves, because "can the sling reach the fortress" is only half the question
+  // and the other half is whether there is any headroom left. A tuning that lands a
+  // full-power 45-degree shot exactly on the far edge passes a reach test and is still
+  // wrong: the player would have no margin and every long shot would be a max-power
+  // shot. So: a partial draw must land inside the plot, and a full draw must overshoot
+  // it. This is deliberately stricter than the single landing check it replaces.
+  const at = (fraction) => {
+    const component = TUNE.slingRadius * fraction / Math.sqrt(2);
+    const round = roundWith({ v: 1, blocks: [], pigs: [['runt', 60, 0.3]] });
+    const body = launch(round, -component, -component);
+    let landingX = Infinity;
+    let landingStep = -1;
+    let furthestX = -Infinity;
+    for (let index = 0; index < 400; index++) {
+      stepRound(round, TUNE.step);
+      if (body.dead) break;
+      furthestX = Math.max(furthestX, body.x);
+      const touchedGround = round.world.contacts.some((contact) =>
+        contact.a === body && contact.b.role === 'ground' ||
+        contact.b === body && contact.a.role === 'ground');
+      if (touchedGround) {
+        landingX = body.x;
+        landingStep = round.stepCount;
+        break;
+      }
     }
-  }
-  const inside = landingX >= 0 && landingX <= TUNE.plotW;
-  report('45-degree reach', landingStep > 0 && inside,
-    `95% draw first ground contact x ${landingX.toFixed(5)} in [0, ${TUNE.plotW}], ` +
-    `step ${landingStep}`);
+    return { landingX, landingStep, furthestX };
+  };
+
+  const partial = at(0.8);
+  const full = at(1);
+  const lands = partial.landingStep > 0 && partial.landingX >= 0 && partial.landingX <= TUNE.plotW;
+  const headroom = full.furthestX > TUNE.plotW;
+  report('45-degree reach', lands && headroom,
+    `80% draw lands at x ${partial.landingX.toFixed(3)} in [0, ${TUNE.plotW}]; ` +
+    `full draw carries to ${full.furthestX.toFixed(3)} > ${TUNE.plotW}`);
 }
 
 function damageTrial(projectileSpeed) {
@@ -172,7 +186,10 @@ function runToEnd(round, limit = 600) {
 }
 
 function roundEndGate() {
-  const winning = roundWith({ v: 1, blocks: [], pigs: [['runt', 0, 0.3]] });
+  // A flat full-power shot leaves the pouch at y = TUNE.slingY and reaches the ground
+  // about 13 world units downrange, so the reachable pig sits there rather than at the
+  // plot's left edge, which the critter now flies clean over since slingX moved to -9.
+  const winning = roundWith({ v: 1, blocks: [], pigs: [['runt', TUNE.slingX + 13, 0.3]] });
   launch(winning, -TUNE.slingRadius, 0);
   runToEnd(winning);
 

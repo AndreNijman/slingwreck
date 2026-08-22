@@ -28,7 +28,7 @@ function missGate() {
   const round = makeProbe({
     v: 1,
     blocks: [],
-    pigs: [['runt', -15, PIGS.runt.radius]]
+    pigs: [['runt', TUNE.slingX - 2, PIGS.runt.radius]]
   });
   // Seven units per second is the measured steady-roll failure. A partial flat
   // launch isolates it on empty ground while the pig waits safely behind the sling.
@@ -46,7 +46,7 @@ function towerGate() {
       ['post', 'wood', 4, 1, 0],
       ['plank', 'wood', 3, 2.25, 0]
     ],
-    pigs: [['runt', -15, PIGS.runt.radius]]
+    pigs: [['runt', TUNE.slingX - 2, PIGS.runt.radius]]
   });
   const seconds = runShot(round, -TUNE.slingRadius);
   report('small-tower hit', round.phase === 'aiming' && seconds < 2.5,
