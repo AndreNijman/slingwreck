@@ -66,48 +66,48 @@
       "id": "P5.1",
       "phase": "P5",
       "status": "done",
-      "title": "Structural motif library — tower, bunker, bridge, stack, keep; composable and parameterised",
+      "title": "Structural motif library \u2014 tower, bunker, bridge, stack, keep; composable and parameterised",
       "note": "Six parameterised motifs with settle assertions at default and extreme parameters, campaign/siege rule split, three example levels, bidirectional level-export tool. Fixed along the way: gridSnap 0.5 could not express a plank's 0.25 half-height and no pig radius aligned to any grid, so settleTest had been loosened to 0.55 units - grid is now 0.25, pigs seat themselves by raycast, movement is 0.0002-0.011 against a strict 0.05. Then found the tight tolerance rejected every Zeppelin Hog, which would have broken all of Episode 3; exempted by traits.balloon and added drift-extreme bounds checking."
     },
     {
       "id": "P5.1d",
       "phase": "P5",
       "status": "done",
-      "title": "tools/level-shots.mjs — a PNG per level plus a contact sheet of the whole campaign",
+      "title": "tools/level-shots.mjs \u2014 a PNG per level plus a contact sheet of the whole campaign",
       "note": "Per-level PNGs plus an adaptive contact sheet (8x7 for 52), settled framing on the structure bounds with a 10-unit minimum, numeric movement column flagged above 0.005, blank-frame detection demonstrated. First pass framed sling-to-plot at 9 px/unit which made every structure unreadable - third time this project has framed the whole playfield instead of the subject."
     },
     {
       "id": "P5.2",
       "phase": "P5",
       "status": "done",
-      "title": "Episode 1 'Sty' — 13 levels, teaches nib/chip/wedge, runt/swine, wood and glass",
+      "title": "Episode 1 'Sty' \u2014 13 levels, teaches nib/chip/wedge, runt/swine, wood and glass",
       "note": "13 levels, rebuilt once after the contact sheet showed 8 gantries and 8 directly hittable pigs. Now 2 gantries, only the two tutorial pigs directly hittable, heights 2.5-12.0 monotonic, five levels using two ranges."
     },
     {
       "id": "P5.3",
       "phase": "P5",
       "status": "done",
-      "title": "Episode 2 'Quarry' — 13 levels, adds lob/spike, hogg/helm, stone and TNT",
+      "title": "Episode 2 'Quarry' \u2014 13 levels, adds lob/spike, hogg/helm, stone and TNT",
       "note": "13 Quarry levels. Stone as structural trap, Spike through glass to stone cores, TNT chains, directional Helmet Hog armour verified by probe (roof-removal leaves all three at full HP, sideways domino kills). 2 gantries, 5 two-range levels, heights 2.5-12.0 monotonic."
     },
     {
       "id": "P5.4",
       "phase": "P5",
       "status": "done",
-      "title": "Episode 3 'Highwind' — 13 levels, adds pebble/boomer, tusk/zep, spring pads",
+      "title": "Episode 3 'Highwind' \u2014 13 levels, adds pebble/boomer, tusk/zep, spring pads",
       "note": "13 Highwind levels: pebble over walls, boomer behind fortresses, spring pads both ways, Tusker and Zeppelin. Heights 2.99-14.50 monotonic, 1 gantry, 4 two-range, zero directly hittable pigs. Sol hit its usage limit mid-verification so I verified it: lint 39/39, audit clean except Episode 2's gantry count."
     },
     {
       "id": "P5.5",
       "phase": "P5",
       "status": "doing",
-      "title": "Episode 4 'Ironworks' — 13 levels, adds hulk/zip, sarge, iron and gel"
+      "title": "Episode 4 'Ironworks' \u2014 13 levels, adds hulk/zip, sarge, iron and gel"
     },
     {
       "id": "P5.6",
       "phase": "P5",
       "status": "todo",
-      "title": "tools/level-export.mjs — load a level into the editor, export back out, and lint all 52 through validate + settleTest"
+      "title": "tools/level-export.mjs \u2014 load a level into the editor, export back out, and lint all 52 through validate + settleTest"
     },
     {
       "id": "P5.7",
@@ -119,13 +119,13 @@
       "id": "P5.8",
       "phase": "P5",
       "status": "todo",
-      "title": "tools/balance.mjs --campaign — a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground"
+      "title": "tools/balance.mjs --campaign \u2014 a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground"
     },
     {
       "id": "P5.9",
       "phase": "P5",
       "status": "todo",
-      "title": "P5 gate — balance --campaign green, all 52 pass validate + settleTest, all prior suites, commit"
+      "title": "P5 gate \u2014 balance --campaign green, all 52 pass validate + settleTest, all prior suites, commit"
     }
   ],
   "deployed": false,
@@ -143,5 +143,20 @@
   ],
   "conventions": [
     "Every campaign level gets a screenshot. Run `node tools/level-shots.mjs` after authoring or tuning any level, and review the contact sheet at shots/levels/_contact-sheet.png before calling an episode done."
-  ]
+  ],
+  "blockedOn": {
+    "summary": "Every delegation path is unavailable as of 2026-08-22. Work is paused, not broken: the tree is clean and every gate is green at 39/52 levels.",
+    "paths": {
+      "gpt-5.6-sol (codex exec)": "out of quota until 2026-08-29 09:50. Produced P1 through P5.4; by far the best results.",
+      "kimi-code/k3": "402, membership inactive.",
+      "antigravity claude sonnet 4-6 / opus 4-6-thinking": "streaming JSON parse bug, fails on any multi-chunk response.",
+      "antigravity gemini 3.1 pro": "same parse bug once tool calls are in the stream, and its Episode 4 attempt failed all 13 levels on lint. See docs/DELEGATION.md.",
+      "openrouter": "configured and probably working, but Andre asked for OAuth paths rather than OpenRouter."
+    },
+    "resumeWith": "codex exec -m gpt-5.6-sol --skip-git-repo-check \"$(cat tools/prompts/P5.5-episode4.md)\" once Sol's quota resets on 2026-08-29.",
+    "alsoBlocked": [
+      "DEPLOYMENT: the Cloudflare API token and R2 key pair in ~/special.special were accidentally printed into a session transcript on 2026-08-22 and must be rotated before any deploy. They were not used.",
+      "GUARD REGISTRATION: adding slingwreck.andrenijman.com to the shared games-guard Worker affects every other game on that domain. Prepared in docs/DEPLOY.md but wants a human decision."
+    ]
+  }
 }

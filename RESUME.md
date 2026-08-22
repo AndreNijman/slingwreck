@@ -19,6 +19,24 @@ tool, this one is written by hand.
 4. `docs/WORKLOG.md` — what happened, including what went wrong.
 5. `BUILD_STATE.json` — machine-readable state, the task ledger and the open risks.
 
+## Blocked, as of 2026-08-22
+
+**Every delegation path is unavailable.** See `blockedOn` in `BUILD_STATE.json` and
+`docs/DELEGATION.md`. The short version: Sol is out of quota until 29 August, Kimi's
+membership is inactive, and all three Antigravity models hit a streaming JSON parse bug —
+Gemini also produced an Episode 4 that failed all 13 levels on lint and was reverted.
+
+Nothing is broken. The tree is clean, every gate is green, and 39 of 52 levels are done.
+Resume by re-running the committed prompt:
+
+```bash
+codex exec -m gpt-5.6-sol --skip-git-repo-check "$(cat tools/prompts/P5.5-episode4.md)"
+```
+
+**Deployment is separately blocked** on rotating the Cloudflare and R2 credentials, which
+were accidentally printed into a transcript on 22 August and must be replaced before any
+deploy. They were not used.
+
 ## Where things stand
 
 **P0, P1 and P2 are complete with green gates. P3 is in progress.**
