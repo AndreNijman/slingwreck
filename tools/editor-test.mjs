@@ -11,6 +11,16 @@ import {
 import { isSettled, rng, rngInt } from '../physics.js';
 import { digestRound, makeRound, stepRound } from '../sim.js';
 import {
+  assertNoMotifCollision,
+  bridge,
+  bunker,
+  composeMotifs,
+  keep,
+  scaffold,
+  stack,
+  tower
+} from '../motifs.js';
+import {
   burialDepth,
   budgetFor,
   decode,
@@ -163,6 +173,12 @@ function flaggedLimitBlueprint() {
   };
 }
 
+function lockedPieceBlueprint() {
+  const blueprint = copy(VALID);
+  blueprint.pigs[1].push(1);
+  return blueprint;
+}
+
 function onlyCodes(result) {
   return result.errors.map((item) => item.code);
 }
@@ -187,6 +203,7 @@ function rulesGate() {
     ['too-few-pigs', tooFew, {}],
     ['over-budget', VALID, { budget: 8 }],
     ['locked-material', locked, { budget: 1000 }],
+    ['locked-piece', lockedPieceBlueprint(), {}],
     ['piece-limit', flaggedLimitBlueprint(), {
       budget: 100, cards: ['understudy', 'flak-hog']
     }],
@@ -209,6 +226,69 @@ function rulesGate() {
     shallowDepth: burialDepth(VALID),
     deepDepth: burialDepth(deep)
   };
+}
+
+function modeRulesGate() {
+  const out = copy(VALID);
+  out.blocks[0][2] = -0.5;
+  const overlap = copy(VALID);
+  overlap.blocks[1] = copy(overlap.blocks[0]);
+  const noKing = copy(VALID);
+  noKing.pigs.shift();
+  const tooFew = copy(VALID);
+  tooFew.pigs.pop();
+  const locked = copy(VALID);
+  locked.blocks[0][1] = 'iron';
+  const cases = [
+    ['out-of-bounds', out, {}],
+    ['overlap', overlap, {}],
+    ['too-many-blocks', tooManyBlueprint(), { budget: 1000 }],
+    ['king-count', noKing, {}],
+    ['too-few-pigs', tooFew, {}],
+    ['over-budget', VALID, { budget: 8 }],
+    ['locked-material', locked, { budget: 1000 }],
+    ['locked-piece', lockedPieceBlueprint(), {}],
+    ['piece-limit', flaggedLimitBlueprint(), {
+      budget: 100, cards: ['understudy', 'flak-hog']
+    }],
+    ['buried-king', deepBlueprint(), {}]
+  ];
+  const siegeRules = [];
+  const campaignRules = [];
+  let defaultsMatch = 0;
+  for (const [code, blueprint, opts] of cases) {
+    const implicit = validate(blueprint, opts);
+    const siege = validate(blueprint, { ...opts, mode: 'siege' });
+    const campaign = validate(blueprint, { ...opts, mode: 'campaign' });
+    if (same(implicit, siege)) defaultsMatch++;
+    if (onlyCodes(siege).includes(code)) siegeRules.push(code);
+    if (onlyCodes(campaign).includes(code)) campaignRules.push(code);
+  }
+  const difference = [...new Set([
+    ...siegeRules.filter((code) => !campaignRules.includes(code)),
+    ...campaignRules.filter((code) => !siegeRules.includes(code))
+  ])];
+  const dropped = ['king-count', 'too-few-pigs', 'over-budget', 'buried-king'];
+  const common = [
+    'out-of-bounds', 'overlap', 'too-many-blocks', 'locked-material',
+    'locked-piece', 'piece-limit'
+  ];
+  const exactSplit = same(difference, dropped) &&
+    common.every((code) => siegeRules.includes(code) && campaignRules.includes(code)) &&
+    dropped.every((code) => siegeRules.includes(code) && !campaignRules.includes(code));
+  report('campaign and Siege rule-set split', exactSplit,
+    `only Siege [${difference.join(', ')}]; shared [${common.join(', ')}]`);
+  report('implicit validation remains Siege', defaultsMatch === cases.length,
+    `${defaultsMatch}/${cases.length} fixtures byte-identical to explicit Siege results`);
+  let invalidMode = null;
+  try {
+    validate(VALID, { mode: 'practice' });
+  } catch (error) {
+    invalidMode = error;
+  }
+  report('validation rejects unknown modes', invalidMode instanceof RangeError,
+    invalidMode?.message ?? 'accepted unknown mode');
+  return { difference, defaultsMatch, total: cases.length };
 }
 
 function bytesOf(wire) {
@@ -473,13 +553,102 @@ function settleGate() {
   return { guaranteed, total: fixtures.length };
 }
 
+function motifGate() {
+  const fixtures = [
+    ['tower default', tower({ x: 2 })],
+    ['tower minimum', tower({
+      x: 2, width: 2, storeys: 1, materials: 'glass', capped: false,
+      pigs: ['runt']
+    })],
+    ['tower maximum', tower({
+      x: 2, width: 12, storeys: 3, materials: 'wood', capped: true,
+      pigs: [{ id: 'swine', bay: 5, storey: 2 }]
+    })],
+    ['bunker default', bunker({ x: 2 })],
+    ['bunker minimum', bunker({
+      x: 2, width: 2, wallHeight: 1, wallMaterial: 'glass',
+      roofMaterial: 'wood', pigs: ['runt']
+    })],
+    ['bunker maximum', bunker({
+      x: 2, width: 12, wallHeight: 5, wallMaterial: 'wood',
+      roofMaterial: 'glass', pigs: ['runt', 'swine', 'runt', 'swine', 'runt', 'swine']
+    })],
+    ['bridge default', bridge({ x: 2 })],
+    ['bridge minimum', bridge({
+      x: 2, span: 2, supports: 2, supportHeight: 1,
+      supportMaterial: 'glass', deckMaterial: 'wood', pigs: ['runt']
+    })],
+    ['bridge maximum', bridge({
+      x: 2, span: 12, supports: 7, supportHeight: 4,
+      supportMaterial: 'wood', deckMaterial: 'glass',
+      pigs: [{ id: 'swine', bay: 5 }]
+    })],
+    ['stack default', stack({ x: 2 })],
+    ['stack minimum', stack({ x: 2, height: 1, shape: 'slab', materials: 'glass' })],
+    ['stack maximum', stack({
+      x: 2, height: 10, shape: 'cube', materials: ['wood', 'glass']
+    })],
+    ['keep default', keep({ x: 2 })],
+    ['keep minimum', keep({
+      x: 2, outerWidth: 8, towerWidth: 2, wallHeight: 1, storeys: 1,
+      wallMaterial: 'glass', towerMaterials: 'wood'
+    })],
+    ['keep maximum', keep({
+      x: 2, outerWidth: 16, towerWidth: 8, wallHeight: 5, storeys: 3,
+      wallMaterial: 'stone', towerMaterials: 'wood'
+    })],
+    ['scaffold default', scaffold({ x: 2 })],
+    ['scaffold minimum', scaffold({
+      x: 2, bays: 1, height: 2, postMaterial: 'glass',
+      plankMaterial: 'wood', pigs: ['runt']
+    })],
+    ['scaffold maximum', scaffold({
+      x: 2, bays: 4, height: 4, postMaterial: 'wood',
+      plankMaterial: 'glass', pigs: [{ id: 'swine', bay: 3 }]
+    })]
+  ];
+  let stable = 0;
+  let largestMovement = 0;
+  for (const [name, fragment] of fixtures) {
+    const blueprint = composeMotifs(fragment);
+    const tested = settleTest(blueprint);
+    largestMovement = Math.max(largestMovement, tested.maxMovement);
+    if (tested.ok) stable++;
+    report(`motif settles: ${name}`, tested.ok,
+      `${fragment.blocks.length} blocks/${fragment.pigs.length} pigs; ` +
+      `max move ${tested.maxMovement.toFixed(5)}`);
+  }
+
+  let collisionRejected = false;
+  try {
+    assertNoMotifCollision(stack({ x: 4 }), stack({ x: 4 }));
+  } catch (error) {
+    collisionRejected = error instanceof RangeError && error.message.includes('overlap');
+  }
+  const separated = assertNoMotifCollision(stack({ x: 4 }), stack({ x: 8 }));
+  report('motif composition collision guard', collisionRejected && separated,
+    `overlap rejected ${collisionRejected}; separated accepted ${separated}`);
+  const snapped = scaffold({ x: 2.24, y: 0.24, pigs: ['runt'] });
+  const gridExact = [...snapped.blocks, ...snapped.pigs].every((tuple) => {
+    const x = tuple.length === 5 ? tuple[2] : tuple[1];
+    const y = tuple.length === 5 ? tuple[3] : tuple[2];
+    return Number.isInteger(x / TUNE.gridSnap) && Number.isInteger(y / TUNE.gridSnap) &&
+      (tuple.length !== 5 || Number.isInteger(tuple[4]));
+  });
+  report('motif grid and rotation contract', gridExact,
+    `${snapped.blocks.length + snapped.pigs.length} tuples snapped to ${TUNE.gridSnap}`);
+  return { stable, total: fixtures.length, largestMovement };
+}
+
 const sizes = roundTripGate();
 const rules = rulesGate();
+const modeRules = modeRulesGate();
 const hostile = hostileGate();
 editingGate();
 budgetGate();
 flagsGate();
 const settling = settleGate();
+const motifs = motifGate();
 
 console.log('\nMeasurements');
 console.log(`  encoded average: ${sizes.averageEncoded.toFixed(1)} B; JSON average: ` +
@@ -488,6 +657,9 @@ console.log(`  encoded average: ${sizes.averageEncoded.toFixed(1)} B; JSON avera
 console.log(`  burial depth: shallow ${rules.shallowDepth}; deep ${rules.deepDepth}`);
 console.log(`  hostile payloads rejected: ${hostile.rejected}/${hostile.total}`);
 console.log(`  further-settle guarantee: ${settling.guaranteed}/${settling.total}`);
+console.log(`  validation modes differ only in: ${modeRules.difference.join(', ')}`);
+console.log(`  motif settles: ${motifs.stable}/${motifs.total}; largest movement ` +
+  motifs.largestMovement.toFixed(5));
 
 if (failures) {
   console.error(`\n${failures} editor assertion(s) failed.`);

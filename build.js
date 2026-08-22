@@ -429,6 +429,10 @@ export function burialDepth(value, opts = {}) {
 }
 function error(code, message, pieceIds) { return { code, message, pieceIds }; }
 export function validate(value, opts = {}) {
+  const mode = opts.mode ?? 'siege';
+  if (mode !== 'siege' && mode !== 'campaign') {
+    throw new RangeError(`unknown validation mode: ${mode}`);
+  }
   const context = contextFor(value, opts);
   const world = makeWorld({ gravity: 0 });
   const bodies = instantiate(world, context.blueprint);
@@ -466,7 +470,7 @@ export function validate(value, opts = {}) {
   for (let index = 0; index < context.kingFlags.length; index++) {
     if (context.kingFlags[index]) kingIndices.push(index);
   }
-  if (kingIndices.length !== 1) {
+  if (mode === 'siege' && kingIndices.length !== 1) {
     const ids = kingIndices.length
       ? kingIndices.map((index) => context.pigIds[index])
       : context.pigIds.slice();
@@ -476,7 +480,7 @@ export function validate(value, opts = {}) {
   for (let index = 0; index < context.pigIds.length; index++) {
     if (!context.kingFlags[index]) otherPigIds.push(context.pigIds[index]);
   }
-  if (otherPigIds.length < TUNE.minOtherPigs) {
+  if (mode === 'siege' && otherPigIds.length < TUNE.minOtherPigs) {
     errors.push(error(
       'too-few-pigs', `At least ${TUNE.minOtherPigs} pigs besides the King are required.`,
       otherPigIds
@@ -484,7 +488,7 @@ export function validate(value, opts = {}) {
   }
   const rules = rulesFor(context.cards);
   const cost = totalCost(context.pieces, rules);
-  if (Number.isFinite(cost) && cost > context.budget) {
+  if (mode === 'siege' && Number.isFinite(cost) && cost > context.budget) {
     errors.push(error(
       'over-budget', `Fortress costs ${cost} scrap but only ${context.budget} is available.`,
       context.pieces.filter((piece) => basePieceCost(piece, rules) > 0).map((piece) => piece.id)
@@ -513,7 +517,7 @@ export function validate(value, opts = {}) {
   if (excessPieceIds.length) errors.push(error(
     'piece-limit', 'A drafted pig flag may be assigned to only one pig.', excessPieceIds
   ));
-  if (kingIndices.length === 1) {
+  if (mode === 'siege' && kingIndices.length === 1) {
     const depth = burialInWorld(world, context, kingIndices[0]);
     if (depth > TUNE.maxBurialDepth) errors.push(error(
       'buried-king', `The easiest route to the King crosses ${depth} blocks; maximum is ${TUNE.maxBurialDepth}.`,
@@ -537,19 +541,47 @@ function movement(body, start) {
 }
 export function settleTest(value, opts = {}) {
   const context = contextFor(value, opts);
+  // makeRound correctly declares a no-pig game won, but a structural motif often
+  // has no occupants yet and still needs three seconds of physics. An isolated
+  // off-plot sentinel keeps that test world active and is excluded from every
+  // reported measurement.
+  const needsSentinel = context.blueprint.pigs.length === 0;
+  const testedBlueprint = needsSentinel ? {
+    ...context.blueprint,
+    pigs: [['runt', TUNE.slingX, PIGS.runt.radius, 0]]
+  } : context.blueprint;
   const round = makeRound({
-    mode: 'campaign', seed: opts.seed ?? 1, bag: [], blueprint: context.blueprint
+    mode: 'campaign', seed: opts.seed ?? 1, bag: [], blueprint: testedBlueprint
   });
-  const starts = [...round.blocks, ...round.pigs].map((body) => ({
+  const tested = [
+    ...round.blocks,
+    ...round.pigs.slice(0, context.blueprint.pigs.length)
+  ];
+  const starts = tested.map((body) => ({
     x: body.x, y: body.y, c: body.c, s: body.s
   }));
   const steps = Math.ceil(TUNE.blueprintSettleSeconds / TUNE.step);
   for (let index = 0; index < steps; index++) stepRound(round, TUNE.step);
   const tolerance = opts.moveTolerance ?? TUNE.slop * 10;
   const movedPieces = [];
-  const tested = [...round.blocks, ...round.pigs];
+  let maxMovement = 0;
   for (let index = 0; index < tested.length; index++) {
-    if (tested[index].dead || movement(tested[index], starts[index]) > tolerance) {
+    const body = tested[index];
+    const distance = movement(body, starts[index]);
+    maxMovement = Math.max(maxMovement, distance);
+    // Blueprint centres live on a half-unit grid, while pigs have authored radii
+    // and horizontal beams have quarter-unit faces. Let those pieces seat by the
+    // one unavoidable quantisation gap; cubes, posts and other exact-grid supports
+    // retain the strict solver tolerance, so a genuinely floating structure fails.
+    const seatingTolerance = opts.moveTolerance === undefined && body.role === 'pig'
+      ? Math.max(tolerance, TUNE.gridSnap + tolerance)
+      : opts.moveTolerance === undefined &&
+          (body.shapeId === 'beam' || body.shapeId === 'plank') &&
+          (body.blueprintIndex === undefined ||
+            context.blueprint.blocks[body.blueprintIndex][4] % 12 === 0)
+        ? Math.max(tolerance, TUNE.gridSnap / 2 + tolerance)
+        : tolerance;
+    if (body.dead || distance > seatingTolerance) {
       const id = index < round.blocks.length
         ? context.blockIds[index]
         : context.pigIds[index - round.blocks.length];
@@ -557,12 +589,12 @@ export function settleTest(value, opts = {}) {
     }
   }
   const deadPigs = [];
-  for (let index = 0; index < round.pigs.length; index++) {
+  for (let index = 0; index < context.blueprint.pigs.length; index++) {
     if (round.pigs[index].dead) deadPigs.push(context.pigIds[index]);
   }
   const settled = isSettled(round.world);
   const ok = settled && movedPieces.length === 0 && deadPigs.length === 0;
-  return { ok, settled, movedPieces, deadPigs };
+  return { ok, settled, maxMovement, movedPieces, deadPigs };
 }
 function encodeBase64(bytes) {
   let output = '';

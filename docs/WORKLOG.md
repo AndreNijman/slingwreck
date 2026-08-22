@@ -392,3 +392,5 @@ that cannot survive serialisation should not exist in the editor at all.
 - 2026-08-22 `P4.6` **done** — Editor UI — ghost preview, palette, budget meter, validation feedback, settle-test button. Fortress workshop UI: parts bin with real rendered thumbnails and costs, locked materials naming their unlocking card, hover pricing, human-readable validation with numbered leader lines to the offending pieces, on-screen settle test, blueprint copy/paste. Reviewed by screenshot: first pass framed the sling at 21 px/unit so a cube was 21 px and the overlap error was an unreadable smudge; refrained to the plot at 27.4 px/unit with the sling as an edge badge. Portrait is 15 px/unit - cramped but the whole plot is visible, reported as a number rather than a reassurance.
 
 - 2026-08-22 `P4.8` **done** — P4 gate — editor-test green, all prior suites and four-engine determinism, commit. editor 20+, check, smoke 32/32, audio 15/15, sim 25/25, physics 7/7, settle 3/3, four engines agree.
+
+- 2026-08-22 `P5.1` **doing** — Structural motif library — tower, bunker, bridge, stack, keep; composable and parameterised
