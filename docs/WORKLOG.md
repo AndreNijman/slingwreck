@@ -400,3 +400,5 @@ that cannot survive serialisation should not exist in the editor at all.
 - 2026-08-22 `P5.1d` **doing** — tools/level-shots.mjs — a PNG per level plus a contact sheet of the whole campaign
 
 - 2026-08-22 `P5.1d` **done** — tools/level-shots.mjs — a PNG per level plus a contact sheet of the whole campaign. Per-level PNGs plus an adaptive contact sheet (8x7 for 52), settled framing on the structure bounds with a 10-unit minimum, numeric movement column flagged above 0.005, blank-frame detection demonstrated. First pass framed sling-to-plot at 9 px/unit which made every structure unreadable - third time this project has framed the whole playfield instead of the subject.
+
+- 2026-08-22 `P5.2` **doing** — Episode 1 'Sty' — 13 levels, teaches nib/chip/wedge, runt/swine, wood and glass
