@@ -1,5 +1,6 @@
 import {
   AMMO_BY_ID,
+  CARDS_BY_ID,
   MATERIALS,
   PIGS,
   SCORE,
@@ -17,7 +18,8 @@ import {
   raycastAll,
   removeBody,
   rng,
-  step
+  step,
+  wakeBody
 } from './physics.js';
 
 export const BLUEPRINT_VERSION = 1;
@@ -35,6 +37,7 @@ export const PIG_Y = 2;
 const BODY_DIGEST_FIELDS = ['x', 'y', 'c', 's', 'vx', 'vy', 'av', 'hp', 'maxHp'];
 const DIGEST_BUFFER = new ArrayBuffer(8);
 const DIGEST_VIEW = new DataView(DIGEST_BUFFER);
+const ZEP_BALLOON = CARDS_BY_ID.airlift.effect;
 
 function finite(value, label) {
   if (!Number.isFinite(value)) throw new TypeError(`${label} must be finite`);
@@ -142,11 +145,60 @@ function addPig(world, tuple, index) {
   return body;
 }
 
+function addBalloon(world, pigBody) {
+  const traits = { ...ZEP_BALLOON, ...pigBody.pig.traits };
+  const area = circleArea(traits.balloonRadius);
+  const material = {
+    ...MATERIALS.wood,
+    id: 'balloon',
+    density: pigBody.pig.density,
+    hp: traits.balloonHp / area,
+    thresh: 0,
+    frailty: 1
+  };
+  const balloon = addBody(world, {
+    shape: {
+      id: `${pigBody.pigId}-balloon`,
+      kind: 'circle',
+      r: traits.balloonRadius,
+      area
+    },
+    mat: material,
+    x: pigBody.x,
+    y: pigBody.y + traits.lift,
+    isStatic: true,
+    filterTag: 'balloon',
+    tag: `${pigBody.tag}:balloon`
+  });
+  balloon.hp = traits.balloonHp;
+  balloon.maxHp = traits.balloonHp;
+  balloon.role = 'balloon';
+  balloon.pigBody = pigBody;
+  balloon.anchorX = pigBody.x;
+  balloon.anchorY = pigBody.y + traits.lift;
+  balloon.pigAnchorY = pigBody.y;
+  balloon.driftRange = traits.driftRange;
+  balloon.driftSeconds = traits.driftSeconds;
+  pigBody.balloon = balloon;
+  return balloon;
+}
+
+function restitutionFor(a, b) {
+  if (a.mat?.ammoRestitution !== undefined && b.role === 'ammo') {
+    return a.mat.ammoRestitution;
+  }
+  if (b.mat?.ammoRestitution !== undefined && a.role === 'ammo') {
+    return b.mat.ammoRestitution;
+  }
+  return Math.max(a.rest, b.rest);
+}
+
 export function instantiate(world, blueprint) {
   const source = normaliseBlueprint(blueprint);
   addGround(world);
   const blocks = [];
   const pigs = [];
+  const balloons = [];
 
   for (let index = 0; index < source.blocks.length; index++) {
     const tuple = source.blocks[index];
@@ -169,9 +221,11 @@ export function instantiate(world, blueprint) {
   }
 
   for (let index = 0; index < source.pigs.length; index++) {
-    pigs.push(addPig(world, source.pigs[index], index));
+    const pig = addPig(world, source.pigs[index], index);
+    pigs.push(pig);
+    if (pig.pig.traits.balloon) balloons.push(addBalloon(world, pig));
   }
-  return { blocks, pigs };
+  return { blocks, pigs, balloons };
 }
 
 function queueAbilityEvent(round, body, ability, extra = {}) {
@@ -343,6 +397,33 @@ function queueExplosion(round, body, blast = body.mat) {
   });
 }
 
+function springPair(a, b) {
+  if (a.mat?.ammoRestitution !== undefined && b.role === 'ammo') {
+    return { spring: a, critter: b };
+  }
+  if (b.mat?.ammoRestitution !== undefined && a.role === 'ammo') {
+    return { spring: b, critter: a };
+  }
+  return null;
+}
+
+function springLaunchEvent(round, contact, point) {
+  if (!(contact.restitutionBias > 0)) return;
+  const pair = springPair(contact.a, contact.b);
+  if (!pair) return;
+  const duplicate = round.events.some((event) => event.kind === 'spring-launch' &&
+    event.springId === pair.spring.id && event.critterId === pair.critter.id);
+  if (duplicate) return;
+  round.events.push({
+    kind: 'spring-launch',
+    x: point.x,
+    y: point.y,
+    springId: pair.spring.id,
+    critterId: pair.critter.id,
+    impulse: contact.pn
+  });
+}
+
 function killBody(round, body) {
   if (body.dead) return;
   body.dead = true;
@@ -355,9 +436,31 @@ function killBody(round, body) {
       mat: body.materialId,
       shape: body.shapeId
     });
+    if (body.mat.chunks) {
+      round.events.push({
+        kind: 'crumble',
+        x: body.x,
+        y: body.y,
+        mat: body.materialId,
+        chunks: body.mat.chunks
+      });
+    }
     if (body.materialId === 'tnt') queueExplosion(round, body);
   } else if (body.role === 'pig') {
     round.events.push({ kind: 'pop', pig: body.pigId, x: body.x, y: body.y });
+    if (body.balloon && !body.balloon.dead) killBody(round, body.balloon);
+  } else if (body.role === 'balloon') {
+    const pig = body.pigBody;
+    if (pig?.balloon === body) {
+      pig.balloon = null;
+      wakeBody(round.world, pig);
+    }
+    round.events.push({
+      kind: 'balloon-pop',
+      x: body.x,
+      y: body.y,
+      pigId: pig?.id ?? null
+    });
   }
 }
 
@@ -370,7 +473,8 @@ function armourScale(body, towardSourceX, towardSourceY) {
 }
 
 function damageTarget(round, body, source, contact, towardSourceX, towardSourceY, point) {
-  if (body.dead || body.role !== 'block' && body.role !== 'pig') return;
+  if (body.dead || body.role !== 'block' && body.role !== 'pig' &&
+      body.role !== 'balloon') return;
   const definition = body.role === 'pig' ? body.pig : body.mat;
   let amount = Math.max(0, contact.pn - definition.thresh) * definition.frailty;
   if (definition.brittle) {
@@ -378,6 +482,11 @@ function damageTarget(round, body, source, contact, towardSourceX, towardSourceY
       Math.max(0, Math.abs(contact.pt) - definition.thresh);
   }
   amount *= armourScale(body, towardSourceX, towardSourceY);
+  let absorbed = 0;
+  if (source?.role === 'block' && source.mat.absorb !== undefined) {
+    absorbed = amount * source.mat.absorb;
+    amount *= 1 - source.mat.absorb;
+  }
   if (body.role === 'block' && body.materialId === 'stone' &&
       source?.stoneDamageMultiplier !== undefined) {
     amount *= source.stoneDamageMultiplier;
@@ -385,12 +494,23 @@ function damageTarget(round, body, source, contact, towardSourceX, towardSourceY
   if (!(amount > 0)) return;
 
   body.hp -= amount;
+  if (absorbed > 0) {
+    round.events.push({
+      kind: 'gel-absorb',
+      x: point.x,
+      y: point.y,
+      gelId: source.id,
+      targetId: body.id,
+      amount: absorbed
+    });
+  }
   round.events.push({
     kind: 'hit',
     x: point.x,
     y: point.y,
     impulse: contact.pn,
-    mat: body.role === 'block' ? body.materialId : body.pigId
+    mat: body.role === 'block' ? body.materialId :
+      body.role === 'pig' ? body.pigId : 'balloon'
   });
   if (body.hp <= 0) killBody(round, body);
 }
@@ -398,6 +518,7 @@ function damageTarget(round, body, source, contact, towardSourceX, towardSourceY
 function applyContactDamage(round, world) {
   for (const contact of world.contacts) {
     const point = eventPoint(contact);
+    springLaunchEvent(round, contact, point);
     // The normal points A -> B. For armour, the useful direction is target -> source.
     damageTarget(round, contact.a, contact.b, contact, contact.nx, contact.ny, point);
     damageTarget(round, contact.b, contact.a, contact, -contact.nx, -contact.ny, point);
@@ -462,7 +583,8 @@ function applyExplosion(round, world, explosion) {
   for (const target of targets) {
     const impulse = explosion.impulse * target.falloff;
     applyImpulse(world, target.body, target.nx * impulse, target.ny * impulse);
-    if (target.body.role !== 'block' && target.body.role !== 'pig') continue;
+    if (target.body.role !== 'block' && target.body.role !== 'pig' &&
+        target.body.role !== 'balloon') continue;
     target.body.hp -= explosion.damage * target.falloff;
     if (target.body.hp <= 0) killBody(round, target.body);
   }
@@ -478,6 +600,7 @@ function damageStep(round, world) {
 
   for (const body of round.blocks) if (!body.dead && body.hp <= 0) killBody(round, body);
   for (const body of round.pigs) if (!body.dead && body.hp <= 0) killBody(round, body);
+  for (const body of round.balloons) if (!body.dead && body.hp <= 0) killBody(round, body);
 
   readyExplosions.sort((a, b) => a.sourceId - b.sourceId);
   for (const explosion of readyExplosions) applyExplosion(round, world, explosion);
@@ -502,6 +625,285 @@ function advanceInflations(world, dt) {
   }
 }
 
+function balloonDrift(balloon, time) {
+  const cycle = time / balloon.driftSeconds;
+  const phase = cycle - Math.floor(cycle);
+  let wave;
+  let direction;
+  if (phase < 0.25) {
+    wave = phase * 4;
+    direction = 1;
+  } else if (phase < 0.75) {
+    wave = 2 - phase * 4;
+    direction = -1;
+  } else {
+    wave = phase * 4 - 4;
+    direction = 1;
+  }
+  return {
+    x: balloon.anchorX + balloon.driftRange * wave,
+    vx: direction * balloon.driftRange * 4 / balloon.driftSeconds
+  };
+}
+
+function positionBalloons(round, time, neutraliseGravity) {
+  for (const balloon of round.balloons) {
+    const pig = balloon.pigBody;
+    if (balloon.dead || pig.dead || pig.balloon !== balloon) continue;
+    const drift = balloonDrift(balloon, time);
+    balloon.x = drift.x;
+    balloon.y = balloon.anchorY;
+    balloon.vx = drift.vx;
+    balloon.vy = 0;
+    pig.x = drift.x;
+    pig.y = balloon.pigAnchorY;
+    pig.vx = drift.vx;
+    pig.vy = neutraliseGravity ? round.world.gravity * TUNE.step : 0;
+    pig.av = 0;
+    pig.isAsleep = false;
+    pig.sleepTimer = 0;
+  }
+}
+
+function addDebrisBody(round, parent, shape, material, localX, localY, tag) {
+  const offsetX = parent.c * localX - parent.s * localY;
+  const offsetY = parent.s * localX + parent.c * localY;
+  const body = addBody(round.world, {
+    shape,
+    mat: material,
+    x: parent.x + offsetX,
+    y: parent.y + offsetY,
+    c: parent.c,
+    s: parent.s,
+    vx: parent.vx - parent.av * offsetY,
+    vy: parent.vy + parent.av * offsetX,
+    av: parent.av,
+    filterTag: parent.filterTag,
+    tag
+  });
+  body.role = 'debris';
+  body.materialId = parent.materialId;
+  body.shapeId = shape.id;
+  body.parentId = parent.id;
+  round.debris.push(body);
+  return body;
+}
+
+function spawnSandChunks(round, body) {
+  const count = body.mat.chunks;
+  const parentMass = 1 / body.im;
+  let radius;
+  let offsets;
+  if (body.kind === 'circle') {
+    radius = body.r / count;
+    offsets = [];
+    for (let index = 0; index < count; index++) {
+      offsets.push({
+        x: 2 * body.r * (index - (count - 1) / 2) / count,
+        y: 0
+      });
+    }
+  } else if (body.kind === 'tri' && count === 3) {
+    radius = Math.min(body.shape.w, body.shape.h) / 12;
+    offsets = [
+      { x: -body.shape.w / 6, y: -body.shape.h / 6 },
+      { x: body.shape.w / 3, y: -body.shape.h / 6 },
+      { x: -body.shape.w / 6, y: body.shape.h / 3 }
+    ];
+  } else {
+    const longIsX = body.shape.w >= body.shape.h;
+    const length = longIsX ? body.shape.w : body.shape.h;
+    radius = Math.min(body.shape.w, body.shape.h) / (count * 2);
+    offsets = [];
+    for (let index = 0; index < count; index++) {
+      const along = length * (index - (count - 1) / 2) / count;
+      offsets.push({ x: longIsX ? along : 0, y: longIsX ? 0 : along });
+    }
+  }
+  const area = circleArea(radius);
+  const material = {
+    ...body.mat,
+    id: 'sand-chunk',
+    density: parentMass / count / area
+  };
+  for (let index = 0; index < count; index++) {
+    const offset = offsets[index];
+    addDebrisBody(round, body, {
+      id: 'sand-chunk', kind: 'circle', r: radius, area
+    }, material, offset.x, offset.y, `${body.tag}:chunk:${index}`);
+  }
+}
+
+function splitLargeStone(round, body) {
+  const splitX = body.shape.w >= body.shape.h;
+  const shape = {
+    id: 'stone-half',
+    kind: 'box',
+    w: splitX ? body.shape.w / 2 : body.shape.w,
+    h: splitX ? body.shape.h : body.shape.h / 2,
+    area: body.shape.area / 2
+  };
+  const along = splitX ? body.shape.w / 4 : body.shape.h / 4;
+  addDebrisBody(round, body, shape, body.mat,
+    splitX ? -along : 0, splitX ? 0 : -along, `${body.tag}:half:0`);
+  addDebrisBody(round, body, shape, body.mat,
+    splitX ? along : 0, splitX ? 0 : along, `${body.tag}:half:1`);
+  round.events.push({
+    kind: 'stone-split',
+    x: body.x,
+    y: body.y,
+    parentId: body.id,
+    halves: 2
+  });
+}
+
+function spawnBreakup(round, body) {
+  if (body.role !== 'block') return;
+  if (body.mat.chunks) {
+    spawnSandChunks(round, body);
+  } else if (body.materialId === 'stone' && body.shape.area >= 2 &&
+      body.kind === 'box') {
+    splitLargeStone(round, body);
+  }
+}
+
+function pointToBlockDistanceSq(pig, block) {
+  const dx = pig.x - block.x;
+  const dy = pig.y - block.y;
+  if (block.kind === 'circle') {
+    const centreDistance = Math.sqrt(dx * dx + dy * dy);
+    const distance = Math.max(0, centreDistance - block.r);
+    return distance * distance;
+  }
+  const x = block.c * dx + block.s * dy;
+  const y = -block.s * dx + block.c * dy;
+  let inside = true;
+  let nearest = Infinity;
+  const count = block.verts.length / 2;
+  for (let index = 0; index < count; index++) {
+    const next = (index + 1) % count;
+    const x0 = block.verts[index * 2];
+    const y0 = block.verts[index * 2 + 1];
+    const ex = block.verts[next * 2] - x0;
+    const ey = block.verts[next * 2 + 1] - y0;
+    if (ex * (y - y0) - ey * (x - x0) < 0) inside = false;
+    const lengthSq = ex * ex + ey * ey;
+    const t = Math.max(0, Math.min(1, ((x - x0) * ex + (y - y0) * ey) / lengthSq));
+    const qx = x0 + ex * t;
+    const qy = y0 + ey * t;
+    const qdx = x - qx;
+    const qdy = y - qy;
+    nearest = Math.min(nearest, qdx * qdx + qdy * qdy);
+  }
+  return inside ? 0 : nearest;
+}
+
+function bodyBounds(body) {
+  if (body.kind === 'circle') {
+    return {
+      minX: body.x - body.r,
+      minY: body.y - body.r,
+      maxX: body.x + body.r,
+      maxY: body.y + body.r
+    };
+  }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let index = 0; index < body.verts.length / 2; index++) {
+    const x = body.x + body.c * body.verts[index * 2] -
+      body.s * body.verts[index * 2 + 1];
+    const y = body.y + body.s * body.verts[index * 2] +
+      body.c * body.verts[index * 2 + 1];
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function repairSpaceOccupied(world, block) {
+  const target = bodyBounds(block);
+  for (const other of world.bodies) {
+    if (other.dead || other === block) continue;
+    const bounds = bodyBounds(other);
+    const overlapX = Math.min(target.maxX, bounds.maxX) - Math.max(target.minX, bounds.minX);
+    const overlapY = Math.min(target.maxY, bounds.maxY) - Math.max(target.minY, bounds.minY);
+    if (overlapX > TUNE.slop && overlapY > TUNE.slop) return true;
+  }
+  return false;
+}
+
+function respawnBlock(round, block) {
+  const restored = addBody(round.world, {
+    shape: block.shape,
+    mat: block.mat,
+    x: block.x,
+    y: block.y,
+    c: block.c,
+    s: block.s,
+    filterTag: block.filterTag,
+    tag: block.tag
+  });
+  restored.hp = 0;
+  restored.maxHp = block.maxHp;
+  restored.role = 'block';
+  restored.shapeId = block.shapeId;
+  restored.materialId = block.materialId;
+  restored.blueprintIndex = block.blueprintIndex;
+  round.blocks[round.blocks.indexOf(block)] = restored;
+  return restored;
+}
+
+function restoreBlock(round, sarge, block) {
+  const resurrected = block.dead;
+  const target = resurrected ? respawnBlock(round, block) : block;
+  const before = target.hp;
+  target.hp = Math.min(target.maxHp,
+    target.hp + target.maxHp * sarge.pig.traits.repairFraction);
+  wakeBody(round.world, target);
+  wakeBody(round.world, sarge);
+  round.events.push({
+    kind: 'repair',
+    x: target.x,
+    y: target.y,
+    pigId: sarge.id,
+    blockId: target.id,
+    amount: target.hp - before,
+    resurrected
+  });
+}
+
+function repairSarges(round) {
+  if (round.mode !== 'siege') return;
+  const sarges = round.pigs.filter((pig) =>
+    !pig.dead && pig.pig.traits.repairEvery !== undefined).sort((a, b) => a.id - b.id);
+  for (const sarge of sarges) {
+    const every = Math.ceil(sarge.pig.traits.repairEvery / TUNE.step);
+    if (round.stepCount % every !== 0) continue;
+    let best = null;
+    let bestDistanceSq = Infinity;
+    for (const block of round.blocks) {
+      if (block.hp >= block.maxHp) continue;
+      const surfaceDistanceSq = pointToBlockDistanceSq(sarge, block);
+      const adjacent = sarge.r + TUNE.gridSnap;
+      if (surfaceDistanceSq > adjacent * adjacent) continue;
+      if (block.dead && repairSpaceOccupied(round.world, block)) continue;
+      const dx = block.x - sarge.x;
+      const dy = block.y - sarge.y;
+      const distanceSq = dx * dx + dy * dy;
+      if (distanceSq < bestDistanceSq ||
+          distanceSq === bestDistanceSq && block.id < best.id) {
+        best = block;
+        bestDistanceSq = distanceSq;
+      }
+    }
+    if (best) restoreBlock(round, sarge, best);
+  }
+}
+
 function capturePierceStarts(round) {
   round.pierceStarts = [];
   for (const body of round.world.bodies) {
@@ -512,7 +914,10 @@ function capturePierceStarts(round) {
 
 function removeDeadAtStepEnd(round) {
   round.deadThisStep.sort((a, b) => a.id - b.id);
-  for (const body of round.deadThisStep) removeBody(round.world, body);
+  for (const body of round.deadThisStep) {
+    removeBody(round.world, body);
+    spawnBreakup(round, body);
+  }
   round.deadThisStep = [];
 }
 
@@ -565,7 +970,10 @@ export function makeRound(spec) {
 
   const blueprint = blueprintFromLevel(spec.blueprint);
   const round = {};
-  const world = makeWorld({ onDamage: (activeWorld) => damageStep(round, activeWorld) });
+  const world = makeWorld({
+    onDamage: (activeWorld) => damageStep(round, activeWorld),
+    restitutionFor
+  });
   const bodies = instantiate(world, blueprint);
   Object.assign(round, {
     world,
@@ -584,6 +992,8 @@ export function makeRound(spec) {
     score: 0,
     pigs: bodies.pigs,
     blocks: bodies.blocks,
+    balloons: bodies.balloons,
+    debris: [],
     flying: null,
     settleTimer: 0,
     pendingExplosions: [],
@@ -653,16 +1063,19 @@ export function stepRound(round, dt = TUNE.step) {
   round.queuedEvents = [];
   round.deadThisStep = [];
   advanceInflations(round.world, dt);
+  positionBalloons(round, round.time, true);
   capturePierceStarts(round);
   step(round.world, dt);
   round.pierceStarts = [];
   round.time += dt;
   round.stepCount++;
+  positionBalloons(round, round.time, false);
   if (round.phase === 'flying' || round.phase === 'settling') round.settleTimer += dt;
   const timedOut = round.phase === 'flying' || round.phase === 'settling'
     ? settleTimedOut(round) : false;
   if (timedOut) round.settleTimer = TUNE.settleTimeout;
   removeDeadAtStepEnd(round);
+  repairSarges(round);
   const retired = retireFlyingBody(round);
 
   if (allPigsDead(round)) {
@@ -744,6 +1157,7 @@ export function digestRound(round) {
   hash = hashNumber(hash, round.settleTimer);
   hash = hashNumber(hash, round.score);
   hash = hashNumber(hash, round.flying?.id ?? -1);
+  hash = hashNumber(hash, round.world.nextId);
 
   hash = fnvWord(hash, round.bag.length);
   for (const ammoId of round.bag) hash = hashString(hash, ammoId);
@@ -760,6 +1174,10 @@ export function digestRound(round) {
   for (const block of round.blocks) hash = hashBody(hash, block);
   hash = fnvWord(hash, round.pigs.length);
   for (const pig of round.pigs) hash = hashBody(hash, pig);
+  hash = fnvWord(hash, round.balloons.length);
+  for (const balloon of round.balloons) hash = hashBody(hash, balloon);
+  hash = fnvWord(hash, round.debris.length);
+  for (const body of round.debris) hash = hashBody(hash, body);
   hash = fnvWord(hash, round.pendingExplosions.length);
   for (const explosion of round.pendingExplosions) {
     hash = hashNumber(hash, explosion.sourceId);

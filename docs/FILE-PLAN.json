@@ -5,52 +5,75 @@
     {
       "path": "data.js",
       "phase": "P1",
-      "budget": 700,
+      "budget": 900,
       "imports": [],
-      "job": "TUNE, MATERIALS, SHAPES, AMMO, PIGS, CARDS, star thresholds. The single source of every number the client, relay and tools must agree on."
+      "job": "TUNE, MATERIALS, SHAPES, AMMO, PIGS, CARDS, star thresholds. The single source of every number the client, relay and tools must agree on.",
+      "budgetNote": "Raised from 700 in P3 after authoring the ten underspecified ability and card parameters. Every line added is content plus the reasoning for a number, which is exactly what this file is for."
     },
     {
       "path": "physics.js",
       "phase": "P1",
       "budget": 1100,
-      "budgetNote": "Raised from 900 after P1. The solver landed at 898 lines against a 900 budget, which is not a coincidence — blank lines between functions had been squeezed out to fit. A budget that buys itself by deleting the comments explaining a sequential-impulse solver is a bad trade.",
-      "imports": ["data.js"],
+      "budgetNote": "Raised from 900 after P1. The solver landed at 898 lines against a 900 budget, which is not a coincidence \u2014 blank lines between functions had been squeezed out to fit. A budget that buys itself by deleting the comments explaining a sequential-impulse solver is a bad trade.",
+      "imports": [
+        "data.js"
+      ],
       "job": "Rigid bodies, sort-and-sweep broadphase, SAT narrowphase with clipped manifolds, sequential impulse solver, position solver, island sleeping, raycast, seeded xorshift. Knows nothing about pigs or scores."
     },
     {
       "path": "sim.js",
       "phase": "P2",
-      "budget": 1100,
-      "imports": ["data.js", "physics.js"],
-      "job": "The game on the solver: slingshot launch, critter abilities, material damage, explosions and chaining, pig death, settle detection, scoring, round state, blueprint instantiation, wire format. No DOM, no network, no Math.random, no wall clock."
+      "budget": 1400,
+      "imports": [
+        "data.js",
+        "physics.js"
+      ],
+      "job": "The game on the solver: slingshot launch, critter abilities, material damage, explosions and chaining, pig death, settle detection, scoring, round state, blueprint instantiation, wire format. No DOM, no network, no Math.random, no wall clock.",
+      "budgetNote": "Raised from 1100 in P3. It now carries nine critter abilities, four pig traits and four material behaviours on top of damage, explosions and round state. Still one job - the game on the solver - so it grows rather than splits."
     },
     {
       "path": "render.js",
       "phase": "P2",
-      "budget": 1300,
-      "budgetNote": "Raised from 1100 for the height-fit camera, complete slingshot presentation, stable ground dressing and gameplay-legible pig variants.",
-      "imports": ["data.js"],
+      "budget": 1400,
+      "budgetNote": "Raised from 1300. Second raise; if it needs a third, split the material motifs and the pig faces into their own module rather than raising again.",
+      "imports": [
+        "data.js"
+      ],
       "job": "Canvas 2D renderer. Every pixel drawn in code. Reads world state and the sim event list; never writes to the world. Includes the 260x150 corner preview renderer."
     },
     {
       "path": "game.js",
       "phase": "P2",
       "budget": 1300,
-      "imports": ["data.js", "sim.js", "render.js", "audio.js", "net.js", "build.js", "levels.js", "bots.js"],
+      "imports": [
+        "data.js",
+        "sim.js",
+        "render.js",
+        "audio.js",
+        "net.js",
+        "build.js",
+        "levels.js",
+        "bots.js"
+      ],
       "job": "Screens, input, HUD, camera, the fixed-step accumulator, campaign flow, siege match flow. The only file allowed to touch the DOM outside render.js."
     },
     {
       "path": "audio.js",
       "phase": "P3",
       "budget": 200,
-      "imports": ["data.js"],
+      "imports": [
+        "data.js"
+      ],
       "job": "WebAudio synthesis driven by the sim event list. No audio files."
     },
     {
       "path": "build.js",
       "phase": "P4",
       "budget": 600,
-      "imports": ["data.js", "sim.js"],
+      "imports": [
+        "data.js",
+        "sim.js"
+      ],
       "job": "Fortress editor: palette, 0.5 grid snap, 15-degree rotation, budget accounting, legality rules including burial depth, settle test, blueprint encode and decode. Produces plain data, never live worlds."
     },
     {
@@ -64,7 +87,10 @@
       "path": "bots.js",
       "phase": "P5",
       "budget": 450,
-      "imports": ["data.js", "sim.js"],
+      "imports": [
+        "data.js",
+        "sim.js"
+      ],
       "job": "Fortress templates scaled to a budget, and a closed-form ballistic aimer with difficulty-scaled noise. Drives solo Siege and the balance harness."
     },
     {
@@ -78,24 +104,84 @@
       "path": "worker.js",
       "phase": "P6",
       "budget": 800,
-      "imports": ["data.js", "physics.js", "sim.js"],
+      "imports": [
+        "data.js",
+        "physics.js",
+        "sim.js"
+      ],
       "job": "The relay. SiegeRoom and LobbyRegistry Durable Objects, blueprint validation and authoritative settle, shot log, incremental audit replay, preview relaying, reconnect, room passwords, origin allowlist, rate limits."
     }
   ],
   "tools": [
-    { "path": "tools/physics-test.mjs", "phase": "P1", "job": "Seven headless solver assertions: stacking, pyramid, restitution, friction, mass drop, NaN safety, twin-world determinism." },
-    { "path": "tools/determinism-test.mjs", "phase": "P1", "job": "Same seeded scenario in node, chromium, firefox and webkit; compares pose digests after 1800 steps." },
-    { "path": "tools/sim-test.mjs", "phase": "P2", "job": "Headless rules assertions: launch, damage thresholds, explosion falloff and occlusion, settle detection, scoring." },
-    { "path": "tools/frame-shot.mjs", "phase": "P2", "job": "Renders a deterministic 1280x720 representative fortress frame in headless Chromium." },
-    { "path": "tools/smoke.mjs", "phase": "P2", "job": "Playwright solo smoke test through the real UI. Fails on any console error, page error or failed request." },
-    { "path": "tools/playtest.mjs", "phase": "P3", "job": "Fires every critter into a standard test fortress, asserts each tap ability measurably changes the outcome, dumps telemetry and screenshots to shots/." },
-    { "path": "tools/editor-test.mjs", "phase": "P4", "job": "Blueprint encode/decode round trip, legality rule coverage, settle guarantee." },
-    { "path": "tools/level-export.mjs", "phase": "P5", "job": "Turns editor blueprints into levels.js entries." },
-    { "path": "tools/balance.mjs", "phase": "P5", "job": "--campaign flags unwinnable or trivially three-starred levels. --siege runs bot matches across card combinations and flags outliers." },
-    { "path": "tools/mp-smoke.mjs", "phase": "P6", "job": "Two real browsers against a real relay through a full round." },
-    { "path": "tools/audit-test.mjs", "phase": "P6", "job": "A lying client reports an inflated score and must be caught and forfeited." },
-    { "path": "tools/worker-test.mjs", "phase": "P6", "job": "node --test over the relay's pure helpers: validation, tier selection, seeding, sanitising." },
-    { "path": "tools/stamp.mjs", "phase": "P2", "job": "Rewrites the ?v=YYYYMMDD-N cache stamp across every importing file at once; check fails if stamps disagree." },
-    { "path": "tools/card-shot.mjs", "phase": "P8", "job": "Screenshots a real round into card.png (1000x525) and og-image.png (1200x630), so the marketing image cannot drift from the game." }
+    {
+      "path": "tools/physics-test.mjs",
+      "phase": "P1",
+      "job": "Seven headless solver assertions: stacking, pyramid, restitution, friction, mass drop, NaN safety, twin-world determinism."
+    },
+    {
+      "path": "tools/determinism-test.mjs",
+      "phase": "P1",
+      "job": "Same seeded scenario in node, chromium, firefox and webkit; compares pose digests after 1800 steps."
+    },
+    {
+      "path": "tools/sim-test.mjs",
+      "phase": "P2",
+      "job": "Headless rules assertions: launch, damage thresholds, explosion falloff and occlusion, settle detection, scoring."
+    },
+    {
+      "path": "tools/frame-shot.mjs",
+      "phase": "P2",
+      "job": "Renders a deterministic 1280x720 representative fortress frame in headless Chromium."
+    },
+    {
+      "path": "tools/smoke.mjs",
+      "phase": "P2",
+      "job": "Playwright solo smoke test through the real UI. Fails on any console error, page error or failed request."
+    },
+    {
+      "path": "tools/playtest.mjs",
+      "phase": "P3",
+      "job": "Fires every critter into a standard test fortress, asserts each tap ability measurably changes the outcome, dumps telemetry and screenshots to shots/."
+    },
+    {
+      "path": "tools/editor-test.mjs",
+      "phase": "P4",
+      "job": "Blueprint encode/decode round trip, legality rule coverage, settle guarantee."
+    },
+    {
+      "path": "tools/level-export.mjs",
+      "phase": "P5",
+      "job": "Turns editor blueprints into levels.js entries."
+    },
+    {
+      "path": "tools/balance.mjs",
+      "phase": "P5",
+      "job": "--campaign flags unwinnable or trivially three-starred levels. --siege runs bot matches across card combinations and flags outliers."
+    },
+    {
+      "path": "tools/mp-smoke.mjs",
+      "phase": "P6",
+      "job": "Two real browsers against a real relay through a full round."
+    },
+    {
+      "path": "tools/audit-test.mjs",
+      "phase": "P6",
+      "job": "A lying client reports an inflated score and must be caught and forfeited."
+    },
+    {
+      "path": "tools/worker-test.mjs",
+      "phase": "P6",
+      "job": "node --test over the relay's pure helpers: validation, tier selection, seeding, sanitising."
+    },
+    {
+      "path": "tools/stamp.mjs",
+      "phase": "P2",
+      "job": "Rewrites the ?v=YYYYMMDD-N cache stamp across every importing file at once; check fails if stamps disagree."
+    },
+    {
+      "path": "tools/card-shot.mjs",
+      "phase": "P8",
+      "job": "Screenshots a real round into card.png (1000x525) and og-image.png (1200x630), so the marketing image cannot drift from the game."
+    }
   ]
 }

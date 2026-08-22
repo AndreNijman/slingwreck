@@ -86,14 +86,16 @@
     {
       "id": "P3.4",
       "phase": "P3",
-      "status": "todo",
-      "title": "Implement the remaining pig traits: helm/tusk armour verification, zep balloon, sarge repair"
+      "status": "done",
+      "title": "Implement the remaining pig traits: helm/tusk armour verification, zep balloon, sarge repair",
+      "note": "Helm/tusk armour verified from BOTH sides (0.40 ratio armoured, 1.00 unarmoured). Zep balloon hovers and drops when popped. Sarge repair is siege-only, deterministic, skips occupied space, and its test covers the tie-break too. Spring 4.6x rebound for critters only. Gel far-side ratio exactly 0.30 with its own damage unchanged. Sand and large stone both conserve mass exactly (1.2 and 3.8). 24 sim assertions, four engines agree, 9 exercise counts all non-zero."
     },
     {
       "id": "P3.5",
       "phase": "P3",
-      "status": "todo",
-      "title": "Implement remaining material behaviours: spring ammoRestitution, gel absorb, sand chunks, large-stone sub-bodies"
+      "status": "done",
+      "title": "Implement remaining material behaviours: spring ammoRestitution, gel absorb, sand chunks, large-stone sub-bodies",
+      "note": "Delivered with P3.4 - spring, gel, sand chunks and large-stone splitting were the same task."
     },
     {
       "id": "P3.6",

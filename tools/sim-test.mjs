@@ -17,8 +17,8 @@ function report(name, passed, measurement) {
   if (!passed) failures++;
 }
 
-function roundWith(blueprint, bag = ['nib'], seed = 1) {
-  return makeRound({ blueprint, bag, seed, mode: 'campaign' });
+function roundWith(blueprint, bag = ['nib'], seed = 1, mode = 'campaign') {
+  return makeRound({ blueprint, bag, seed, mode });
 }
 
 function speed(body) {
@@ -178,6 +178,327 @@ function occlusionGate() {
   const shieldedDamage = blastTrial(true);
   report('explosion occlusion', clearDamage > 0 && shieldedDamage < clearDamage,
     `clear damage ${clearDamage.toFixed(5)}; behind stone ${shieldedDamage.toFixed(5)}`);
+}
+
+function armourTrial(pigId, direction, withArmour) {
+  const round = roundWith({ v: 1, blocks: [], pigs: [[pigId, 0, 5]] });
+  round.world.gravity = 0;
+  round.world.lastGravity = 0;
+  const pig = round.pigs[0];
+  if (!withArmour) pig.pig = { ...pig.pig, traits: {} };
+  const velocity = 8;
+  const fromAbove = direction === 'above';
+  const fromSling = direction === 'sling';
+  addBody(round.world, {
+    shape: { id: 'armour-probe', kind: 'circle', r: 0.25, area: 1 },
+    mat: { id: 'armour-probe', density: 1, hp: 1, friction: 0, restitution: 0 },
+    x: fromAbove ? 0 : fromSling ? -2 : 2,
+    y: fromAbove ? 7 : 5,
+    vx: fromAbove ? 0 : fromSling ? velocity : -velocity,
+    vy: fromAbove ? -velocity : 0
+  });
+  for (let index = 0; index < 60 && pig.hp === pig.maxHp; index++) {
+    stepRound(round, TUNE.step);
+  }
+  return pig.maxHp - pig.hp;
+}
+
+function helmArmourGate() {
+  const armouredWith = armourTrial('helm', 'above', true);
+  const armouredWithout = armourTrial('helm', 'above', false);
+  const sideWith = armourTrial('helm', 'side', true);
+  const sideWithout = armourTrial('helm', 'side', false);
+  const passed = armouredWith > 0 && armouredWith < armouredWithout * 0.45 &&
+    sideWith > 0 && Math.abs(sideWith - sideWithout) < 1e-12;
+  report('helmet armour from both sides', passed,
+    `above with ${armouredWith.toFixed(5)} vs without ${armouredWithout.toFixed(5)}; ` +
+    `side with ${sideWith.toFixed(5)} vs without ${sideWithout.toFixed(5)}`);
+}
+
+function tuskArmourGate() {
+  const armouredWith = armourTrial('tusk', 'sling', true);
+  const armouredWithout = armourTrial('tusk', 'sling', false);
+  const behindWith = armourTrial('tusk', 'behind', true);
+  const behindWithout = armourTrial('tusk', 'behind', false);
+  const passed = armouredWith > 0 && armouredWith < armouredWithout * 0.45 &&
+    behindWith > 0 && Math.abs(behindWith - behindWithout) < 1e-12;
+  report('tusker armour from both sides', passed,
+    `sling side with ${armouredWith.toFixed(5)} vs without ${armouredWithout.toFixed(5)}; ` +
+    `behind with ${behindWith.toFixed(5)} vs without ${behindWithout.toFixed(5)}`);
+}
+
+function zeppelinTrial(popBalloon) {
+  const round = roundWith({
+    v: 1,
+    blocks: [],
+    pigs: [['zep', 0, 4], ['runt', 20, 0.3]]
+  });
+  const pig = round.pigs[0];
+  if (popBalloon) round.balloons[0].hp = 0;
+  let popEvent = false;
+  for (let index = 0; index < 75; index++) {
+    const events = stepRound(round, TUNE.step);
+    popEvent ||= events.some((event) => event.kind === 'balloon-pop');
+  }
+  return { pig, popEvent, balloonCount: round.balloons.length };
+}
+
+function zeppelinGate() {
+  const hovering = zeppelinTrial(false);
+  const popped = zeppelinTrial(true);
+  const passed = hovering.balloonCount === 1 &&
+    Math.abs(hovering.pig.x - 1.5) < 1e-10 && Math.abs(hovering.pig.y - 4) < 1e-10 &&
+    popped.popEvent && popped.pig.dead && popped.pig.y < hovering.pig.y - 2;
+  report('zeppelin balloon hover and fall', passed,
+    `live height ${hovering.pig.y.toFixed(5)} vs popped ${popped.pig.y.toFixed(5)}; ` +
+    `live drift ${hovering.pig.x.toFixed(5)} vs popped ${popped.pig.x.toFixed(5)}`);
+}
+
+function sargeTrial(mode) {
+  const round = roundWith({
+    v: 1,
+    blocks: [
+      ['cube', 'wood', 1, 0.5, 0],
+      ['cube', 'wood', 3, 0.5, 0]
+    ],
+    pigs: [['sarge', 2, 0.46]]
+  }, ['nib'], 44, mode);
+  for (const block of round.blocks) block.hp -= 10;
+  let repairEvents = 0;
+  for (let index = 0; index < 360; index++) {
+    repairEvents += stepRound(round, TUNE.step)
+      .filter((event) => event.kind === 'repair').length;
+  }
+  return {
+    firstRestored: round.blocks[0].hp - (round.blocks[0].maxHp - 10),
+    secondRestored: round.blocks[1].hp - (round.blocks[1].maxHp - 10),
+    repairEvents
+  };
+}
+
+function occupiedSargeTrial() {
+  const round = roundWith({
+    v: 1,
+    blocks: [
+      ['cube', 'wood', 1, 0.5, 0],
+      ['cube', 'wood', 3, 0.5, 0]
+    ],
+    pigs: [['sarge', 2, 0.46]]
+  }, ['nib'], 45, 'siege');
+  const blocked = round.blocks[0];
+  const fallback = round.blocks[1];
+  blocked.hp = 0;
+  fallback.hp -= 10;
+  stepRound(round, TUNE.step);
+  const occupant = addBody(round.world, {
+    shape: 'cube', mat: 'wood', x: blocked.x, y: blocked.y,
+    isStatic: true, filterTag: 'repair-occupant'
+  });
+  occupant.role = 'debris';
+  for (let index = 1; index < 360; index++) stepRound(round, TUNE.step);
+  return {
+    blockedDead: blocked.dead,
+    fallbackRestored: fallback.hp - (fallback.maxHp - 10)
+  };
+}
+
+function clearSargeResurrectionTrial() {
+  const round = roundWith({
+    v: 1,
+    blocks: [['cube', 'wood', 1, 0.5, 0]],
+    pigs: [['sarge', 2, 0.46]]
+  }, ['nib'], 46, 'siege');
+  const originalId = round.blocks[0].id;
+  round.blocks[0].hp = 0;
+  for (let index = 0; index < 360; index++) stepRound(round, TUNE.step);
+  return {
+    alive: !round.blocks[0].dead,
+    restored: round.blocks[0].hp,
+    newId: round.blocks[0].id !== originalId
+  };
+}
+
+function sargeRepairGate() {
+  const siege = sargeTrial('siege');
+  const campaign = sargeTrial('campaign');
+  const occupied = occupiedSargeTrial();
+  const clear = clearSargeResurrectionTrial();
+  const expected = MATERIALS.wood.hp * 0.25;
+  const passed = Math.abs(siege.firstRestored - expected) < 1e-10 &&
+    siege.secondRestored === 0 && siege.repairEvents === 1 &&
+    campaign.firstRestored === 0 && campaign.secondRestored === 0 &&
+    campaign.repairEvents === 0 && occupied.blockedDead &&
+    Math.abs(occupied.fallbackRestored - expected) < 1e-10 && clear.alive && clear.newId &&
+    Math.abs(clear.restored - expected) < 1e-10;
+  report('sarge siege-only deterministic repair', passed,
+    `siege restored ${siege.firstRestored.toFixed(5)} vs campaign ` +
+    `${campaign.firstRestored.toFixed(5)}; tied second block ${siege.secondRestored.toFixed(5)}; ` +
+    `occupied dead space ${occupied.blockedDead ? 'skipped' : 'resurrected'}; ` +
+    `clear dead space restored ${clear.restored.toFixed(5)}`);
+}
+
+function springTrial(withBehaviour) {
+  const round = roundWith({ v: 1, blocks: [], pigs: [['runt', 20, 10]] });
+  round.world.gravity = 0;
+  round.world.lastGravity = 0;
+  const spring = addBody(round.world, {
+    shape: 'cube',
+    mat: 'spring',
+    x: 0,
+    y: 3,
+    isStatic: true,
+    filterTag: 'spring'
+  });
+  spring.role = 'block';
+  spring.materialId = 'spring';
+  if (!withBehaviour) {
+    spring.mat = { ...spring.mat };
+    delete spring.mat.ammoRestitution;
+  }
+  const ammo = addBody(round.world, {
+    shape: { id: 'spring-probe', kind: 'circle', r: 0.25, area: 0.19634954084936207 },
+    mat: {
+      id: 'ammo:probe', density: 5.092958178940651, hp: 1,
+      friction: 0, restitution: 0.16
+    },
+    x: -1.25,
+    y: 3,
+    vx: 8,
+    filterTag: 'ammo:probe'
+  });
+  ammo.role = 'ammo';
+  let event = false;
+  let rebound = 0;
+  for (let index = 0; index < 30; index++) {
+    const events = stepRound(round, TUNE.step);
+    event ||= events.some((candidate) => candidate.kind === 'spring-launch');
+    if (ammo.vx < 0) {
+      rebound = -ammo.vx;
+      break;
+    }
+  }
+  return { rebound, event };
+}
+
+function springGate() {
+  const withBehaviour = springTrial(true);
+  const withoutBehaviour = springTrial(false);
+  report('spring critter restitution', withBehaviour.rebound > withoutBehaviour.rebound * 3 &&
+    withBehaviour.event && !withoutBehaviour.event,
+    `with ${withBehaviour.rebound.toFixed(5)} vs without ` +
+    `${withoutBehaviour.rebound.toFixed(5)} rebound speed`);
+}
+
+function gelTrial(withBehaviour) {
+  const round = roundWith({ v: 1, blocks: [], pigs: [['runt', 20, 10]] });
+  round.world.gravity = 0;
+  round.world.lastGravity = 0;
+  const gel = addBody(round.world, {
+    shape: 'cube', mat: 'gel', x: 0, y: 3, filterTag: 'gel'
+  });
+  gel.role = 'block';
+  gel.materialId = 'gel';
+  if (!withBehaviour) {
+    gel.mat = { ...gel.mat };
+    delete gel.mat.absorb;
+  }
+  const target = addBody(round.world, {
+    shape: 'cube', mat: 'glass', x: 1, y: 3, isStatic: true, filterTag: 'glass'
+  });
+  target.role = 'block';
+  target.materialId = 'glass';
+  addBody(round.world, {
+    shape: { id: 'gel-probe', kind: 'circle', r: 0.3, area: 0.2827433388230814 },
+    mat: {
+      id: 'gel-probe', density: 5.659010251, hp: 1,
+      friction: 0, restitution: 0.03
+    },
+    x: -1.4,
+    y: 3,
+    vx: 6
+  });
+  for (let index = 0; index < 30 && target.hp === target.maxHp; index++) {
+    stepRound(round, TUNE.step);
+  }
+  return {
+    targetDamage: target.maxHp - target.hp,
+    gelDamage: gel.maxHp - gel.hp
+  };
+}
+
+function gelGate() {
+  const withBehaviour = gelTrial(true);
+  const withoutBehaviour = gelTrial(false);
+  const ratio = withBehaviour.targetDamage / withoutBehaviour.targetDamage;
+  const passed = withBehaviour.targetDamage > 0 && withoutBehaviour.targetDamage > 0 &&
+    Math.abs(ratio - 0.3) < 1e-10 &&
+    Math.abs(withBehaviour.gelDamage - withoutBehaviour.gelDamage) < 1e-10;
+  report('gel far-side absorption', passed,
+    `far-side damage with ${withBehaviour.targetDamage.toFixed(5)} vs without ` +
+    `${withoutBehaviour.targetDamage.toFixed(5)}; gel own damage ` +
+    `${withBehaviour.gelDamage.toFixed(5)} vs ${withoutBehaviour.gelDamage.toFixed(5)}`);
+}
+
+function sandTrial(withBehaviour) {
+  const round = roundWith({
+    v: 1,
+    blocks: [['cube', 'sand', 2, 2, 0]],
+    pigs: [['runt', 20, 10]]
+  });
+  const original = round.blocks[0];
+  const originalMass = 1 / original.im;
+  if (!withBehaviour) {
+    original.mat = { ...original.mat };
+    delete original.mat.chunks;
+  }
+  original.hp = 0;
+  const events = stepRound(round, TUNE.step);
+  const pieces = round.debris.filter((body) => body.parentId === original.id);
+  const mass = pieces.reduce((sum, body) => sum + 1 / body.im, 0);
+  return {
+    count: pieces.length,
+    mass,
+    originalMass,
+    event: events.some((candidate) => candidate.kind === 'crumble')
+  };
+}
+
+function sandGate() {
+  const withBehaviour = sandTrial(true);
+  const withoutBehaviour = sandTrial(false);
+  const passed = withBehaviour.count === MATERIALS.sand.chunks &&
+    withoutBehaviour.count === 0 && withBehaviour.event && !withoutBehaviour.event &&
+    Math.abs(withBehaviour.mass - withBehaviour.originalMass) < 1e-12;
+  report('sand deterministic chunks', passed,
+    `with ${withBehaviour.count} bodies/${withBehaviour.mass.toFixed(5)} mass vs without ` +
+    `${withoutBehaviour.count}/${withoutBehaviour.mass.toFixed(5)}`);
+}
+
+function stoneTrial(withBehaviour) {
+  const round = roundWith({
+    v: 1,
+    blocks: [['plank', 'stone', 3, 3, 0]],
+    pigs: [['runt', 20, 10]]
+  });
+  const original = round.blocks[0];
+  const originalMass = 1 / original.im;
+  if (!withBehaviour) original.materialId = 'stone-control';
+  original.hp = 0;
+  stepRound(round, TUNE.step);
+  const pieces = round.debris.filter((body) => body.parentId === original.id);
+  const mass = pieces.reduce((sum, body) => sum + 1 / body.im, 0);
+  return { count: pieces.length, mass, originalMass, pieces };
+}
+
+function stoneSplitGate() {
+  const withBehaviour = stoneTrial(true);
+  const withoutBehaviour = stoneTrial(false);
+  const passed = withBehaviour.count === 2 && withoutBehaviour.count === 0 &&
+    Math.abs(withBehaviour.mass - withBehaviour.originalMass) < 1e-12 &&
+    withBehaviour.pieces[0].shape.w === 2 && withBehaviour.pieces[0].shape.h === 0.5;
+  report('large stone long-axis split', passed,
+    `with ${withBehaviour.count} halves/${withBehaviour.mass.toFixed(5)} mass vs without ` +
+    `${withoutBehaviour.count}/${withoutBehaviour.mass.toFixed(5)}`);
 }
 
 const ABILITY_BLUEPRINT = { v: 1, blocks: [], pigs: [['runt', 20, 10]] };
@@ -467,6 +788,14 @@ damageThresholdGate();
 restingDamageGate();
 tntChainGate();
 occlusionGate();
+helmArmourGate();
+tuskArmourGate();
+zeppelinGate();
+sargeRepairGate();
+springGate();
+gelGate();
+sandGate();
+stoneSplitGate();
 splitAbilityGate();
 accelAbilityGate();
 boomAbilityGate();
@@ -482,5 +811,5 @@ if (failures) {
   console.error(`\n${failures} simulation assertion(s) failed.`);
   process.exitCode = 1;
 } else {
-  console.log('\nAll sixteen simulation assertions passed.');
+  console.log('\nAll twenty-four simulation assertions passed.');
 }

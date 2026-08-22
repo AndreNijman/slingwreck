@@ -179,3 +179,9 @@ abilities' worth of new arithmetic to it.
 - 2026-08-22 `P3.3` **doing** — Implement the 8 remaining critter abilities: split, accel, boom, drop, reverse, inflate, harden, blink
 
 - 2026-08-22 `P3.3` **done** — Implement the 8 remaining critter abilities: split, accel, boom, drop, reverse, inflate, harden, blink. All 8 abilities, each with a measured tapped-vs-untapped assertion (16 sim assertions now). Chip rotation uses precomputed (c,s) literals so no trig enters the sim; blink raycasts and backs off so it cannot teleport into a block; harden uses a generic pierce filter in physics.js plus a swept damage test in sim.js. Determinism sim scenario now taps every ability. ALSO fixed a 50% flaky smoke assertion that Sol had shipped knowingly: the test pressed at fixed screen pixels while the camera was still easing, so screenToWorld gave a different shot each run. Now waits for camera stability and aims in world space; 13 consecutive runs give an identical score of 6,400 and 1/3 pigs.
+
+- 2026-08-22 `P3.4` **doing** — Implement the remaining pig traits: helm/tusk armour verification, zep balloon, sarge repair
+
+- 2026-08-22 `P3.4` **done** — Implement the remaining pig traits: helm/tusk armour verification, zep balloon, sarge repair. Helm/tusk armour verified from BOTH sides (0.40 ratio armoured, 1.00 unarmoured). Zep balloon hovers and drops when popped. Sarge repair is siege-only, deterministic, skips occupied space, and its test covers the tie-break too. Spring 4.6x rebound for critters only. Gel far-side ratio exactly 0.30 with its own damage unchanged. Sand and large stone both conserve mass exactly (1.2 and 3.8). 24 sim assertions, four engines agree, 9 exercise counts all non-zero.
+
+- 2026-08-22 `P3.5` **done** — Implement remaining material behaviours: spring ammoRestitution, gel absorb, sand chunks, large-stone sub-bodies. Delivered with P3.4 - spring, gel, sand chunks and large-stone splitting were the same task.

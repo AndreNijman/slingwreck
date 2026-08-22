@@ -83,6 +83,7 @@ const SIM_FRONT_BLOCKS = [0, 1, 2, 3, 4, 5, 6];
 const SIM_REAR_BLOCK_START = 18;
 const SIM_SHIELD_BLOCK = 16;
 const SIM_SHIELDED_BLOCK = 17;
+const SIM_SPLIT_BLOCK = 24;
 
 function bitsOf(value, view) {
   view.setFloat64(0, value);
@@ -145,6 +146,8 @@ function simBodySnapshot(round) {
   for (const body of round.world.bodies) byId.set(body.id, body);
   for (const body of round.blocks) byId.set(body.id, body);
   for (const body of round.pigs) byId.set(body.id, body);
+  for (const body of round.balloons) byId.set(body.id, body);
+  for (const body of round.debris) byId.set(body.id, body);
   return [...byId.values()].sort((a, b) => a.id - b.id).map((body) => ({
     id: body.id,
     role: body.role ?? 'body',
@@ -166,7 +169,8 @@ function simSnapshot(round) {
     round.settleTimer,
     round.score,
     round.flying?.id ?? -1,
-    round.pendingExplosions.length
+    round.pendingExplosions.length,
+    round.world.nextId
   ];
   return {
     phase: round.phase,
@@ -250,6 +254,10 @@ function verifySimCoverage(data) {
   if (shield[0] !== 'slab' || shield[1] !== 'stone') {
     throw new Error('sim occlusion shield must be a stone slab');
   }
+  const split = SIM_BLUEPRINT.blocks[SIM_SPLIT_BLOCK];
+  if (split[0] !== 'plank' || split[1] !== 'stone') {
+    throw new Error('sim breakup fixture must be a large stone plank');
+  }
 }
 
 function verifySimExercise(exercise) {
@@ -258,7 +266,12 @@ function verifySimExercise(exercise) {
     'blocksDestroyed',
     'pigsKilled',
     'explosionsTriggered',
-    'tntCratesChained'
+    'tntCratesChained',
+    'springLaunches',
+    'gelAbsorptions',
+    'sandbagsCrumbled',
+    'largeStonesSplit',
+    'balloonsPopped'
   ]) {
     if (exercise[field] === 0) missing.push(field);
   }
@@ -291,6 +304,12 @@ export function runSimScenario(physics, sim, data) {
     seed: 0x51a6c0de,
     mode: 'campaign'
   });
+  // These two zero-HP triggers are explicit scenario inputs rather than
+  // incidental outcomes of the long shot log. They guarantee that body spawning and
+  // balloon detachment remain in every engine's replay path even if nearby rubble is
+  // rebalanced later.
+  round.blocks[SIM_SPLIT_BLOCK].hp = 0;
+  round.balloons[0].hp = 0;
   const digests = [];
   const snapshots = [];
   const exercise = {
@@ -298,6 +317,11 @@ export function runSimScenario(physics, sim, data) {
     pigsKilled: 0,
     explosionsTriggered: 0,
     tntCratesChained: 0,
+    springLaunches: 0,
+    gelAbsorptions: 0,
+    sandbagsCrumbled: 0,
+    largeStonesSplit: 0,
+    balloonsPopped: 0,
     shotsLaunched: 0,
     tapsAttempted: [],
     abilitiesTriggered: [],
@@ -347,6 +371,11 @@ export function runSimScenario(physics, sim, data) {
     const events = sim.stepRound(round, data.TUNE.step);
     for (const event of events) {
       if (event.kind === 'ability') exercise.abilitiesTriggered.push(event.ability);
+      if (event.kind === 'spring-launch') exercise.springLaunches++;
+      if (event.kind === 'gel-absorb') exercise.gelAbsorptions++;
+      if (event.kind === 'crumble') exercise.sandbagsCrumbled++;
+      if (event.kind === 'stone-split') exercise.largeStonesSplit++;
+      if (event.kind === 'balloon-pop') exercise.balloonsPopped++;
     }
 
     observeArmourHits(round, hpBefore, exercise.armourHits);
@@ -453,7 +482,12 @@ function firstExerciseDifference(results) {
     'blocksDestroyed',
     'pigsKilled',
     'explosionsTriggered',
-    'tntCratesChained'
+    'tntCratesChained',
+    'springLaunches',
+    'gelAbsorptions',
+    'sandbagsCrumbled',
+    'largeStonesSplit',
+    'balloonsPopped'
   ];
   for (let i = 1; i < results.length; i++) {
     for (const field of fields) {
@@ -506,7 +540,7 @@ function reportMismatch(mismatch) {
       if (scalar !== -1) {
         const names = [
           'seed', 'shotIndex', 'stepCount', 'time', 'settleTimer', 'score',
-          'flyingId', 'pendingExplosions'
+          'flyingId', 'pendingExplosions', 'nextBodyId'
         ];
         console.error(`Bodies agree bit-for-bit; first differing round field is ${names[scalar]}: ` +
           `${formatNumber(aSnapshot.values[scalar])} [${aSnapshot.bits[scalar]}] vs ` +
@@ -692,6 +726,11 @@ async function main() {
   console.log(`pigs killed: ${exercise.pigsKilled}`);
   console.log(`explosions triggered: ${exercise.explosionsTriggered}`);
   console.log(`TNT crates chained: ${exercise.tntCratesChained}`);
+  console.log(`spring launches: ${exercise.springLaunches}`);
+  console.log(`gel absorptions: ${exercise.gelAbsorptions}`);
+  console.log(`sandbags crumbled: ${exercise.sandbagsCrumbled}`);
+  console.log(`large stones split: ${exercise.largeStonesSplit}`);
+  console.log(`balloons popped: ${exercise.balloonsPopped}`);
   for (const { engine, reason } of skipped) console.warn(`SKIPPED ${engine}: ${reason}`);
   for (const { engine, reason } of errors) console.error(`FAILED ${engine}: ${reason}`);
 

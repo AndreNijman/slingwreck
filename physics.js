@@ -58,6 +58,7 @@ export function makeWorld(opts = {}) {
     sleepAngular: opts.sleepAngular ?? TUNE.sleepAngular,
     sleepTime: opts.sleepTime ?? TUNE.sleepTime,
     onDamage: opts.onDamage ?? null,
+    restitutionFor: opts.restitutionFor ?? null,
     bodies: [], pairs: [], contacts: [],
     impulseCache: new Map(),
     nextId: opts.nextId ?? 1, time: opts.time ?? 0,
@@ -386,7 +387,9 @@ function makeContact(world, a, b, raw, key, cached) {
   const rollingK = iiA + iiB;
   const velocity = relativeVelocity(a, b, rax, ray, rbx, rby);
   const approach = velocity.x * raw.nx + velocity.y * raw.ny;
-  const rest = Math.max(a.rest, b.rest);
+  const rest = world.restitutionFor
+    ? world.restitutionFor(a, b)
+    : Math.max(a.rest, b.rest);
   const localA = localPoint(a, raw.ax, raw.ay); const localB = localPoint(b, raw.bx, raw.by);
   return {
     key, a, b, nx: raw.nx, ny: raw.ny, tx, ty,
