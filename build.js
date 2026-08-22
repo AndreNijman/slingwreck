@@ -1,10 +1,14 @@
 import { BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SHAPES, TUNE } from './data.js';
-import { fromDegrees, isSettled, makeWorld, maxPenetration, raycastAll } from './physics.js';
+import { fromDegrees, isSettled, makeWorld, maxPenetration, raycast, raycastAll } from './physics.js';
 import { BLUEPRINT_VERSION, PIG_FLAG_DECOY, PIG_FLAG_FLAK, PIG_FLAGS,
   blueprintFromLevel, instantiate, makeRound, stepRound } from './sim.js';
 const HISTORY_LIMIT = 64;
 const LEGACY_CODEC_VERSION = 1;
-const CODEC_VERSION = 2;
+const FLAGS_CODEC_VERSION = 2;
+const CODEC_VERSION = 3;
+const LEGACY_GRID_SNAP = 0.5;
+export const PIG_Y_QUANTUM = 1 / 64;
+export const SETTLE_MOVE_TOLERANCE = TUNE.slop * 10;
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 const BASE64_INDEX = Object.create(null);
 for (let index = 0; index < BASE64.length; index++) BASE64_INDEX[BASE64[index]] = index;
@@ -15,7 +19,7 @@ const SHAPE_INDEX = indexById(SHAPE_IDS);
 const MATERIAL_INDEX = indexById(MATERIAL_IDS);
 const PIG_INDEX = indexById(PIG_IDS);
 const MAX_PIGS = 255;
-const MAX_CODEC_BYTES = 3 + TUNE.maxBlocks * 4 + MAX_PIGS * 3;
+const MAX_CODEC_BYTES = 3 + TUNE.maxBlocks * 4 + MAX_PIGS * 4;
 const MAX_CODEC_CHARS = Math.ceil(MAX_CODEC_BYTES * 4 / 3);
 // These are literal 64ths of a turn. Generating them with a Math.cos/Math.sin loop
 // would make burial legality depend on the relay's JS engine in last-bit edge cases.
@@ -139,6 +143,29 @@ function snap(value) {
   const snapped = Math.round(value / TUNE.gridSnap) * TUNE.gridSnap;
   return snapped === 0 ? 0 : snapped;
 }
+function quantise(value, quantum) {
+  const quantised = Math.round(value / quantum) * quantum;
+  return quantised === 0 ? 0 : quantised;
+}
+function blockTuples(pieces) {
+  return pieces.filter((piece) => piece.kind === 'block').map((piece) => [
+    piece.shape, piece.material, piece.x, piece.y, rotationStep(piece.rotation)
+  ]);
+}
+export function seatPigY(blocks, pigId, x, placementY) {
+  if (!PIGS[pigId]) throw new RangeError(`unknown pig: ${pigId}`);
+  if (!Number.isFinite(x) || !Number.isFinite(placementY)) {
+    throw new TypeError('pig placement must be finite');
+  }
+  const world = makeWorld({ gravity: 0 });
+  instantiate(world, { v: BLUEPRINT_VERSION, blocks, pigs: [] });
+  const hit = raycast(world, x, placementY, x, -TUNE.gridSnap,
+    (body) => body.role === 'ground' || body.role === 'block');
+  if (!hit) return null;
+  // Store the wire-representable centre now so export/import cannot move a pig
+  // after the editor has already validated the authored pose.
+  return quantise(hit.y + PIGS[pigId].radius, PIG_Y_QUANTUM);
+}
 function rotationStep(value) {
   const step = Number.isInteger(value) ? value : 0;
   return step - Math.floor(step / 24) * 24;
@@ -156,9 +183,12 @@ function normalisePiece(draft, source) {
   if (kind === 'pig') {
     const pig = source.pig ?? source.pigId;
     if (!PIGS[pig]) return result(false, 'invalid-pig');
+    const x = snap(source.x);
+    const y = seatPigY(blockTuples(draft.pieces), pig, x, source.y);
+    if (y === null) return result(false, 'no-support');
     return result(true, null, {
       piece: {
-        id, kind, pig, x: snap(source.x), y: snap(source.y),
+        id, kind, pig, x, y,
         decoy: Boolean(source.decoy), flak: Boolean(source.flak)
       }
     });
@@ -276,9 +306,14 @@ export function moveTo(draft, id, x, y) {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return result(false, 'invalid-position');
   const piece = draft.pieces.find((candidate) => candidate.id === id);
   if (!piece) return result(false, 'not-found');
+  const nextX = snap(x);
+  const nextY = piece.kind === 'pig'
+    ? seatPigY(blockTuples(draft.pieces), piece.pig, nextX, y)
+    : snap(y);
+  if (nextY === null) return result(false, 'no-support');
   remember(draft);
-  piece.x = snap(x);
-  piece.y = snap(y);
+  piece.x = nextX;
+  piece.y = nextY;
   return result(true);
 }
 export function rotate(draft, id, steps) {
@@ -562,26 +597,14 @@ export function settleTest(value, opts = {}) {
   }));
   const steps = Math.ceil(TUNE.blueprintSettleSeconds / TUNE.step);
   for (let index = 0; index < steps; index++) stepRound(round, TUNE.step);
-  const tolerance = opts.moveTolerance ?? TUNE.slop * 10;
+  const tolerance = opts.moveTolerance ?? SETTLE_MOVE_TOLERANCE;
   const movedPieces = [];
   let maxMovement = 0;
   for (let index = 0; index < tested.length; index++) {
     const body = tested[index];
     const distance = movement(body, starts[index]);
     maxMovement = Math.max(maxMovement, distance);
-    // Blueprint centres live on a half-unit grid, while pigs have authored radii
-    // and horizontal beams have quarter-unit faces. Let those pieces seat by the
-    // one unavoidable quantisation gap; cubes, posts and other exact-grid supports
-    // retain the strict solver tolerance, so a genuinely floating structure fails.
-    const seatingTolerance = opts.moveTolerance === undefined && body.role === 'pig'
-      ? Math.max(tolerance, TUNE.gridSnap + tolerance)
-      : opts.moveTolerance === undefined &&
-          (body.shapeId === 'beam' || body.shapeId === 'plank') &&
-          (body.blueprintIndex === undefined ||
-            context.blueprint.blocks[body.blueprintIndex][4] % 12 === 0)
-        ? Math.max(tolerance, TUNE.gridSnap / 2 + tolerance)
-        : tolerance;
-    if (body.dead || distance > seatingTolerance) {
+    if (body.dead || distance > tolerance) {
       const id = index < round.blocks.length
         ? context.blockIds[index]
         : context.pigIds[index - round.blocks.length];
@@ -630,10 +653,10 @@ function decodeBase64(source) {
   if (value !== 0) return { reason: 'invalid-base64' };
   return { bytes };
 }
-function packedCoordinate(value, max, label) {
-  const scaled = value / TUNE.gridSnap;
+function packedCoordinate(value, quantum, max, label) {
+  const scaled = value / quantum;
   if (!Number.isInteger(scaled) || scaled < 0 || scaled > max)
-    throw new RangeError(`${label} must be on the ${TUNE.gridSnap} grid inside the plot`);
+    throw new RangeError(`${label} must be on the ${quantum} grid inside the plot`);
   return scaled;
 }
 export function encode(blueprint) {
@@ -645,22 +668,26 @@ export function encode(blueprint) {
     const shape = SHAPE_INDEX[tuple[0]];
     const material = MATERIAL_INDEX[tuple[1]];
     const rotation = tuple[4];
-    const x = packedCoordinate(tuple[2], TUNE.plotW / TUNE.gridSnap, 'block x');
-    const y = packedCoordinate(tuple[3], TUNE.plotH / TUNE.gridSnap, 'block y');
+    const x = packedCoordinate(tuple[2], TUNE.gridSnap,
+      TUNE.plotW / TUNE.gridSnap, 'block x');
+    const y = packedCoordinate(tuple[3], TUNE.gridSnap,
+      TUNE.plotH / TUNE.gridSnap, 'block y');
     if (!Number.isInteger(rotation) || rotation < 0 || rotation >= 24) {
       throw new RangeError('block rotation must be between 0 and 23');
     }
-    const packed = rotation | x << 5 | y << 11;
+    const packed = rotation | x << 5 | y << 12;
     bytes.push(shape | material << 4, packed & 255, (packed >>> 8) & 255,
       (packed >>> 16) & 255);
   }
   for (const tuple of source.pigs) {
     const pig = PIG_INDEX[tuple[0]];
-    const x = packedCoordinate(tuple[1], TUNE.plotW / TUNE.gridSnap, 'pig x');
-    const y = packedCoordinate(tuple[2], TUNE.plotH / TUNE.gridSnap, 'pig y');
+    const x = packedCoordinate(tuple[1], TUNE.gridSnap,
+      TUNE.plotW / TUNE.gridSnap, 'pig x');
+    const y = packedCoordinate(tuple[2], PIG_Y_QUANTUM,
+      TUNE.plotH / PIG_Y_QUANTUM, 'pig y');
     const flags = tuple[PIG_FLAGS];
-    const packed = pig | x << 4 | y << 10;
-    bytes.push(packed & 255, (packed >>> 8) & 255, flags);
+    const packed = pig | x << 4 | y << 11;
+    bytes.push(packed & 255, (packed >>> 8) & 255, (packed >>> 16) & 255, flags);
   }
   return encodeBase64(bytes);
 }
@@ -672,13 +699,15 @@ export function decode(source) {
     const bytes = decoded.bytes;
     if (bytes.length < 3) return reject('truncated');
     const codecVersion = bytes[0];
-    if (codecVersion !== LEGACY_CODEC_VERSION && codecVersion !== CODEC_VERSION) {
+    if (codecVersion !== LEGACY_CODEC_VERSION && codecVersion !== FLAGS_CODEC_VERSION &&
+        codecVersion !== CODEC_VERSION) {
       return reject('wrong-version');
     }
     const blockCount = bytes[1];
     const pigCount = bytes[2];
     if (blockCount > TUNE.maxBlocks || pigCount > MAX_PIGS) return reject('absurd-length');
-    const pigBytes = codecVersion === LEGACY_CODEC_VERSION ? 2 : 3;
+    const pigBytes = codecVersion === LEGACY_CODEC_VERSION ? 2 :
+      codecVersion === FLAGS_CODEC_VERSION ? 3 : 4;
     const expected = 3 + blockCount * 4 + pigCount * pigBytes;
     if (bytes.length < expected) return reject('truncated');
     if (bytes.length > expected) return reject('trailing-data');
@@ -689,38 +718,45 @@ export function decode(source) {
       const indices = bytes[offset++];
       const packed = bytes[offset] | bytes[offset + 1] << 8 | bytes[offset + 2] << 16;
       offset += 3;
-      if (packed & 0xfe0000) return reject('non-canonical');
+      const current = codecVersion === CODEC_VERSION;
+      if (packed & (current ? 0xf80000 : 0xfe0000)) return reject('non-canonical');
       const shape = indices & 15;
       const material = indices >>> 4;
       const rotation = packed & 31;
-      const x = packed >>> 5 & 63;
-      const y = packed >>> 11 & 63;
+      const x = packed >>> 5 & (current ? 127 : 63);
+      const y = packed >>> (current ? 12 : 11) & (current ? 127 : 63);
       if (!SHAPE_IDS[shape]) return reject('out-of-range-shape');
       if (!MATERIAL_IDS[material]) return reject('out-of-range-material');
       if (rotation >= 24) return reject('out-of-range-rotation');
-      if (x > TUNE.plotW / TUNE.gridSnap || y > TUNE.plotH / TUNE.gridSnap) {
+      const grid = current ? TUNE.gridSnap : LEGACY_GRID_SNAP;
+      if (x > TUNE.plotW / grid || y > TUNE.plotH / grid) {
         return reject('out-of-range-position');
       }
       blocks.push([
         SHAPE_IDS[shape], MATERIAL_IDS[material],
-        x * TUNE.gridSnap, y * TUNE.gridSnap, rotation
+        x * grid, y * grid, rotation
       ]);
     }
     for (let index = 0; index < pigCount; index++) {
-      const packed = bytes[offset] | bytes[offset + 1] << 8;
-      offset += 2;
+      const current = codecVersion === CODEC_VERSION;
+      const packed = bytes[offset] | bytes[offset + 1] << 8 |
+        (current ? bytes[offset + 2] << 16 : 0);
+      offset += current ? 3 : 2;
+      if (current && (packed & 0xc00000)) return reject('non-canonical');
       const pig = packed & 15;
-      const x = packed >>> 4 & 63;
-      const y = packed >>> 10 & 63;
+      const x = packed >>> 4 & (current ? 127 : 63);
+      const y = packed >>> (current ? 11 : 10) & (current ? 2047 : 63);
       const flags = codecVersion === LEGACY_CODEC_VERSION ? 0 : bytes[offset++];
       if (!PIG_IDS[pig]) return reject('out-of-range-pig');
       if ((flags & ~(PIG_FLAG_DECOY | PIG_FLAG_FLAK)) !== 0) {
         return reject('out-of-range-flags');
       }
-      if (x > TUNE.plotW / TUNE.gridSnap || y > TUNE.plotH / TUNE.gridSnap) {
+      const xGrid = current ? TUNE.gridSnap : LEGACY_GRID_SNAP;
+      const yGrid = current ? PIG_Y_QUANTUM : LEGACY_GRID_SNAP;
+      if (x > TUNE.plotW / xGrid || y > TUNE.plotH / yGrid) {
         return reject('out-of-range-position');
       }
-      pigs.push([PIG_IDS[pig], x * TUNE.gridSnap, y * TUNE.gridSnap, flags]);
+      pigs.push([PIG_IDS[pig], x * xGrid, y * yGrid, flags]);
     }
     return { v: BLUEPRINT_VERSION, blocks, pigs };
   } catch (unused) {

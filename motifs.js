@@ -1,4 +1,5 @@
 import { MATERIALS, PIGS, SHAPES, TUNE } from './data.js';
+import { PIG_Y_QUANTUM, seatPigY } from './build.js';
 import { makeWorld, maxPenetration } from './physics.js';
 import { BLUEPRINT_VERSION, instantiate } from './sim.js';
 
@@ -34,9 +35,12 @@ function block(shape, material, x, y, rotation = 0) {
   return [shape, material, snapped(x, 'block x'), snapped(y, 'block y'), rotation];
 }
 
-function pig(id, x, y) {
+function pig(blocks, id, x, placementY) {
   if (!PIGS[id]) throw new RangeError(`unknown pig: ${id}`);
-  return [id, snapped(x, 'pig x'), snapped(y, 'pig y'), 0];
+  const snappedX = snapped(x, 'pig x');
+  const y = seatPigY(blocks, id, snappedX, placementY);
+  if (y === null) throw new RangeError('pig placement has no surface beneath it');
+  return [id, snappedX, y, 0];
 }
 
 function occupants(value, bayCount, storeys, label) {
@@ -93,7 +97,7 @@ function checkedFragments(fragments, crossOnly) {
     }
     for (const tuple of fragment.pigs) {
       if (!Number.isInteger(tuple[1] / TUNE.gridSnap) ||
-          !Number.isInteger(tuple[2] / TUNE.gridSnap)) {
+          !Number.isInteger(tuple[2] / PIG_Y_QUANTUM)) {
         throw new RangeError(`${fragment.label ?? `motif ${group}`} contains an unsnapped pig`);
       }
       pigs.push(tuple);
@@ -158,7 +162,7 @@ export function tower(options = {}) {
     }
   }
   const pigs = occupants(options.pigs, bayCount, storeys, 'tower').map((item) =>
-    pig(item.id, x + item.bay * 2 + 1, y + item.storey * 3 + 0.5));
+    pig(blocks, item.id, x + item.bay * 2 + 1, y + item.storey * 3 + 0.5));
   return makeFragment('tower', blocks, pigs);
 }
 
@@ -185,9 +189,9 @@ export function bunker(options = {}) {
     blocks.push(block('slab', roofMaterial, x + bay * 2 + 1, y + wallHeight + 0.5));
   }
   const placedPigs = occupants(options.pigs ?? ['runt'], width / 2, 1, 'bunker')
-    .map((item) => pig(item.id, x + item.bay * 2 + 1, y + 0.5));
+    .map((item) => pig(blocks, item.id, x + item.bay * 2 + 1, y + 0.5));
   for (const tuple of placedPigs) {
-    if (PIGS[tuple[0]].radius > wallHeight - TUNE.gridSnap) {
+    if (PIGS[tuple[0]].radius > wallHeight - SHAPES.cube.h / 2) {
       throw new RangeError('bunker wall height is too short for its pigs');
     }
   }
@@ -217,7 +221,7 @@ export function bridge(options = {}) {
     blocks.push(block('slab', deckMaterial, x + bay * 2 + 1, y + supportHeight + 0.5));
   }
   const placedPigs = occupants(options.pigs, supports - 1, 1, 'bridge')
-    .map((item) => pig(item.id, x + item.bay * 2 + 1, y + 0.5));
+    .map((item) => pig(blocks, item.id, x + item.bay * 2 + 1, y + 0.5));
   return makeFragment('bridge', blocks, placedPigs);
 }
 
@@ -283,11 +287,9 @@ export function scaffold(options = {}) {
     blocks.push(block(postShape, postMaterial, x + support * 4, y + height / 2));
   }
   for (let bay = 0; bay < bays; bay++) {
-    // A horizontal plank has quarter-unit faces but blueprint centres use the
-    // half-unit editor grid. settleTest permits this one 0.25-unit seating drop.
-    blocks.push(block('plank', plankMaterial, x + bay * 4 + 2, y + height + 0.5));
+    blocks.push(block('plank', plankMaterial, x + bay * 4 + 2, y + height + 0.25));
   }
   const placedPigs = occupants(options.pigs, bays, 1, 'scaffold')
-    .map((item) => pig(item.id, x + item.bay * 4 + 2, y + 0.5));
+    .map((item) => pig(blocks, item.id, x + item.bay * 4 + 2, y + 0.5));
   return makeFragment('scaffold', blocks, placedPigs);
 }

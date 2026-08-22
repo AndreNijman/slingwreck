@@ -17,6 +17,7 @@ import { EPISODES, LEVELS } from '../levels.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LEVELS_FILE = join(ROOT, 'levels.js');
+const LEVEL_MOVE_LIMIT = 0.02;
 
 function usage(message = null) {
   if (message) console.error(message);
@@ -71,6 +72,7 @@ export function lintLevels(levels = LEVELS) {
   const ids = new Set();
   const missingStars = [];
   const rows = [];
+  let exactRoundTrips = 0;
   for (const level of levels) {
     const schema = schemaErrors(level, ids);
     let validation = { ok: false, errors: [] };
@@ -82,19 +84,22 @@ export function lintLevels(levels = LEVELS) {
       deadPigs: []
     };
     let thrown = null;
+    let byteIdentical = false;
     try {
       validation = validate(level.blueprint, {
         mode: 'campaign',
         cards: level.cards ?? []
       });
       settle = settleTest(level.blueprint);
+      const wire = encode(level.blueprint);
+      const decoded = decode(wire);
+      byteIdentical = decoded?.ok !== false && encode(decoded) === wire;
+      if (byteIdentical) exactRoundTrips++;
     } catch (error) {
       thrown = error;
     }
     const starsSet = starsAreSet(level.stars);
     if (!starsSet) missingStars.push(level.id);
-    const passed = !schema.length && !thrown && validation.ok && settle.ok;
-    if (!passed) failures++;
     const pieceCount = (level.blueprint?.blocks?.length ?? 0) +
       (level.blueprint?.pigs?.length ?? 0);
     let cost = NaN;
@@ -103,6 +108,11 @@ export function lintLevels(levels = LEVELS) {
     } catch (error) {
       thrown ??= error;
     }
+    const movementPassed = Number.isFinite(settle.maxMovement) &&
+      settle.maxMovement < LEVEL_MOVE_LIMIT;
+    const passed = !schema.length && !thrown && validation.ok && settle.ok &&
+      movementPassed && byteIdentical;
+    if (!passed) failures++;
     const issues = [
       ...schema,
       ...validation.errors.map((error) => error.code),
@@ -110,6 +120,8 @@ export function lintLevels(levels = LEVELS) {
         settle.settled ? 'moved-during-settle' : 'did-not-settle',
         ...settle.deadPigs.map((id) => `dead:${id}`)
       ]),
+      ...(movementPassed ? [] : [`max-movement-not-under-${LEVEL_MOVE_LIMIT}`]),
+      ...(byteIdentical ? [] : ['codec-round-trip-changed-bytes']),
       ...(thrown ? [thrown.message] : [])
     ];
     rows.push({
@@ -119,6 +131,7 @@ export function lintLevels(levels = LEVELS) {
       settled: settle.ok,
       maxMovement: settle.maxMovement,
       starsSet,
+      byteIdentical,
       issues,
       passed
     });
@@ -138,6 +151,7 @@ export function lintLevels(levels = LEVELS) {
   if (missingStars.length) {
     console.log(`stars awaiting P5.8 bot data: ${missingStars.join(', ')}`);
   }
+  console.log(`codec round trips byte-identically: ${exactRoundTrips}/${levels.length}`);
   if (failures) console.error(`level lint failed: ${failures}/${levels.length} level(s)`);
   else console.log(`level lint passed: ${levels.length}/${levels.length} level(s)`);
   return { ok: failures === 0, failures, rows, missingStars };

@@ -29,10 +29,13 @@ import {
   fromBlueprint,
   makeDraft,
   moveTo,
+  PIG_Y_QUANTUM,
   place,
   redo,
   removeAt,
   rotate,
+  seatPigY,
+  SETTLE_MOVE_TOLERANCE,
   settleTest,
   spent,
   toBlueprint,
@@ -77,7 +80,7 @@ function generatedBlueprint(random) {
     pigs.push([
       pigIds[rngInt(random, pigIds.length)],
       rngInt(random, TUNE.plotW / TUNE.gridSnap + 1) * TUNE.gridSnap,
-      rngInt(random, TUNE.plotH / TUNE.gridSnap + 1) * TUNE.gridSnap,
+      rngInt(random, TUNE.plotH / PIG_Y_QUANTUM + 1) * PIG_Y_QUANTUM,
       index & 3
     ]);
   }
@@ -102,6 +105,16 @@ function roundTripGate() {
   report('200 seeded codec round trips', exact === 200,
     `${exact}/200 exact; average ${averageEncoded.toFixed(1)} B encoded vs ` +
     `${averageJson.toFixed(1)} B JSON (${(averageEncoded / averageJson * 100).toFixed(1)}%)`);
+  const boundary = {
+    v: 1,
+    blocks: [['cube', 'wood', TUNE.plotW, TUNE.plotH, 23]],
+    pigs: [['king', TUNE.plotW, TUNE.plotH, 3]]
+  };
+  const boundaryWire = encode(boundary);
+  report('codec v3 packs quarter-grid plot boundaries',
+    bytesOf(boundaryWire)[0] === 3 && same(decode(boundaryWire), boundary),
+    `${TUNE.plotW / TUNE.gridSnap} horizontal steps; ` +
+    `${TUNE.plotH / TUNE.gridSnap} vertical steps; ${boundaryWire.length} characters`);
   return { averageEncoded, averageJson };
 }
 
@@ -338,13 +351,15 @@ function hostileGate() {
     report(`hostile decode ${name}`, passed,
       threw ? `threw ${value.message}` : `reason ${value?.reason ?? 'missing'}`);
   }
-  const legacyBytes = bytesOf(good).slice(0, -1);
-  legacyBytes[0] = 1;
-  const legacy = decode(wireOf(legacyBytes));
   const legacyExpected = copy(fixture);
   legacyExpected.pigs[0].push(0);
-  report('legacy codec defaults pig flags', same(legacy, legacyExpected),
-    `decoded flags ${legacy.pigs?.[0]?.[3] ?? 'missing'}`);
+  const legacyV1 = decode('AQEBEIAIAIAE');
+  const legacyV2 = decode('AgEBEIAIAIAEAA');
+  report('legacy codecs retain half-grid positions and flags',
+    same(legacyV1, legacyExpected) && same(legacyV2, legacyExpected),
+    `v1/v2 y ${legacyV1.pigs?.[0]?.[2] ?? 'missing'}/` +
+    `${legacyV2.pigs?.[0]?.[2] ?? 'missing'}; flags ` +
+    `${legacyV1.pigs?.[0]?.[3] ?? 'missing'}/${legacyV2.pigs?.[0]?.[3] ?? 'missing'}`);
   return { rejected, total: attacks.length };
 }
 
@@ -354,7 +369,7 @@ function editingGate() {
     kind: 'block', shape: 'cube', material: 'wood', x: 1.24, y: 0.74, rotation: 25
   });
   const id = placed.piece?.id;
-  const snapped = placed.ok && draft.pieces[0].x === 1 && draft.pieces[0].y === 0.5 &&
+  const snapped = placed.ok && draft.pieces[0].x === 1.25 && draft.pieces[0].y === 0.75 &&
     draft.pieces[0].rotation === 1;
   moveTo(draft, id, 2.26, 1.26);
   rotate(draft, id, 2);
@@ -371,6 +386,37 @@ function editingGate() {
     `snap ${snapped}; remove ${removed.ok}; undo/redo ${undoRemove}/${undoRotate}/${redoRotate}; ` +
     `free rotation ${direct.reason}; history ${draft.history.length}/${draft.historyLimit}`);
   return draft;
+}
+
+function seatingGate() {
+  const supported = makeDraft({ budget: 1000 });
+  place(supported, { shape: 'slab', material: 'wood', x: 4, y: 0.5 });
+  const placed = place(supported, { pig: 'runt', x: 4.12, y: 4 });
+  const expectedBlockY = seatPigY(toBlueprint(supported).blocks, 'runt', 4, 4);
+  const blockSeated = placed.ok && placed.piece.x === 4 && placed.piece.y === expectedBlockY;
+  const moved = moveTo(supported, placed.piece.id, 8.12, 4);
+  const expectedGroundY = seatPigY(toBlueprint(supported).blocks, 'runt', 8, 4);
+  const groundSeated = moved.ok && supported.pieces.find((piece) =>
+    piece.id === placed.piece.id)?.y === expectedGroundY;
+
+  const allPigs = makeDraft({ budget: 1000 });
+  let exact = 0;
+  for (let index = 0; index < pigIds.length; index++) {
+    const id = pigIds[index];
+    const x = 2 + index * 2.5;
+    const result = place(allPigs, { pig: id, x, y: 4 });
+    if (result.ok && result.piece.y === seatPigY([], id, x, 4) &&
+        Number.isInteger(result.piece.y / PIG_Y_QUANTUM)) exact++;
+  }
+  const seatedBlueprint = toBlueprint(allPigs);
+  const physicalPigs = seatedBlueprint.pigs.filter((tuple) => !PIGS[tuple[0]].traits.balloon);
+  const tested = settleTest({ ...seatedBlueprint, pigs: physicalPigs });
+  report('pig placement ray-seats ground and block surfaces',
+    blockSeated && groundSeated && exact === pigIds.length && tested.ok,
+    `block y ${placed.piece?.y}; ground y ${expectedGroundY}; ` +
+    `${exact}/${pigIds.length} quantised; ${physicalPigs.length} physical pig residual ` +
+    tested.maxMovement.toFixed(5));
+  return tested.maxMovement;
 }
 
 function flagsGate() {
@@ -613,8 +659,9 @@ function motifGate() {
     const blueprint = composeMotifs(fragment);
     const tested = settleTest(blueprint);
     largestMovement = Math.max(largestMovement, tested.maxMovement);
-    if (tested.ok) stable++;
-    report(`motif settles: ${name}`, tested.ok,
+    const strict = tested.ok && tested.maxMovement <= SETTLE_MOVE_TOLERANCE;
+    if (strict) stable++;
+    report(`motif settles: ${name}`, strict,
       `${fragment.blocks.length} blocks/${fragment.pigs.length} pigs; ` +
       `max move ${tested.maxMovement.toFixed(5)}`);
   }
@@ -629,14 +676,15 @@ function motifGate() {
   report('motif composition collision guard', collisionRejected && separated,
     `overlap rejected ${collisionRejected}; separated accepted ${separated}`);
   const snapped = scaffold({ x: 2.24, y: 0.24, pigs: ['runt'] });
-  const gridExact = [...snapped.blocks, ...snapped.pigs].every((tuple) => {
-    const x = tuple.length === 5 ? tuple[2] : tuple[1];
-    const y = tuple.length === 5 ? tuple[3] : tuple[2];
-    return Number.isInteger(x / TUNE.gridSnap) && Number.isInteger(y / TUNE.gridSnap) &&
-      (tuple.length !== 5 || Number.isInteger(tuple[4]));
-  });
+  const gridExact = snapped.blocks.every((tuple) =>
+    Number.isInteger(tuple[2] / TUNE.gridSnap) &&
+    Number.isInteger(tuple[3] / TUNE.gridSnap) && Number.isInteger(tuple[4])) &&
+    snapped.pigs.every((tuple) =>
+      Number.isInteger(tuple[1] / TUNE.gridSnap) &&
+      Number.isInteger(tuple[2] / PIG_Y_QUANTUM));
   report('motif grid and rotation contract', gridExact,
-    `${snapped.blocks.length + snapped.pigs.length} tuples snapped to ${TUNE.gridSnap}`);
+    `${snapped.blocks.length} blocks at ${TUNE.gridSnap}; ` +
+    `${snapped.pigs.length} pig Y at ${PIG_Y_QUANTUM}`);
   return { stable, total: fixtures.length, largestMovement };
 }
 
@@ -647,6 +695,7 @@ const hostile = hostileGate();
 editingGate();
 budgetGate();
 flagsGate();
+const pigResidual = seatingGate();
 const settling = settleGate();
 const motifs = motifGate();
 
@@ -656,6 +705,7 @@ console.log(`  encoded average: ${sizes.averageEncoded.toFixed(1)} B; JSON avera
   `${((1 - sizes.averageEncoded / sizes.averageJson) * 100).toFixed(1)}%`);
 console.log(`  burial depth: shallow ${rules.shallowDepth}; deep ${rules.deepDepth}`);
 console.log(`  hostile payloads rejected: ${hostile.rejected}/${hostile.total}`);
+console.log(`  seated pig residual movement: ${pigResidual.toFixed(5)}`);
 console.log(`  further-settle guarantee: ${settling.guaranteed}/${settling.total}`);
 console.log(`  validation modes differ only in: ${modeRules.difference.join(', ')}`);
 console.log(`  motif settles: ${motifs.stable}/${motifs.total}; largest movement ` +

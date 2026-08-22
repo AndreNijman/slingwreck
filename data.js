@@ -48,7 +48,7 @@ export const TUNE = {
   maxRounds: 5,
   maxBlocks: 120,
   maxBurialDepth: 5,
-  gridSnap: 0.5,
+  gridSnap: 0.25,
   rotSnapDeg: 15,
   previewHz: 8,
   catchUpSteps: 4,
