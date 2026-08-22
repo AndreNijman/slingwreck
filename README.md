@@ -9,10 +9,14 @@ Hog, your opponent does the same behind a curtain, and then you both attack each
 other at the same time while a live window in the corner shows their critters
 chewing through the tower you just spent ninety seconds on.
 
-**Status: planning. No game code yet.** This repository currently holds the design,
-the architecture contract and the build plan. See [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md).
+**Status: in development, playable, not deployed.** The campaign's first level plays
+end to end — aim, fire, collapse, score, win. The fortress editor, the campaign proper
+and the whole Siege mode are still to come. See
+[`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md) for the phase plan and
+[`docs/WORKLOG.md`](docs/WORKLOG.md) for what has actually happened.
 
-Will play at `https://slingwreck.andrenijman.com` once phase 2 lands.
+Will play at `https://slingwreck.andrenijman.com` once there is enough of it to be
+worth showing.
 
 ---
 
@@ -46,24 +50,43 @@ Full rules, rosters, costs and the card list: [`docs/DESIGN.md`](docs/DESIGN.md)
 
 ## Layout
 
-Planned. Nothing below exists yet; this is the contract the build follows.
+Files marked *planned* do not exist yet.
 
 | File | Job |
 | --- | --- |
 | `data.js` | tuning, materials, shapes, the critter roster, the pig roster, the draft cards. Imported by client, relay and tools, so numbers cannot drift |
 | `physics.js` | the solver and nothing else: bodies, SAT, contacts, sequential impulses, sleeping, raycasts, deterministic scalar math |
 | `sim.js` | the game on top of the solver: critter abilities, damage, explosions, pigs, scoring, round state, wire format. No DOM, no network, no `Math.random`, no wall clock |
-| `levels.js` | campaign levels as authored data, exported from the same editor Siege uses |
-| `build.js` | the fortress editor: snapping, budget, legality rules, blueprint encode and decode |
-| `bots.js` | fortress templates and a ballistic aimer, for solo Siege and the balance harness |
+| `levels.js` *(planned)* | campaign levels as authored data, exported from the same editor Siege uses |
+| `build.js` *(planned)* | the fortress editor: snapping, budget, legality rules, blueprint encode and decode |
+| `bots.js` *(planned)* | fortress templates and a ballistic aimer, for solo Siege and the balance harness |
 | `render.js` | canvas renderer including the corner preview. Every pixel drawn in code |
-| `audio.js` | WebAudio synthesis. No audio files |
-| `net.js` | one websocket |
+| `audio.js` *(planned)* | WebAudio synthesis. No audio files |
+| `net.js` *(planned)* | one websocket |
 | `game.js` | screens, input, HUD, campaign flow, siege flow |
-| `worker.js` | the relay: `SiegeRoom` and `LobbyRegistry` Durable Objects, blueprint validation, replay validation |
+| `worker.js` *(planned)* | the relay: `SiegeRoom` and `LobbyRegistry` Durable Objects, blueprint validation, replay validation |
 
 No bundler, no framework, no TypeScript. `physics.js` and `sim.js` never touch a
 browser API, which is the only reason the relay and the headless tools can run them.
+
+## The physics is real, and it is measured
+
+The solver is written from scratch: convex polygons and circles, SAT with clipped
+two-point manifolds, warm starting, sequential impulses with accumulated-impulse
+clamping, a 2×2 block solve, non-linear position correction, union-find islands and
+sleeping, and rolling resistance at contacts. `tools/physics-test.mjs` asserts what it
+does rather than claiming it:
+
+| scene | result |
+| --- | --- |
+| 10-cube stack | asleep in 0.97 s, drift 0.000075 |
+| three-tier post-and-plank pyramid | asleep, standing, max travel 0.021 |
+| dropped ball, e = 0.72 | measured 0.723, 0.47% error |
+| box on a 20° ramp | µ 0.6 slides 0.002, µ 0.2 slides 15.9 |
+| 200 bodies into a bin | all asleep by 6 s, none escaped |
+
+Sleeping is a **game rule**, not an optimisation: "the world has settled" ends a round,
+validates a blueprint and locks a score.
 
 ## How the netcode works
 
@@ -83,21 +106,35 @@ the budget and the legality rules, settles it under gravity itself, and ships th
 settled result to both sides. You do not get to attack a tower that has not stood up
 on its own first.
 
-## Development
+That whole model rests on one assumption, so it is **measured rather than assumed**:
+`npm run test:determinism:all` runs the same seeded physics scenario and the same
+seeded round of the real game in V8, SpiderMonkey and JavaScriptCore, and compares a
+hash of the raw IEEE-754 bits of every body pose and every hit point. All four engines
+agree at every checkpoint. That is only possible because the simulation stores rotation
+as a `(cos, sin)` pair integrated with arithmetic alone and never calls a `Math`
+function beyond `sqrt` — see [`ARCHITECTURE.md`](ARCHITECTURE.md) §3.
 
-Nothing to run yet. Once phase 1 lands:
+## Development
 
 ```bash
 npm install
-npm run serve         # static server on :4173
-npm run dev           # wrangler dev, the relay, on :8787
-npm run check         # syntax gate plus headless physics and rules checks
-npm test              # solo browser smoke test
-npm run test:mp       # two browsers against a real relay
-npm run test:determinism  # same seed in node, chromium, firefox and webkit
-npm run balance       # draft card and fortress balance harness
-npm run deploy        # deploy the relay
+npm run serve                 # static server on :4173 — this plays the game
+npm run check                 # data invariants, simulation purity, line budgets,
+                              # cache stamps, plan drift, plus the headless suites
+npm test                      # 22 assertions driving the real page, desktop and portrait touch
+npm run test:determinism:all  # four JS engines, physics and sim scenarios
+node tools/frame-shot.mjs     # write an inspection frame to shots/
+node tools/state-shots.mjs    # play a real round and capture each state
+node tools/progress.mjs --full  # where the build is up to
 ```
+
+Not wired up yet: `npm run dev` and `npm run deploy` (no relay until P6),
+`npm run test:mp`, `npm run balance`.
+
+`npm run test:determinism:all` runs inside the official Playwright container under
+podman, because WebKit will not launch on an atomic host. The plain
+`npm run test:determinism` covers three engines and **exits non-zero** on the missing
+fourth rather than quietly reporting success on a partial run.
 
 ## Licence and attribution
 
