@@ -139,6 +139,13 @@ critter to spare. Plus: **every level must pass `validate` and `settleTest`**, a
 for all 52, because a level that collapses before the first shot is not a difficulty
 choice.
 
+**And every level gets looked at.** `tools/level-shots.mjs` renders each one after its
+settle and builds a contact sheet of the whole campaign. An episode is not done until the
+contact sheet has been reviewed. A level can pass validation, settle cleanly, be
+completable by a bot, and still be a bad level — too similar to its neighbour, an
+unreadable silhouette, or a difficulty spike — and none of that is visible in a table of
+numbers. This is rule 3 applied to content instead of to code.
+
 ---
 
 ## P6 — Relay and online Siege
