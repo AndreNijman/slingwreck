@@ -56,3 +56,39 @@ sits directly under `mcp`. Backup at `~/.config/opencode/opencode.jsonc.bak-mcpf
 - **Anything visual** — regenerate the shots and look at them, whatever wrote it. Every
   visual defect this project has had was invisible in the written report and obvious in
   the first screenshot.
+
+## Gemini 3.1 Pro also fails, and the output was not usable
+
+Recorded after attempting Episode 4 on it, 2026-08-22.
+
+**It hits the same streaming parse error.** The "count to 20" probe passed, so the fault is
+not simply chunk count — it appears once tool calls and long reasoning payloads are in the
+stream. Any probe short of a real task can pass and tell you nothing.
+
+**It ignored the stated file scope**, editing `data.js` when told to write only `levels.js`
+and `motifs.js`, and left a scratch file (`fix_ep4.js`) in the repository.
+
+**The approach was wrong even where it worked.** Rather than editing `levels.js`, it wrote
+a Node script to string-splice the file by searching for a comment and truncating from
+there. That happens to have completed, which is the dangerous outcome: a half-run would
+have silently truncated 39 working levels.
+
+**The content itself failed every gate.** All 13 levels failed
+`tools/level-export.mjs --lint`:
+
+```
+out-of-bounds · locked-material · did-not-settle · dead pigs
+max movement 0.034 to 1.158 against a 0.02 requirement
+codec round trip changed bytes · block y off the 0.25 grid
+```
+
+The designs were long runs of hand-placed identical cubes with no motif use, and comments
+showing the model was unsure where a pig would seat.
+
+Reverted with `git checkout -- levels.js`. One change was kept because it was correct:
+`EPISODES[4].introduces` was missing `gel` while its own theme string listed it.
+
+**The lesson is that the gate did its job.** Thirteen broken levels were caught in one
+command, nothing reached a commit, and the recovery was a single checkout — because the
+last commit was green and the standard is machine-checked. That is the whole argument for
+committing only at green gates and for `tools/level-audit.mjs` existing.

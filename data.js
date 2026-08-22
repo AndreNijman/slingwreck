@@ -749,7 +749,7 @@ export const EPISODES = [
     number: 4,
     name: 'Ironworks',
     theme: 'iron, gel, moving platforms',
-    introduces: ['hulk', 'zip', 'sarge', 'iron']
+    introduces: ['hulk', 'zip', 'sarge', 'iron', 'gel']
   }
 ];
 

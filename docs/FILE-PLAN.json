@@ -94,7 +94,7 @@
     {
       "path": "levels.js",
       "phase": "P5",
-      "budget": 800,
+      "budget": 2000,
       "imports": [
         "data.js",
         "motifs.js"
