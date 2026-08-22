@@ -59,3 +59,42 @@ step is repeatable rather than a one-off message.
 - 2026-08-22 `P1.6` **done** — tools/physics-test.mjs — the seven solver assertions. Seven gates. Reviewed: pyramid scene had 4-wide planks at 3-unit spacing so adjacent planks overlapped by a unit; the 0.75 threshold was hiding it. Fixed geometry, tightened to 0.05, added assertNoOverlap to every hand-placed scene and maxPenetration() to physics.js.
 
 - 2026-08-22 `P1.7` **done** — P1 gate — check + determinism green against the full solver, commit. Four engines bit-identical with the full solver. Determinism risk closed.
+
+### P1 complete — 2026-08-22
+
+The determinism gate is green with the full solver. **V8, SpiderMonkey and
+JavaScriptCore produce bit-identical digests over 1800 steps** with SAT, clipped
+two-point manifolds, warm starting, eight impulse iterations, a 2x2 block solve,
+three position iterations, union-find islands and sleeping all active.
+
+That was the project's largest open risk and it is closed. The relay audit model in
+`ARCHITECTURE.md` §5 is viable; the lenient fallback is not needed.
+
+Physics quality, measured rather than asserted:
+
+| scene | result |
+| --- | --- |
+| 10-cube stack | asleep in 0.97 s, drift 0.000074 |
+| 3-tier post-and-plank pyramid | asleep, top intact, max travel 0.022 |
+| dropped ball, e = 0.72 | measured 0.729, 1.30% error |
+| box on a 20 degree ramp | mu 0.6 slides 0.00001, mu 0.2 slides 16.3 |
+| 200 bodies into a bin | all asleep by 6 s, none escaped |
+
+Three defects found reviewing the delegated work, all fixed:
+
+1. `rng(0)` returned zero forever — xorshift32's absorbing state. Seeds arrive from
+   the wire, so zero is not a hypothetical input, and a dead RNG does not look like a
+   bug, it looks like a match where nothing is randomised.
+2. The `maxSpeed` clamp ran before the velocity solver, leaving contact impulses
+   unbounded for the position integration immediately after. One frame through the
+   floor.
+3. The pyramid gate used 4-wide planks at 3-unit spacing, so adjacent planks started
+   a full unit inside each other. The whole 30 seconds was the structure climbing out
+   of that, 0.54 units of travel, passing against a 0.75 threshold chosen to fit the
+   observed number. Corrected geometry moves 0.022. `maxPenetration()` now exists in
+   `physics.js` and every hand-placed scene asserts it starts clean.
+
+The third is the one worth remembering: **a threshold picked after seeing the
+measurement is not a gate, it is a record of one run.**
+
+Next: P2, the vertical slice. Tasks P2.1 to P2.8 are in `BUILD_STATE.json`.

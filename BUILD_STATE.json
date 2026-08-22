@@ -3,8 +3,8 @@
   "domain": "slingwreck.andrenijman.com",
   "relay": "slingwreck-relay",
   "architectureRevision": 1,
-  "phase": "P1",
-  "phaseName": "Physics core",
+  "phase": "P2",
+  "phaseName": "Vertical slice",
   "phases": [
     {
       "id": "P0",
@@ -15,13 +15,13 @@
     {
       "id": "P1",
       "name": "Physics core",
-      "status": "doing",
+      "status": "done",
       "gate": "npm run check && npm run test:determinism"
     },
     {
       "id": "P2",
       "name": "Vertical slice",
-      "status": "todo",
+      "status": "doing",
       "gate": "npm test"
     },
     {
@@ -63,53 +63,52 @@
   ],
   "tasks": [
     {
-      "id": "P1.1",
-      "phase": "P1",
-      "status": "done",
-      "title": "data.js — TUNE, MATERIALS, SHAPES, AMMO, PIGS, CARDS",
-      "note": "697 lines. Reviewed: renamed shape wedge->tri (wire-format collision with ammo wedge), replaced hand-written index maps with loops, dropped CONTROLS, removed the unreachable match-point tier rule. 10 design gaps tracked as P3.0."
+      "id": "P2.1",
+      "phase": "P2",
+      "status": "todo",
+      "title": "sim.js \u2014 world build from a level blueprint, slingshot launch, camera-independent round state"
     },
     {
-      "id": "P1.2",
-      "phase": "P1",
-      "status": "done",
-      "title": "physics.js core — deterministic scalar math, bodies, (c,s) rotation, integration, digest",
-      "note": "303 lines. Reviewed: fixed xorshift seed-0 absorbing state, moved the maxSpeed clamp to after solveVelocity (impulses could tunnel), addBody now accepts vx/vy/av. FNV shift-add and triangle inertia verified correct."
+      "id": "P2.2",
+      "phase": "P2",
+      "status": "todo",
+      "title": "sim.js \u2014 impulse damage model, block destruction, pig death, settle detection, event list"
     },
     {
-      "id": "P1.3",
-      "phase": "P1",
-      "status": "done",
-      "title": "tools/determinism-test.mjs — run against integration-only, across node + 3 browser engines",
-      "note": "All four engines bit-identical over 1800 steps, WebKit via podman. npm run test:determinism:all."
+      "id": "P2.3",
+      "phase": "P2",
+      "status": "todo",
+      "title": "tools/sim-test.mjs \u2014 headless rules assertions: launch, damage thresholds, settle, scoring"
     },
     {
-      "id": "P1.4",
-      "phase": "P1",
-      "status": "done",
-      "title": "physics.js solver — broadphase, SAT, manifolds, sequential impulses, position solve",
-      "note": "924 lines. SAT + clipped 2-point manifolds + warm start + 2x2 block solve; Baumgarte confined to the position pass as specified."
+      "id": "P2.4",
+      "phase": "P2",
+      "status": "todo",
+      "title": "render.js \u2014 canvas 2D, three materials and one critter, art direction settled here"
     },
     {
-      "id": "P1.5",
-      "phase": "P1",
-      "status": "done",
-      "title": "physics.js islands — union-find, sleeping, waking, raycast",
-      "note": "Union-find islands excluding statics, sleeping, isSettled, raycast/raycastAll."
+      "id": "P2.5",
+      "phase": "P2",
+      "status": "todo",
+      "title": "index.html + style.css + game.js \u2014 fixed-step accumulator, drag-aim slingshot, win/lose/retry"
     },
     {
-      "id": "P1.6",
-      "phase": "P1",
-      "status": "done",
-      "title": "tools/physics-test.mjs — the seven solver assertions",
-      "note": "Seven gates. Reviewed: pyramid scene had 4-wide planks at 3-unit spacing so adjacent planks overlapped by a unit; the 0.75 threshold was hiding it. Fixed geometry, tightened to 0.05, added assertNoOverlap to every hand-placed scene and maxPenetration() to physics.js."
+      "id": "P2.6",
+      "phase": "P2",
+      "status": "todo",
+      "title": "tools/stamp.mjs \u2014 rewrite the ?v= cache stamp across every importing file"
     },
     {
-      "id": "P1.7",
-      "phase": "P1",
-      "status": "done",
-      "title": "P1 gate — check + determinism green against the full solver, commit",
-      "note": "Four engines bit-identical with the full solver. Determinism risk closed."
+      "id": "P2.7",
+      "phase": "P2",
+      "status": "todo",
+      "title": "tools/smoke.mjs \u2014 Playwright: boot, drag, fire, kill a pig, see the win screen"
+    },
+    {
+      "id": "P2.8",
+      "phase": "P2",
+      "status": "todo",
+      "title": "P2 gate \u2014 npm test green, re-run test:determinism:all, commit"
     },
     {
       "id": "P3.0",
