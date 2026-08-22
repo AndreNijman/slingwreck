@@ -103,14 +103,41 @@ validation always settles.
 
 ## P5 — Campaign
 
-`levels.js`, 52 levels authored in the editor and exported, episode and level select,
-three-star thresholds, progress save through `/_guard/profile` with `localStorage`
-fallback.
+`levels.js`, 52 levels, episode and level select, three-star thresholds, progress save
+through `/_guard/profile` with `localStorage` fallback.
 
-**Gate:** `tools/balance.mjs --campaign` — a bot plays every level; flags any level
-that is unwinnable, any where three stars is impossible, and any where three stars
-falls out of firing at the ground. Every level must be completable by the bot with
-at least one critter to spare.
+### A correction to how the levels get authored
+
+P0 said the levels would be "authored in the Siege fortress editor and exported", and
+that the editor would therefore get enough use to become good. The second half holds. The
+first half does not survive contact with how this project is actually built: 52 levels
+placed piece by piece through a pointer is not something this workflow can do, and
+pretending otherwise would mean either 52 bad levels or a stalled phase.
+
+So the authoring path is inverted, and the editor's role changes rather than disappears:
+
+- **Levels are authored as data** — blueprint literals in `levels.js`, built from a small
+  set of structural motifs (a tower, a bunker, a bridge, a stack) composed and varied per
+  level. Composition in code is *better* for a set of 52 that has to teach a mechanic per
+  episode, because the progression can be reasoned about directly rather than eyeballed.
+- **Every level is then validated through `build.js`**, which already exists and already
+  enforces the rules: inside the plot, nothing overlapping at rest, and — the one that
+  matters most here — it must pass `settleTest`, so no shipped level can collapse on its
+  own before the player takes a shot.
+- **The editor is where levels get inspected and tuned.** `tools/level-export.mjs` gains
+  a companion: load any level *into* the editor by index, adjust it, copy the encoded
+  string back out. That is the loop that makes a level good, and it is the loop the
+  editor's export and import were built for.
+
+The editor still earns its cost: Siege cannot exist without it, and it is the only way to
+look at a level and change one plank.
+
+**Gate:** `tools/balance.mjs --campaign` — a bot plays every level; flags any level that
+is unwinnable, any where three stars is impossible, and any where three stars falls out
+of firing at the ground. Every level must be completable by the bot with at least one
+critter to spare. Plus: **every level must pass `validate` and `settleTest`**, asserted
+for all 52, because a level that collapses before the first shot is not a difficulty
+choice.
 
 ---
 
