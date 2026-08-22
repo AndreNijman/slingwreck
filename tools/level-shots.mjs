@@ -93,6 +93,7 @@ const html = `<!doctype html>
 <script type="module">
 import { TUNE } from '/data.js';
 import { LEVELS } from '/levels.js';
+import { SETTLE_MOVE_TOLERANCE } from '/build.js';
 import { makeRound, stepRound } from '/sim.js';
 import { draw, frameRect, makeCamera, makeRenderer } from '/render.js';
 
@@ -100,6 +101,15 @@ const WIDTH = ${width};
 const HEIGHT = ${height};
 const SHOT_SEED = 0x51a9e11;
 const SAMPLE_STRIDE = 4;
+const FRAME_MARGIN = 1.5;
+const MIN_FRAME_WIDTH = 10;
+const GROUND_LINE = 0.78;
+const MOVE_ATTENTION = SETTLE_MOVE_TOLERANCE / 10;
+const TILE_W = 320;
+const IMAGE_H = 180;
+const LABEL_H = 58;
+const SHEET_GAP = 16;
+const SHEET_PAD = 20;
 const frame = document.querySelector('#frame');
 const background = document.querySelector('#background');
 const sheet = document.querySelector('#sheet');
@@ -110,14 +120,76 @@ const captures = new Map();
 renderer.now = () => 0;
 backgroundRenderer.now = () => 0;
 
-function cameraForPlot() {
+function bodyBounds(body) {
+  if (body.kind === 'circle') {
+    return {
+      minX: body.x - body.r,
+      minY: body.y - body.r,
+      maxX: body.x + body.r,
+      maxY: body.y + body.r
+    };
+  }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let index = 0; index < body.verts.length; index += 2) {
+    const x = body.x + body.c * body.verts[index] - body.s * body.verts[index + 1];
+    const y = body.y + body.s * body.verts[index] + body.c * body.verts[index + 1];
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function structureBounds(round) {
+  const bodies = [...round.blocks, ...round.pigs, ...round.balloons]
+    .filter((body) => !body.dead);
+  if (!bodies.length) throw new Error('settled level has no live placed pieces');
+  const bounds = {
+    minX: Infinity,
+    minY: Infinity,
+    maxX: -Infinity,
+    maxY: -Infinity
+  };
+  for (const body of bodies) {
+    const bodyBox = bodyBounds(body);
+    bounds.minX = Math.min(bounds.minX, bodyBox.minX);
+    bounds.minY = Math.min(bounds.minY, bodyBox.minY);
+    bounds.maxX = Math.max(bounds.maxX, bodyBox.maxX);
+    bounds.maxY = Math.max(bounds.maxY, bodyBox.maxY);
+  }
+  return bounds;
+}
+
+function cameraForStructure(round) {
+  const bounds = structureBounds(round);
+  const structureWidth = bounds.maxX - bounds.minX;
+  const contentWidth = structureWidth + FRAME_MARGIN * 2;
+  const contentTop = Math.max(0, bounds.maxY) + FRAME_MARGIN;
+  const aspect = WIDTH / HEIGHT;
+  const viewH = Math.max(
+    Math.max(MIN_FRAME_WIDTH, contentWidth) / aspect,
+    contentTop / GROUND_LINE
+  );
+  const viewW = viewH * aspect;
+  const centreX = (bounds.minX + bounds.maxX) / 2;
   const camera = makeCamera();
   camera.canvasW = WIDTH;
   camera.canvasH = HEIGHT;
   camera.viewportW = WIDTH;
   camera.viewportH = HEIGHT;
-  frameRect(camera, TUNE.slingX - 0.8, 0, TUNE.plotW, TUNE.plotH, 0.6);
-  return camera;
+  frameRect(camera, centreX - viewW / 2, 0, centreX + viewW / 2, viewH, 0);
+  camera.y = viewH * (GROUND_LINE - 0.5);
+  return {
+    bounds,
+    camera,
+    framedWidth: camera.viewportW / camera.scale,
+    pixelsPerUnit: camera.scale,
+    structureWidth
+  };
 }
 
 function movement(body, start) {
@@ -149,13 +221,11 @@ function settle(level) {
   const steps = Math.ceil(TUNE.blueprintSettleSeconds / TUNE.step);
   for (let step = 0; step < steps; step++) stepRound(round, TUNE.step);
   let maxMovement = 0;
-  let moved = false;
   for (const record of starts) {
     const distance = movement(record.body, record.pose);
     maxMovement = Math.max(maxMovement, distance);
-    if (record.body.dead || distance > 1e-7) moved = true;
   }
-  return { round, moved, maxMovement };
+  return { round, maxMovement };
 }
 
 function backgroundOnly(round) {
@@ -198,11 +268,12 @@ function renderLevel(id) {
   const level = levels.get(id);
   if (!level) throw new RangeError('unknown level id: ' + id);
   const result = settle(level);
-  const camera = cameraForPlot();
+  const framing = cameraForStructure(result.round);
+  const camera = framing.camera;
   renderer.effects = [];
   renderer.trail = [];
-  draw(renderer, result.round, camera, 1, null);
-  draw(backgroundRenderer, backgroundOnly(result.round), { ...camera }, 1, null);
+  draw(renderer, result.round, camera, 1, null, {});
+  draw(backgroundRenderer, backgroundOnly(result.round), { ...camera }, 1, null, {});
   const sample = foregroundRatio();
   const pieceCount = level.blueprint.blocks.length + level.blueprint.pigs.length;
   captures.set(id, {
@@ -214,30 +285,41 @@ function renderLevel(id) {
   return {
     id,
     pieceCount,
-    moved: result.moved,
     maxMovement: result.maxMovement,
+    movementAttention: MOVE_ATTENTION,
+    framedWidth: framing.framedWidth,
+    pixelsPerUnit: framing.pixelsPerUnit,
+    structureWidth: framing.structureWidth,
+    tilePixelsPerUnit: framing.pixelsPerUnit * TILE_W / WIDTH,
     foregroundRatio: sample.ratio,
     foregroundSamples: sample.foreground,
     totalSamples: sample.samples
   };
 }
 
+function sheetLayout(tileCount) {
+  if (!Number.isInteger(tileCount) || tileCount < 1) {
+    throw new RangeError('contact sheet needs at least one level');
+  }
+  const columns = Math.ceil(Math.sqrt(tileCount));
+  const rows = Math.ceil(tileCount / columns);
+  return {
+    columns,
+    rows,
+    width: SHEET_PAD * 2 + columns * TILE_W + (columns - 1) * SHEET_GAP,
+    height: SHEET_PAD * 2 + rows * (IMAGE_H + LABEL_H) + (rows - 1) * SHEET_GAP
+  };
+}
+
 function buildSheet(ids) {
-  if (!ids.length) throw new Error('contact sheet needs at least one level');
+  const layout = sheetLayout(ids.length);
   const tiles = ids.map((id) => {
     const tile = captures.get(id);
     if (!tile) throw new Error('level has no captured tile: ' + id);
     return tile;
   });
-  const tileW = 320;
-  const imageH = 180;
-  const labelH = 58;
-  const gap = 16;
-  const pad = 20;
-  const columns = Math.ceil(Math.sqrt(tiles.length));
-  const rows = Math.ceil(tiles.length / columns);
-  sheet.width = pad * 2 + columns * tileW + (columns - 1) * gap;
-  sheet.height = pad * 2 + rows * (imageH + labelH) + (rows - 1) * gap;
+  sheet.width = layout.width;
+  sheet.height = layout.height;
   sheet.style.width = sheet.width + 'px';
   sheet.style.height = sheet.height + 'px';
   sheet.hidden = false;
@@ -247,28 +329,28 @@ function buildSheet(ids) {
   ctx.textBaseline = 'alphabetic';
   for (let index = 0; index < tiles.length; index++) {
     const tile = tiles[index];
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-    const x = pad + column * (tileW + gap);
-    const y = pad + row * (imageH + labelH + gap);
-    ctx.drawImage(tile.canvas, x, y, tileW, imageH);
+    const column = index % layout.columns;
+    const row = Math.floor(index / layout.columns);
+    const x = SHEET_PAD + column * (TILE_W + SHEET_GAP);
+    const y = SHEET_PAD + row * (IMAGE_H + LABEL_H + SHEET_GAP);
+    ctx.drawImage(tile.canvas, x, y, TILE_W, IMAGE_H);
     ctx.strokeStyle = '#2b211c';
     ctx.lineWidth = 2;
-    ctx.strokeRect(x + 1, y + 1, tileW - 2, imageH - 2);
+    ctx.strokeRect(x + 1, y + 1, TILE_W - 2, IMAGE_H - 2);
     ctx.fillStyle = '#e8d5b0';
-    ctx.fillRect(x, y + imageH, tileW, labelH);
+    ctx.fillRect(x, y + IMAGE_H, TILE_W, LABEL_H);
     ctx.fillStyle = '#2b211c';
     ctx.font = 'bold 15px monospace';
     ctx.fillText(tile.id + '  |  ' + tile.pieceCount + ' pieces',
-      x + 10, y + imageH + 22, tileW - 20);
+      x + 10, y + IMAGE_H + 22, TILE_W - 20);
     ctx.font = '13px monospace';
     ctx.fillText('bag: ' + tile.bag.join(', '),
-      x + 10, y + imageH + 45, tileW - 20);
+      x + 10, y + IMAGE_H + 45, TILE_W - 20);
   }
-  return { width: sheet.width, height: sheet.height, tiles: tiles.length };
+  return { ...layout, tiles: tiles.length };
 }
 
-window.__LEVEL_SHOTS__ = Object.freeze({ buildSheet, renderLevel });
+window.__LEVEL_SHOTS__ = Object.freeze({ buildSheet, renderLevel, sheetLayout });
 document.documentElement.dataset.ready = 'yes';
 </script>`;
 
@@ -329,16 +411,21 @@ try {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForSelector('html[data-ready="yes"]');
 
-  console.log('level       pieces  moved');
+  console.log('level       pieces  max move    tile px/u');
   const captured = [];
+  const measurements = [];
   for (const level of options.levels) {
     const pieceCount = level.blueprint.blocks.length + level.blueprint.pigs.length;
     try {
       const result = await page.evaluate((id) => window.__LEVEL_SHOTS__.renderLevel(id), level.id);
       await page.locator('#frame').screenshot({ path: resolve(shotDir, `${level.id}.png`) });
       captured.push(level.id);
+      measurements.push(result);
+      const movementFlag = result.maxMovement > result.movementAttention ? ' !' : '  ';
       console.log(
-        `${level.id.padEnd(12)}${String(pieceCount).padStart(6)}  ${result.moved ? 'YES' : 'no'}`
+        `${level.id.padEnd(12)}${String(pieceCount).padStart(6)}  ` +
+        `${result.maxMovement.toFixed(5).padStart(8)}${movementFlag}  ` +
+        `${result.tilePixelsPerUnit.toFixed(2).padStart(9)}`
       );
       if (result.pieceCount !== pieceCount) {
         issues.push(`${level.id}: browser counted ${result.pieceCount} pieces; Node counted ${pieceCount}`);
@@ -353,6 +440,20 @@ try {
       console.log(`${level.id.padEnd(12)}${String(pieceCount).padStart(6)}  ERROR`);
       issues.push(`${level.id}: ${error.message}`);
     }
+  }
+
+  if (measurements.length) {
+    const tightest = measurements.reduce((best, row) =>
+      row.structureWidth < best.structureWidth ? row : best);
+    const widest = measurements.reduce((best, row) =>
+      row.structureWidth > best.structureWidth ? row : best);
+    console.log(
+      `scale: tightest ${tightest.id} ${tightest.tilePixelsPerUnit.toFixed(2)} tile px/unit ` +
+      `(${tightest.pixelsPerUnit.toFixed(2)} capture); widest ${widest.id} ` +
+      `${widest.tilePixelsPerUnit.toFixed(2)} tile px/unit ` +
+      `(${widest.pixelsPerUnit.toFixed(2)} capture)`
+    );
+    console.log(`! movement exceeds ${measurements[0].movementAttention.toFixed(5)} world units`);
   }
 
   if (options.makeSheet) {

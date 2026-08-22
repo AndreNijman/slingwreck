@@ -72,9 +72,9 @@
     {
       "id": "P5.1d",
       "phase": "P5",
-      "status": "doing",
+      "status": "done",
       "title": "tools/level-shots.mjs — a PNG per level plus a contact sheet of the whole campaign",
-      "note": "Andre asked for a shot of every level as they land. The contact sheet is the point: progression, silhouette variety and outliers are only visible with all levels side by side. Blank-frame detection is required - an all-sky tile looks fine in a grid and means the camera missed the fortress."
+      "note": "Per-level PNGs plus an adaptive contact sheet (8x7 for 52), settled framing on the structure bounds with a 10-unit minimum, numeric movement column flagged above 0.005, blank-frame detection demonstrated. First pass framed sling-to-plot at 9 px/unit which made every structure unreadable - third time this project has framed the whole playfield instead of the subject."
     },
     {
       "id": "P5.2",
