@@ -187,11 +187,24 @@ without being asked.
    debuggable; `PASS` is not.
 7. **An ability, trait or material that does nothing measurable is a bug.** Every one
    gets an assertion comparing with-behaviour against without-behaviour, printing both.
-8. **When a tuning value moves, fixtures break — fix them as fixtures.** Moving the
+   But note the weakness: *"changes the outcome"* is not *"improves the outcome"*. An
+   ability that makes things strictly worse passes that assertion. `tools/playtest.mjs`
+   carries the stronger criterion — an ability fails if **no** tap timing anywhere beats
+   not tapping at all.
+8. **Check whether the metric is saturated before believing it.** `chip` appeared to do
+   nothing for glass because both the tapped and untapped runs reported 36.0 damage. The
+   fixture contained exactly 36 hit points of glass: both runs destroyed all of it and
+   the number was the ceiling, not a null result. Report damage against the total
+   available, so a saturated measurement looks saturated.
+9. **One fixed test condition measures the condition, not the subject.** Tapping every
+   ability at the same instant made `lob` look broken — a detonator triggered in open
+   air mid-flight *should* underperform one allowed to reach the target. Sweep the
+   variable and report the best, plus where the best was.
+10. **When a tuning value moves, fixtures break — fix them as fixtures.** Moving the
    slingshot broke four tests that had the old geometry baked in. Updating a fixture's
    *geometry* is correct; relaxing its *threshold* to accommodate the change is how a
    suite quietly stops meaning anything.
-9. **Delegated work is a claim, not evidence.** Every task so far needed corrections
+11. **Delegated work is a claim, not evidence.** Every task so far needed corrections
    after its report said everything passed.
 
 ## Estimated size
