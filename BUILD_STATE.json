@@ -72,7 +72,7 @@
     {
       "id": "P5.1d",
       "phase": "P5",
-      "status": "todo",
+      "status": "doing",
       "title": "tools/level-shots.mjs — a PNG per level plus a contact sheet of the whole campaign",
       "note": "Andre asked for a shot of every level as they land. The contact sheet is the point: progression, silhouette variety and outliers are only visible with all levels side by side. Blank-frame detection is required - an all-sky tile looks fine in a grid and means the camera missed the fortress."
     },

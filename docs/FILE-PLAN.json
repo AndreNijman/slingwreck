@@ -172,6 +172,11 @@
       "job": "Drive the real fortress editor and capture empty, building, invalid and failed-settle frames at desktop and portrait sizes while failing on browser runtime issues."
     },
     {
+      "path": "tools/level-shots.mjs",
+      "phase": "P5",
+      "job": "Settle selected campaign blueprints through the real simulation, render deterministic 960x540 level frames in headless Chromium, reject blank or errored captures, and build a labelled in-page contact sheet for progression review."
+    },
+    {
       "path": "tools/level-export.mjs",
       "phase": "P5",
       "job": "Two directions. Out: encode a level into a copyable blueprint string. In: load level N into the editor for tuning. Also lints every level in levels.js through build.js validate + settleTest, because a shipped level that collapses before the first shot is not a difficulty choice. See the P5 authoring correction in docs/BUILD_PLAN.md."

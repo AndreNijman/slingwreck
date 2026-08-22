@@ -396,3 +396,5 @@ that cannot survive serialisation should not exist in the editor at all.
 - 2026-08-22 `P5.1` **doing** — Structural motif library — tower, bunker, bridge, stack, keep; composable and parameterised
 
 - 2026-08-22 `P5.1` **done** — Structural motif library — tower, bunker, bridge, stack, keep; composable and parameterised. Six parameterised motifs with settle assertions at default and extreme parameters, campaign/siege rule split, three example levels, bidirectional level-export tool. Fixed along the way: gridSnap 0.5 could not express a plank's 0.25 half-height and no pig radius aligned to any grid, so settleTest had been loosened to 0.55 units - grid is now 0.25, pigs seat themselves by raycast, movement is 0.0002-0.011 against a strict 0.05. Then found the tight tolerance rejected every Zeppelin Hog, which would have broken all of Episode 3; exempted by traits.balloon and added drift-extreme bounds checking.
+
+- 2026-08-22 `P5.1d` **doing** — tools/level-shots.mjs — a PNG per level plus a contact sheet of the whole campaign
