@@ -86,26 +86,30 @@
     {
       "id": "P1.4",
       "phase": "P1",
-      "status": "todo",
-      "title": "physics.js solver — broadphase, SAT, manifolds, sequential impulses, position solve"
+      "status": "done",
+      "title": "physics.js solver — broadphase, SAT, manifolds, sequential impulses, position solve",
+      "note": "924 lines. SAT + clipped 2-point manifolds + warm start + 2x2 block solve; Baumgarte confined to the position pass as specified."
     },
     {
       "id": "P1.5",
       "phase": "P1",
-      "status": "todo",
-      "title": "physics.js islands — union-find, sleeping, waking, raycast"
+      "status": "done",
+      "title": "physics.js islands — union-find, sleeping, waking, raycast",
+      "note": "Union-find islands excluding statics, sleeping, isSettled, raycast/raycastAll."
     },
     {
       "id": "P1.6",
       "phase": "P1",
-      "status": "todo",
-      "title": "tools/physics-test.mjs — the seven solver assertions"
+      "status": "done",
+      "title": "tools/physics-test.mjs — the seven solver assertions",
+      "note": "Seven gates. Reviewed: pyramid scene had 4-wide planks at 3-unit spacing so adjacent planks overlapped by a unit; the 0.75 threshold was hiding it. Fixed geometry, tightened to 0.05, added assertNoOverlap to every hand-placed scene and maxPenetration() to physics.js."
     },
     {
       "id": "P1.7",
       "phase": "P1",
-      "status": "todo",
-      "title": "P1 gate — check + determinism green against the full solver, commit"
+      "status": "done",
+      "title": "P1 gate — check + determinism green against the full solver, commit",
+      "note": "Four engines bit-identical with the full solver. Determinism risk closed."
     },
     {
       "id": "P3.0",
@@ -126,7 +130,7 @@
   "guardRegistered": false,
   "dnsConfigured": false,
   "openRisks": [
-    "PARTLY RESOLVED 2026-08-22: cross-engine float determinism holds for the integrator. V8, SpiderMonkey and JavaScriptCore produce bit-identical digests over 1800 steps. Must be re-run after the solver lands, since the solver adds far more arithmetic than the integrator has. Re-run with `npm run test:determinism:all` (podman; WebKit cannot launch on this host directly).",
+    "RESOLVED 2026-08-22: cross-engine float determinism holds with the FULL solver. V8, SpiderMonkey and JavaScriptCore produce bit-identical digests over 1800 steps with SAT, manifolds, warm starting, impulses, position solve and sleeping all active. The relay audit model in ARCHITECTURE.md section 5 is viable and the lenient fallback is not needed. Re-run with `npm run test:determinism:all` after any change to physics.js or sim.js (podman; WebKit cannot launch on this host directly).",
     "The airlift + gale + bedrock card combination may be a defensive lock. Intended fix is mutual exclusion in the draw, not a nerf.",
     "52 authored campaign levels is the largest single time cost in the plan and depends on the editor being pleasant to use, which is why P4 precedes P5.",
     "Simultaneous siege means the loser watches their own fortress fall in a 260x150 window. If that reads as noise rather than tension the mode's core hook fails, and it cannot be evaluated before P6."

@@ -12,7 +12,8 @@
     {
       "path": "physics.js",
       "phase": "P1",
-      "budget": 900,
+      "budget": 1100,
+      "budgetNote": "Raised from 900 after P1. The solver landed at 898 lines against a 900 budget, which is not a coincidence — blank lines between functions had been squeezed out to fit. A budget that buys itself by deleting the comments explaining a sequential-impulse solver is a bad trade.",
       "imports": ["data.js"],
       "job": "Rigid bodies, sort-and-sweep broadphase, SAT narrowphase with clipped manifolds, sequential impulse solver, position solver, island sleeping, raycast, seeded xorshift. Knows nothing about pigs or scores."
     },

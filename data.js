@@ -7,6 +7,7 @@ export const TUNE = {
   positionIters: 3,
   baumgarte: 0.20,
   slop: 0.005,
+  restitutionThreshold: 1.0,
   sleepLinear: 0.06,
   sleepAngular: 0.12,
   sleepTime: 0.55,

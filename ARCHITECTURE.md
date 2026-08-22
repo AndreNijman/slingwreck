@@ -89,11 +89,12 @@ ascending id order. It deliberately does not round or format first: a digest bui
 from `toFixed(6)` would report success on precisely the last-bit divergence the test
 exists to find.
 
-**Result, 2026-08-22, integration only (no solver yet):** V8, SpiderMonkey and
-JavaScriptCore agree bit-for-bit at all seven checkpoints over 1800 steps. The
-approach holds. It must be re-run after the solver lands, because `sqrt` is the only
-transcendental-adjacent operation in the integrator and the solver adds far more
-arithmetic — but the representation itself is proven portable.
+**Result, 2026-08-22, full solver:** V8, SpiderMonkey and JavaScriptCore agree
+bit-for-bit at all seven checkpoints over 1800 steps of 40 mixed bodies, with SAT,
+clipped two-point manifolds, warm starting, eight sequential impulse iterations, a
+2×2 block solve, three position iterations, union-find islands and sleeping all
+active. This is the assumption the relay audit in §5 rests on and it is now measured
+rather than hoped for. Re-run it whenever `physics.js` or `sim.js` changes.
 
 WebKit cannot launch on this host (APEX-OS lacks the system libraries Playwright's
 WebKit build needs, and the OS is atomic so installing them does not persist).
