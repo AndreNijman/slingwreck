@@ -19,9 +19,9 @@ function block(shape, material, x, y, rotation = 0) {
   return [shape, material, x, y, rotation];
 }
 
-// Pig centres use the codec's 1/64-unit grid. The two Sty pigs are always seated on
+// Pig centres use the codec's 1/64-unit grid. Authored pigs here are always seated on
 // flat quarter-grid surfaces, so their quantised radius is the only offset required.
-const PIG_SEAT = { runt: 19 / 64, swine: 26 / 64 };
+const PIG_SEAT = { runt: 19 / 64, swine: 26 / 64, hogg: 37 / 64, helm: 27 / 64 };
 function pig(id, x, surfaceY = 0) {
   return [id, x, surfaceY + PIG_SEAT[id], 0];
 }
@@ -404,5 +404,292 @@ export const LEVELS = [
     ),
     bag: ['chip', 'nib', 'wedge'],
     stars: null
+  },
+
+  // Idea: Break the glass foot and let the stone beam fall onto the sheltered Runt instead of wasting a shot on the beam.
+  {
+    id: 'qry-01', episode: 2, index: 1, name: 'Dead Weight',
+    blueprint: tunedBlueprint(
+      composeMotifs(structure('stone beam on one bad foot', [
+        block('post', 'glass', 12, 1),
+        block('post', 'wood', 14, 1),
+        block('beam', 'stone', 13, 2.25)
+      ], [pig('runt', 13)])),
+      /* level-export:qry-01:start */ null /* level-export:qry-01:end */
+    ),
+    bag: ['nib', 'nib'], stars: null
+  },
+
+  // Idea: Shatter the glass shelf so its stone weight drops through the roofed pen onto the Runt below.
+  {
+    id: 'qry-02', episode: 2, index: 2, name: 'The Press',
+    blueprint: tunedBlueprint(
+      composeMotifs(structure('glass shelf and stone press', [
+        block('post', 'wood', 12, 1),
+        block('post', 'wood', 14, 1),
+        block('beam', 'glass', 13, 2.25),
+        block('cube', 'stone', 13, 3)
+      ], [pig('runt', 13)])),
+      /* level-export:qry-02:start */ null /* level-export:qry-02:end */
+    ),
+    bag: ['nib', 'nib'], stars: null
+  },
+
+  // Idea: Split Chip at each range to break both glass roofs and drop the paired stone weights into their enclosed pens.
+  {
+    id: 'qry-03', episode: 2, index: 3, name: 'Twin Shafts',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        bunker({
+          x: 3, width: 2, wallHeight: 2,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'glass',
+          pigs: ['runt']
+        }),
+        structure('near stone weight', [block('cube', 'stone', 4, 3.5)], []),
+        bunker({
+          x: 18, width: 2, wallHeight: 2,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'glass',
+          pigs: ['swine']
+        }),
+        structure('far stone weight', [block('cube', 'stone', 19, 3.5)], [])
+      ),
+      /* level-export:qry-03:start */ null /* level-export:qry-03:end */
+    ),
+    bag: ['chip', 'chip'], stars: null
+  },
+
+  // Idea: Harden Spike into the stone face to open the tall core; every ordinary direct hit is absorbed by the masonry.
+  {
+    id: 'qry-04', episode: 2, index: 4, name: 'Hard Face',
+    blueprint: tunedBlueprint(
+      composeMotifs(bunker({
+        x: 12, width: 2, wallHeight: 4,
+        frontMaterial: 'stone', backMaterial: 'wood', roofMaterial: 'wood',
+        pigs: ['runt']
+      })),
+      /* level-export:qry-04:start */ null /* level-export:qry-04:end */
+    ),
+    bag: ['spike', 'nib'], stars: null
+  },
+
+  // Idea: Harden Spike before the glass veil so it passes through untouched and spends its force on the stone core behind it.
+  {
+    id: 'qry-05', episode: 2, index: 5, name: 'Veiled Core',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        stack({ x: 9, height: 5, materials: 'glass' }),
+        bunker({
+          x: 11, width: 2, wallHeight: 5,
+          frontMaterial: 'stone', backMaterial: 'wood', roofMaterial: 'wood',
+          pigs: ['swine']
+        })
+      ),
+      /* level-export:qry-05:start */ null /* level-export:qry-05:end */
+    ),
+    bag: ['spike', 'spike'], stars: null
+  },
+
+  // Idea: Change Spike's arc between the short near core and the glass-veiled far core, hardening before each stone impact.
+  {
+    id: 'qry-06', episode: 2, index: 6, name: 'Two Faces',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        bunker({
+          x: 3, width: 2, wallHeight: 4,
+          frontMaterial: 'stone', backMaterial: 'wood', roofMaterial: 'wood',
+          pigs: ['runt']
+        }),
+        stack({ x: 16, height: 5, materials: 'glass' }),
+        bunker({
+          x: 18, width: 2, wallHeight: 5,
+          frontMaterial: 'stone', backMaterial: 'wood', roofMaterial: 'wood',
+          pigs: ['swine']
+        }),
+        structure('far core cap', [block('beam', 'stone', 19, 6.25)], [])
+      ),
+      /* level-export:qry-06:start */ null /* level-export:qry-06:end */
+    ),
+    bag: ['spike', 'spike'], stars: null
+  },
+
+  // Idea: Detonate the exposed end of the fuse so the TNT chain removes the glass wall and drops the capped stone roof into the Runt.
+  {
+    id: 'qry-07', episode: 2, index: 7, name: 'Short Fuse',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('three-crate fuse', [
+          block('cube', 'tnt', 10, 0.5), block('cube', 'tnt', 11, 0.5),
+          block('cube', 'tnt', 12, 0.5)
+        ], []),
+        bunker({
+          x: 13, width: 2, wallHeight: 4,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'stone',
+          pigs: ['runt']
+        }),
+        structure('quarry roof marker', [block('post', 'wood', 14, 6)], [])
+      ),
+      /* level-export:qry-07:start */ null /* level-export:qry-07:end */
+    ),
+    bag: ['lob', 'nib'], cards: ['sapper'], stars: null
+  },
+
+  // Idea: Change range to light both exposed fuses, letting each chain break a glass face and drop a different stone load.
+  {
+    id: 'qry-08', episode: 2, index: 8, name: 'Long Fuse',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('near fuse', [
+          block('cube', 'tnt', 1, 0.5), block('cube', 'tnt', 2, 0.5),
+          block('cube', 'tnt', 3, 0.5)
+        ], []),
+        bunker({
+          x: 4, width: 2, wallHeight: 3,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'stone',
+          pigs: ['runt']
+        }),
+        structure('far fuse', [
+          block('cube', 'tnt', 15, 0.5), block('cube', 'tnt', 16, 0.5),
+          block('cube', 'tnt', 17, 0.5)
+        ], []),
+        bunker({
+          x: 18, width: 2, wallHeight: 4,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'stone',
+          pigs: ['swine']
+        }),
+        structure('far fuse marker', [
+          block('pillar', 'wood', 22, 2), block('pillar', 'wood', 22, 6)
+        ], [])
+      ),
+      /* level-export:qry-08:start */ null /* level-export:qry-08:end */
+    ),
+    bag: ['lob', 'nib'], cards: ['sapper'], stars: null
+  },
+
+  // Idea: Arc Lob over the stone blast wall before detonating, because a boom on the approach leaves the shielded TNT chain out of reach.
+  {
+    id: 'qry-09', episode: 2, index: 9, name: 'Hold the Boom',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('stone blast wall', [
+          block('pillar', 'stone', 12, 2), block('pillar', 'stone', 12, 6)
+        ], []),
+        structure('shielded TNT well', [
+          block('cube', 'tnt', 14, 0.5), block('cube', 'tnt', 15, 0.5)
+        ], []),
+        structure('tall blast chamber', [
+          block('pillar', 'glass', 16, 2), block('pillar', 'glass', 16, 6),
+          block('pillar', 'wood', 18, 2), block('pillar', 'wood', 18, 6),
+          block('beam', 'stone', 17, 8.25)
+        ], [
+          pig('swine', 17)
+        ])
+      ),
+      /* level-export:qry-09:start */ null /* level-export:qry-09:end */
+    ),
+    bag: ['lob', 'spike'], cards: ['sapper'], stars: null
+  },
+
+  // Idea: Split Chip through the tall glass keel so the stone roof drops vertically through the pen and crushes the Hogg.
+  {
+    id: 'qry-10', episode: 2, index: 10, name: 'Hogg Press',
+    blueprint: tunedBlueprint(
+      composeMotifs(structure('two-bay Hogg press tower', [
+        block('pillar', 'glass', 9, 2), block('pillar', 'glass', 9, 6),
+        block('pillar', 'glass', 13, 2), block('pillar', 'glass', 13, 6),
+        block('pillar', 'wood', 17, 2), block('pillar', 'wood', 17, 6),
+        block('plank', 'stone', 11, 8.25), block('plank', 'stone', 15, 8.25),
+        block('cube', 'wood', 13, 9)
+      ], [pig('hogg', 15)])),
+      /* level-export:qry-10:start */ null /* level-export:qry-10:end */
+    ),
+    bag: ['chip', 'lob'], stars: null
+  },
+
+  // Idea: Accelerate Wedge into the tall first mast so the stepped dominoes drive sideways through Helmet Hog while the tempting roof-drop is blunted.
+  {
+    id: 'qry-11', episode: 2, index: 11, name: 'Sideways Only',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('sideways quarry dominoes', [
+          block('pillar', 'wood', 10, 2), block('pillar', 'wood', 10, 6),
+          block('post', 'stone', 10, 9), block('beam', 'wood', 10, 10.25),
+          block('pillar', 'wood', 12, 2), block('pillar', 'wood', 12, 6),
+          block('pillar', 'wood', 14, 2), block('post', 'wood', 14, 5)
+        ], []),
+        bunker({
+          x: 17, width: 2, wallHeight: 1,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'stone',
+          pigs: ['helm']
+        })
+      ),
+      /* level-export:qry-11:start */ null /* level-export:qry-11:end */
+    ),
+    bag: ['wedge', 'nib'], stars: null
+  },
+
+  // Idea: Drop the near stone press onto Hogg, then change range and topple the far mast sideways into Helmet Hog instead of dropping its roof.
+  {
+    id: 'qry-12', episode: 2, index: 12, name: 'Above and Across',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        stack({ x: 3, height: 3, materials: 'glass' }),
+        stack({ x: 7, height: 3, materials: 'wood' }),
+        structure('near Hogg press', [
+          block('plank', 'stone', 5, 3.25), block('post', 'stone', 5, 4.5)
+        ], [pig('hogg', 5)]),
+        structure('far toppling mast', [
+          block('pillar', 'wood', 16, 2), block('pillar', 'wood', 16, 6),
+          block('post', 'stone', 16, 9), block('cube', 'stone', 16, 10.5)
+        ], []),
+        bunker({
+          x: 19, width: 2, wallHeight: 1,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'stone',
+          pigs: ['helm']
+        })
+      ),
+      /* level-export:qry-12:start */ null /* level-export:qry-12:end */
+    ),
+    bag: ['chip', 'wedge', 'nib'], stars: null
+  },
+
+  // Idea: Use every specialist on its matching seam so glass, stone and TNT crush Hogg and send the final mast sideways through Helmet Hog.
+  {
+    id: 'qry-13', episode: 2, index: 13, name: 'The Whole Quarry',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        bunker({
+          x: 2, width: 2, wallHeight: 4,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'stone',
+          pigs: ['runt']
+        }),
+        structure('veiled stone core', [
+          block('pillar', 'glass', 6, 2), block('pillar', 'glass', 6, 6),
+          block('pillar', 'stone', 8, 2), block('pillar', 'stone', 8, 6),
+          block('pillar', 'wood', 10, 2), block('pillar', 'wood', 10, 6),
+          block('beam', 'stone', 9, 8.25)
+        ], [
+          pig('swine', 9)
+        ]),
+        structure('Hogg fuse and press', [
+          block('cube', 'tnt', 11, 0.5), block('cube', 'tnt', 12, 0.5),
+          block('cube', 'glass', 13, 0.5), block('cube', 'glass', 13, 1.5),
+          block('cube', 'glass', 13, 2.5), block('cube', 'glass', 13, 3.5),
+          block('cube', 'wood', 17, 0.5), block('cube', 'wood', 17, 1.5),
+          block('cube', 'wood', 17, 2.5), block('cube', 'wood', 17, 3.5),
+          block('plank', 'stone', 15, 4.25)
+        ], [pig('hogg', 15)]),
+        structure('final toppling mast', [
+          block('pillar', 'wood', 18, 2), block('pillar', 'wood', 18, 6),
+          block('pillar', 'wood', 18, 10)
+        ], []),
+        bunker({
+          x: 21, width: 2, wallHeight: 1,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'stone',
+          pigs: ['helm']
+        })
+      ),
+      /* level-export:qry-13:start */ null /* level-export:qry-13:end */
+    ),
+    bag: ['chip', 'spike', 'lob', 'wedge', 'nib'], cards: ['sapper'], stars: null
   }
 ];

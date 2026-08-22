@@ -402,3 +402,9 @@ that cannot survive serialisation should not exist in the editor at all.
 - 2026-08-22 `P5.1d` **done** — tools/level-shots.mjs — a PNG per level plus a contact sheet of the whole campaign. Per-level PNGs plus an adaptive contact sheet (8x7 for 52), settled framing on the structure bounds with a 10-unit minimum, numeric movement column flagged above 0.005, blank-frame detection demonstrated. First pass framed sling-to-plot at 9 px/unit which made every structure unreadable - third time this project has framed the whole playfield instead of the subject.
 
 - 2026-08-22 `P5.2` **doing** — Episode 1 'Sty' — 13 levels, teaches nib/chip/wedge, runt/swine, wood and glass
+
+- 2026-08-22 `P5.2` **done** — Episode 1 'Sty' — 13 levels, teaches nib/chip/wedge, runt/swine, wood and glass. 13 levels, rebuilt once after the contact sheet showed 8 gantries and 8 directly hittable pigs. Now 2 gantries, only the two tutorial pigs directly hittable, heights 2.5-12.0 monotonic, five levels using two ranges.
+
+- 2026-08-22 `P5.3` **doing** — Episode 2 'Quarry' — 13 levels, adds lob/spike, hogg/helm, stone and TNT
+
+- 2026-08-22 `P5.3` **done** — Episode 2 'Quarry' — 13 levels, adds lob/spike, hogg/helm, stone and TNT. 13 Quarry levels. Stone as structural trap, Spike through glass to stone cores, TNT chains, directional Helmet Hog armour verified by probe (roof-removal leaves all three at full HP, sideways domino kills). 2 gantries, 5 two-range levels, heights 2.5-12.0 monotonic.
