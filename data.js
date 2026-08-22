@@ -3,6 +3,25 @@
 export const TUNE = {
   step: 1 / 60,
   gravity: 22,
+  // Without these a circle on flat ground rolls at a constant speed forever: friction
+  // converts sliding to rolling and then has nothing left to remove, so `isSettled`
+  // never latches and every shot burns the full settleTimeout before you may fire
+  // again. These two are for stability only and are deliberately small: damping cannot
+  // tell a body resting on the ground from one in mid-air, and raising angular damping
+  // far enough to stop a roll (8.0 still only reached 3.0 s) also drains the energy
+  // that carries a pig off the edge of the plot. Rolling resistance at the contact,
+  // which acts only while something rests on something, is what actually fixes it.
+  linearDamping: 0.02,
+  angularDamping: 0.4,
+  // Global because settling is a solver floor; per-material values would invent
+  // seven unauthored balance coefficients for the same game-rule failure.
+  // Swept 0.05 to 0.4. Below 0.2 the world does not settle inside two seconds; above
+  // roughly 0.25 a critter no longer carries a pig off the edge of the plot. This sits
+  // between two walls that are closer together than they look — `tools/settle-probe.mjs`
+  // currently clears the edge case by 0.046 world units — so raising it to make shots
+  // resolve faster will silently make edge kills impossible. Move the probe's
+  // thresholds deliberately or not at all.
+  rollingFriction: 0.225,
   velocityIters: 8,
   positionIters: 3,
   baumgarte: 0.20,
@@ -17,6 +36,8 @@ export const TUNE = {
   slingX: -16,
   slingY: 2.4,
   slingRadius: 1.6,
+  // The far plot edge is about 40 units away; sqrt(40 * 22) is 29.7, so 30 leaves margin.
+  launchSpeedMax: 30,
   viewMinX: -18,
   viewMaxX: 26,
   settleTimeout: 6,

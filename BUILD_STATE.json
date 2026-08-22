@@ -65,50 +65,53 @@
     {
       "id": "P2.1",
       "phase": "P2",
-      "status": "todo",
-      "title": "sim.js \u2014 world build from a level blueprint, slingshot launch, camera-independent round state"
+      "status": "done",
+      "title": "sim.js — world build from a level blueprint, slingshot launch, camera-independent round state",
+      "note": "sim.js 598 lines: blueprint format, instantiate, slingshot launch, round phases, shot log."
     },
     {
       "id": "P2.2",
       "phase": "P2",
-      "status": "todo",
-      "title": "sim.js \u2014 impulse damage model, block destruction, pig death, settle detection, event list"
+      "status": "done",
+      "title": "sim.js — impulse damage model, block destruction, pig death, settle detection, event list",
+      "note": "Impulse damage with directional pig armour, deferred death, queued non-recursive TNT chaining, raycast blast occlusion, event list."
     },
     {
       "id": "P2.3",
       "phase": "P2",
-      "status": "todo",
-      "title": "tools/sim-test.mjs \u2014 headless rules assertions: launch, damage thresholds, settle, scoring"
+      "status": "done",
+      "title": "tools/sim-test.mjs — headless rules assertions: launch, damage thresholds, settle, scoring",
+      "note": "8 assertions incl. shot-log replay determinism. Found and fixed: circles rolled forever with no rolling resistance, so every shot burned the 6 s settle timeout. Now 1.9-2.1 s."
     },
     {
       "id": "P2.4",
       "phase": "P2",
       "status": "todo",
-      "title": "render.js \u2014 canvas 2D, three materials and one critter, art direction settled here"
+      "title": "render.js — canvas 2D, three materials and one critter, art direction settled here"
     },
     {
       "id": "P2.5",
       "phase": "P2",
       "status": "todo",
-      "title": "index.html + style.css + game.js \u2014 fixed-step accumulator, drag-aim slingshot, win/lose/retry"
+      "title": "index.html + style.css + game.js — fixed-step accumulator, drag-aim slingshot, win/lose/retry"
     },
     {
       "id": "P2.6",
       "phase": "P2",
       "status": "todo",
-      "title": "tools/stamp.mjs \u2014 rewrite the ?v= cache stamp across every importing file"
+      "title": "tools/stamp.mjs — rewrite the ?v= cache stamp across every importing file"
     },
     {
       "id": "P2.7",
       "phase": "P2",
       "status": "todo",
-      "title": "tools/smoke.mjs \u2014 Playwright: boot, drag, fire, kill a pig, see the win screen"
+      "title": "tools/smoke.mjs — Playwright: boot, drag, fire, kill a pig, see the win screen"
     },
     {
       "id": "P2.8",
       "phase": "P2",
       "status": "todo",
-      "title": "P2 gate \u2014 npm test green, re-run test:determinism:all, commit"
+      "title": "P2 gate — npm test green, re-run test:determinism:all, commit"
     },
     {
       "id": "P3.0",

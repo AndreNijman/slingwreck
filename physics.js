@@ -47,6 +47,9 @@ function inertiaFor(shape, mass) {
 export function makeWorld(opts = {}) {
   return {
     gravity: opts.gravity ?? TUNE.gravity, maxSpeed: opts.maxSpeed ?? TUNE.maxSpeed,
+    linearDamping: opts.linearDamping ?? TUNE.linearDamping,
+    angularDamping: opts.angularDamping ?? TUNE.angularDamping,
+    rollingFriction: opts.rollingFriction ?? TUNE.rollingFriction,
     velocityIters: opts.velocityIters ?? TUNE.velocityIters,
     positionIters: opts.positionIters ?? TUNE.positionIters,
     baumgarte: opts.baumgarte ?? TUNE.baumgarte, slop: opts.slop ?? TUNE.slop,
@@ -54,6 +57,7 @@ export function makeWorld(opts = {}) {
     sleepLinear: opts.sleepLinear ?? TUNE.sleepLinear,
     sleepAngular: opts.sleepAngular ?? TUNE.sleepAngular,
     sleepTime: opts.sleepTime ?? TUNE.sleepTime,
+    onDamage: opts.onDamage ?? null,
     bodies: [], pairs: [], contacts: [],
     impulseCache: new Map(),
     nextId: opts.nextId ?? 1, time: opts.time ?? 0,
@@ -101,9 +105,18 @@ export function removeBody(world, body) {
 }
 // --------------------------------------------------------------------- integrate
 function integrate(world, dt) {
+  // Damping is written as `v / (1 + dt*k)` rather than `v * (1 - dt*k)` because the
+  // subtractive form goes negative and oscillates once `dt*k` passes 1. This form is
+  // unconditionally stable, and it is division and multiplication only, so it costs
+  // the determinism contract nothing.
+  const linear = 1 / (1 + dt * world.linearDamping);
+  const angular = 1 / (1 + dt * world.angularDamping);
   for (const body of world.bodies) {
     if (body.isStatic || body.isAsleep || body.dead) continue;
     body.vy -= world.gravity * dt;
+    body.vx *= linear;
+    body.vy *= linear;
+    body.av *= angular;
   }
 }
 // Clamping belongs here, not at the end of `integrate`. A contact impulse — a Lob
@@ -359,6 +372,14 @@ function makeContact(world, a, b, raw, key, cached) {
   const rtA = rax * ty - ray * tx; const rtB = rbx * ty - rby * tx;
   const normalK = imA + imB + iiA * rnA * rnA + iiB * rnB * rnB;
   const tangentK = imA + imB + iiA * rtA * rtA + iiB * rtB * rtB;
+  const radiusA = Math.sqrt(rax * rax + ray * ray);
+  const radiusB = Math.sqrt(rbx * rbx + rby * rby);
+  const radiusSum = radiusA + radiusB;
+  // A static surface's centre is arbitrary (the ground is one wide box), so only
+  // the dynamic lever arm represents its contact radius.
+  const effectiveRadius = a.isStatic ? radiusB : b.isStatic ? radiusA
+    : radiusSum > 0 ? radiusA * radiusB / radiusSum : 0;
+  const rollingK = iiA + iiB;
   const velocity = relativeVelocity(a, b, rax, ray, rbx, rby);
   const approach = velocity.x * raw.nx + velocity.y * raw.ny;
   const rest = Math.max(a.rest, b.rest);
@@ -370,9 +391,12 @@ function makeContact(world, a, b, raw, key, cached) {
     rax, ray, rbx, rby,
     normalMass: normalK > 0 ? 1 / normalK : 0,
     tangentMass: tangentK > 0 ? 1 / tangentK : 0,
+    rollingMass: rollingK > 0 ? 1 / rollingK : 0,
+    effectiveRadius,
     restitutionBias: approach < -world.restitutionThreshold ? -rest * approach : 0,
     friction: Math.sqrt(a.fric * b.fric),
-    pn: cached?.pn ?? 0, pt: cached?.pt ?? 0
+    rollingFriction: world.rollingFriction,
+    pn: cached?.pn ?? 0, pt: cached?.pt ?? 0, pr: cached?.pr ?? 0
   };
 }
 function wakeIsland(world, islandId) {
@@ -420,6 +444,9 @@ function warmStart(world) {
     applyContactImpulse(contact,
       contact.nx * contact.pn + contact.tx * contact.pt,
       contact.ny * contact.pn + contact.ty * contact.pt);
+    const iiA = activeInertia(contact.a); const iiB = activeInertia(contact.b);
+    contact.a.av -= contact.pr * iiA;
+    contact.b.av += contact.pr * iiB;
   }
 }
 // ----------------------------------------------------------------- solveVelocity
@@ -486,15 +513,30 @@ function solveFriction(contact) {
   const increment = contact.pt - oldTangent;
   applyContactImpulse(contact, contact.tx * increment, contact.ty * increment);
 }
+function solveRollingFriction(contact) {
+  const relativeAngular = contact.b.av - contact.a.av;
+  const oldRolling = contact.pr;
+  const maxRolling = contact.rollingFriction * contact.pn * contact.effectiveRadius;
+  // Clamp the accumulator: clamping eight increments would exceed the load-scaled
+  // limit, while global angular damping also drains bodies that are in free flight.
+  contact.pr = Math.max(-maxRolling, Math.min(maxRolling,
+    oldRolling - contact.rollingMass * relativeAngular));
+  const increment = contact.pr - oldRolling;
+  const iiA = activeInertia(contact.a); const iiB = activeInertia(contact.b);
+  contact.a.av -= increment * iiA;
+  contact.b.av += increment * iiB;
+}
 function solveVelocity(world) {
   for (let i = 0; i < world.contacts.length;) {
     const contact = world.contacts[i];
     const second = world.contacts[i + 1];
     if (second && contact.a === second.a && contact.b === second.b) {
-      solveNormalPair(contact, second); solveFriction(contact); solveFriction(second);
+      solveNormalPair(contact, second);
+      solveFriction(contact); solveRollingFriction(contact);
+      solveFriction(second); solveRollingFriction(second);
       i += 2;
     } else {
-      solveNormal(contact); solveFriction(contact);
+      solveNormal(contact); solveFriction(contact); solveRollingFriction(contact);
       i++;
     }
   }
@@ -504,7 +546,7 @@ function storeImpulses(world) {
   // Contacts, not the Map, own the iteration order. Reversing this silently makes
   // insertion history part of the simulation when stale entries are dropped.
   for (const contact of world.contacts) {
-    next.set(contact.key, { pn: contact.pn, pt: contact.pt });
+    next.set(contact.key, { pn: contact.pn, pt: contact.pt, pr: contact.pr });
   }
   world.impulseCache = next;
 }
@@ -562,8 +604,8 @@ function solvePosition(world) {
   }
 }
 // ------------------------------------------------------------------------ damage
-// Contact damage and explosions stay game-facing no-ops until sim.js owns events.
-function damage() {}
+// The solver exposes contacts and their final impulses; sim.js owns what those mean.
+function damage(world) { if (world.onDamage) world.onDamage(world); }
 // -------------------------------------------------------------------- explosions
 function explosions() {}
 // ------------------------------------------------------------------------- sleep
