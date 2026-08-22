@@ -1,8 +1,10 @@
 import { BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SHAPES, TUNE } from './data.js';
 import { fromDegrees, isSettled, makeWorld, maxPenetration, raycastAll } from './physics.js';
-import { BLUEPRINT_VERSION, blueprintFromLevel, instantiate, makeRound, stepRound } from './sim.js';
+import { BLUEPRINT_VERSION, PIG_FLAG_DECOY, PIG_FLAG_FLAK, PIG_FLAGS,
+  blueprintFromLevel, instantiate, makeRound, stepRound } from './sim.js';
 const HISTORY_LIMIT = 64;
-const CODEC_VERSION = 1;
+const LEGACY_CODEC_VERSION = 1;
+const CODEC_VERSION = 2;
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 const BASE64_INDEX = Object.create(null);
 for (let index = 0; index < BASE64.length; index++) BASE64_INDEX[BASE64[index]] = index;
@@ -13,7 +15,7 @@ const SHAPE_INDEX = indexById(SHAPE_IDS);
 const MATERIAL_INDEX = indexById(MATERIAL_IDS);
 const PIG_INDEX = indexById(PIG_IDS);
 const MAX_PIGS = 255;
-const MAX_CODEC_BYTES = 3 + TUNE.maxBlocks * 4 + MAX_PIGS * 2;
+const MAX_CODEC_BYTES = 3 + TUNE.maxBlocks * 4 + MAX_PIGS * 3;
 const MAX_CODEC_CHARS = Math.ceil(MAX_CODEC_BYTES * 4 / 3);
 // These are literal 64ths of a turn. Generating them with a Math.cos/Math.sin loop
 // would make burial legality depend on the relay's JS engine in last-bit edge cases.
@@ -68,6 +70,7 @@ function rulesFor(cards) {
     limits: Object.create(null),
     budgetBonus: 0,
     decoy: null,
+    flak: null,
     autoPigs: Object.create(null)
   };
   for (const id of MATERIAL_IDS) {
@@ -101,6 +104,8 @@ function rulesFor(cards) {
       rules.budgetBonus += effect.delta;
     } else if (effect.kind === 'decoyKing') {
       rules.decoy = effect;
+    } else if (effect.kind === 'pigAbility' && effect.ability === 'flak') {
+      rules.flak = effect;
     } else if (effect.kind === 'autoPig') {
       rules.autoPigs[effect.pig] = effect;
     }
@@ -138,34 +143,8 @@ function rotationStep(value) {
   const step = Number.isInteger(value) ? value : 0;
   return step - Math.floor(step / 24) * 24;
 }
-function unitRotation(value) {
-  const c = value?.c;
-  const s = value?.s;
-  if (!Number.isFinite(c) || !Number.isFinite(s) ||
-      Math.abs(c * c + s * s - 1) > 0.000001) return null;
-  return { c, s };
-}
-function closestRotationStep(c, s) {
-  let best = 0;
-  let bestDot = -Infinity;
-  for (let step = 0; step < 24; step++) {
-    const pair = fromDegrees(step * TUNE.rotSnapDeg);
-    const dot = c * pair.c + s * pair.s;
-    if (dot > bestDot) {
-      best = step;
-      bestDot = dot;
-    }
-  }
-  return best;
-}
 function pieceRotation(piece) {
-  if (Number.isFinite(piece.c) && Number.isFinite(piece.s)) return { c: piece.c, s: piece.s };
   return fromDegrees(rotationStep(piece.rotation) * TUNE.rotSnapDeg);
-}
-function wireRotation(piece) {
-  return Number.isFinite(piece.c) && Number.isFinite(piece.s)
-    ? closestRotationStep(piece.c, piece.s)
-    : rotationStep(piece.rotation);
 }
 function normalisePiece(draft, source) {
   if (!source || typeof source !== 'object') return result(false, 'invalid-piece');
@@ -178,26 +157,26 @@ function normalisePiece(draft, source) {
     const pig = source.pig ?? source.pigId;
     if (!PIGS[pig]) return result(false, 'invalid-pig');
     return result(true, null, {
-      piece: { id, kind, pig, x: snap(source.x), y: snap(source.y), decoy: Boolean(source.decoy) }
+      piece: {
+        id, kind, pig, x: snap(source.x), y: snap(source.y),
+        decoy: Boolean(source.decoy), flak: Boolean(source.flak)
+      }
     });
   }
   const shape = source.shape ?? source.shapeId;
   const material = source.material ?? source.materialId;
   if (!SHAPES[shape]) return result(false, 'invalid-shape');
   if (!MATERIALS[material]) return result(false, 'invalid-material');
-  const direct = unitRotation(source.rotation) ?? unitRotation(source);
-  if ((source.c !== undefined || source.s !== undefined || typeof source.rotation === 'object') &&
-      !direct) return result(false, 'invalid-rotation');
-  const piece = {
+  if (source.c !== undefined || source.s !== undefined || typeof source.rotation === 'object') {
+    return result(false, 'invalid-rotation');
+  }
+  const rotation = source.rotation ?? source.steps ?? 0;
+  if (!Number.isInteger(rotation)) return result(false, 'invalid-rotation');
+  return result(true, null, { piece: {
     id, kind, shape, material,
     x: snap(source.x), y: snap(source.y),
-    rotation: direct ? null : rotationStep(source.rotation ?? source.steps)
-  };
-  if (direct) {
-    piece.c = direct.c;
-    piece.s = direct.s;
-  }
-  return result(true, null, { piece });
+    rotation: rotationStep(rotation)
+  } });
 }
 export function makeDraft(opts = {}) {
   const cards = normaliseCards(opts.cards ?? []);
@@ -242,6 +221,11 @@ export function place(draft, source) {
     if (!rules.decoy) return result(false, 'locked-piece');
     const used = draft.pieces.filter((other) => other.decoy).length;
     if (used >= rules.decoy.limit) return result(false, 'piece-limit');
+  }
+  if (piece.flak) {
+    if (!rules.flak) return result(false, 'locked-piece');
+    const used = draft.pieces.filter((other) => other.flak).length;
+    if (used >= rules.flak.pigCount) return result(false, 'piece-limit');
   }
   const nextCost = totalCost([...draft.pieces, piece], rules);
   if (nextCost > draft.budget) return result(false, 'over-budget');
@@ -301,21 +285,9 @@ export function rotate(draft, id, steps) {
   const piece = draft.pieces.find((candidate) => candidate.id === id);
   if (!piece) return result(false, 'not-found');
   if (piece.kind !== 'block') return result(false, 'not-rotatable');
-  const direct = unitRotation(steps);
-  if (typeof steps === 'object' && !direct) return result(false, 'invalid-rotation');
-  if (!direct && !Number.isInteger(steps)) return result(false, 'invalid-rotation');
+  if (!Number.isInteger(steps)) return result(false, 'invalid-rotation');
   remember(draft);
-  if (direct) {
-    piece.rotation = null;
-    piece.c = direct.c;
-    piece.s = direct.s;
-  } else {
-    const current = Number.isFinite(piece.c) && Number.isFinite(piece.s)
-      ? closestRotationStep(piece.c, piece.s) : rotationStep(piece.rotation);
-    piece.rotation = rotationStep(current + steps);
-    delete piece.c;
-    delete piece.s;
-  }
+  piece.rotation = rotationStep(piece.rotation + steps);
   return result(true);
 }
 export function undo(draft) {
@@ -336,9 +308,11 @@ export function toBlueprint(draft) {
   const pigs = [];
   for (const piece of draft.pieces) {
     if (piece.kind === 'block') {
-      blocks.push([piece.shape, piece.material, piece.x, piece.y, wireRotation(piece)]);
+      blocks.push([piece.shape, piece.material, piece.x, piece.y, rotationStep(piece.rotation)]);
     } else {
-      pigs.push([piece.pig, piece.x, piece.y]);
+      const flags = (piece.decoy ? PIG_FLAG_DECOY : 0) |
+        (piece.flak ? PIG_FLAG_FLAK : 0);
+      pigs.push([piece.pig, piece.x, piece.y, flags]);
     }
   }
   return { v: BLUEPRINT_VERSION, blocks, pigs };
@@ -353,8 +327,11 @@ export function fromBlueprint(blueprint, opts = {}) {
     });
   }
   for (const tuple of source.pigs) {
+    const flags = tuple[PIG_FLAGS];
     draft.pieces.push({ id: draft.nextId++, kind: 'pig', pig: tuple[0],
-      x: tuple[1], y: tuple[2], decoy: false });
+      x: tuple[1], y: tuple[2],
+      decoy: (flags & PIG_FLAG_DECOY) !== 0,
+      flak: (flags & PIG_FLAG_FLAK) !== 0 });
   }
   return draft;
 }
@@ -385,12 +362,15 @@ function contextFor(value, opts) {
       x: tuple[2], y: tuple[3], rotation: tuple[4]
     })),
     ...blueprint.pigs.map((tuple, index) => ({
-      id: pigIds[index], kind: 'pig', pig: tuple[0], x: tuple[1], y: tuple[2], decoy: false
+      id: pigIds[index], kind: 'pig', pig: tuple[0], x: tuple[1], y: tuple[2],
+      decoy: (tuple[PIG_FLAGS] & PIG_FLAG_DECOY) !== 0,
+      flak: (tuple[PIG_FLAGS] & PIG_FLAG_FLAK) !== 0
     }))
   ];
   return {
     blueprint, pieces, blockIds, pigIds,
-    kingFlags: blueprint.pigs.map((tuple) => Boolean(PIGS[tuple[0]].traits.king)),
+    kingFlags: blueprint.pigs.map((tuple) =>
+      Boolean(PIGS[tuple[0]].traits.king) && (tuple[PIG_FLAGS] & PIG_FLAG_DECOY) === 0),
     cards: normaliseCards(opts.cards ?? []), budget: budgetFor(opts)
   };
 }
@@ -504,7 +484,7 @@ export function validate(value, opts = {}) {
   }
   const rules = rulesFor(context.cards);
   const cost = totalCost(context.pieces, rules);
-  if (cost > context.budget) {
+  if (Number.isFinite(cost) && cost > context.budget) {
     errors.push(error(
       'over-budget', `Fortress costs ${cost} scrap but only ${context.budget} is available.`,
       context.pieces.filter((piece) => basePieceCost(piece, rules) > 0).map((piece) => piece.id)
@@ -514,6 +494,24 @@ export function validate(value, opts = {}) {
     piece.kind === 'block' && !rules.unlocked[piece.material]).map((piece) => piece.id);
   if (lockedIds.length) errors.push(error(
     'locked-material', 'One or more blocks use a material that has not been unlocked.', lockedIds
+  ));
+  const decoyIds = context.pieces.filter((piece) => piece.kind === 'pig' && piece.decoy)
+    .map((piece) => piece.id);
+  const flakIds = context.pieces.filter((piece) => piece.kind === 'pig' && piece.flak)
+    .map((piece) => piece.id);
+  const lockedPieceIds = [
+    ...(rules.decoy ? [] : decoyIds),
+    ...(rules.flak ? [] : flakIds)
+  ];
+  if (lockedPieceIds.length) errors.push(error(
+    'locked-piece', 'One or more pig flags require a card that has not been drafted.', lockedPieceIds
+  ));
+  const excessPieceIds = [
+    ...(rules.decoy ? decoyIds.slice(rules.decoy.limit) : []),
+    ...(rules.flak ? flakIds.slice(rules.flak.pigCount) : [])
+  ];
+  if (excessPieceIds.length) errors.push(error(
+    'piece-limit', 'A drafted pig flag may be assigned to only one pig.', excessPieceIds
   ));
   if (kingIndices.length === 1) {
     const depth = burialInWorld(world, context, kingIndices[0]);
@@ -564,16 +562,7 @@ export function settleTest(value, opts = {}) {
   }
   const settled = isSettled(round.world);
   const ok = settled && movedPieces.length === 0 && deadPigs.length === 0;
-  let settledBlueprint = null;
-  if (ok) {
-    settledBlueprint = {
-      v: BLUEPRINT_VERSION,
-      blocks: round.blocks.map((body) => [body.shapeId, body.materialId, body.x, body.y,
-        closestRotationStep(body.c, body.s)]),
-      pigs: round.pigs.map((body) => [body.pigId, body.x, body.y])
-    };
-  }
-  return { ok, settled, movedPieces, deadPigs, settledBlueprint };
+  return { ok, settled, movedPieces, deadPigs };
 }
 function encodeBase64(bytes) {
   let output = '';
@@ -637,8 +626,9 @@ export function encode(blueprint) {
     const pig = PIG_INDEX[tuple[0]];
     const x = packedCoordinate(tuple[1], TUNE.plotW / TUNE.gridSnap, 'pig x');
     const y = packedCoordinate(tuple[2], TUNE.plotH / TUNE.gridSnap, 'pig y');
+    const flags = tuple[PIG_FLAGS];
     const packed = pig | x << 4 | y << 10;
-    bytes.push(packed & 255, (packed >>> 8) & 255);
+    bytes.push(packed & 255, (packed >>> 8) & 255, flags);
   }
   return encodeBase64(bytes);
 }
@@ -649,11 +639,15 @@ export function decode(source) {
     if (decoded.reason) return reject(decoded.reason);
     const bytes = decoded.bytes;
     if (bytes.length < 3) return reject('truncated');
-    if (bytes[0] !== CODEC_VERSION) return reject('wrong-version');
+    const codecVersion = bytes[0];
+    if (codecVersion !== LEGACY_CODEC_VERSION && codecVersion !== CODEC_VERSION) {
+      return reject('wrong-version');
+    }
     const blockCount = bytes[1];
     const pigCount = bytes[2];
     if (blockCount > TUNE.maxBlocks || pigCount > MAX_PIGS) return reject('absurd-length');
-    const expected = 3 + blockCount * 4 + pigCount * 2;
+    const pigBytes = codecVersion === LEGACY_CODEC_VERSION ? 2 : 3;
+    const expected = 3 + blockCount * 4 + pigCount * pigBytes;
     if (bytes.length < expected) return reject('truncated');
     if (bytes.length > expected) return reject('trailing-data');
     const blocks = [];
@@ -686,11 +680,15 @@ export function decode(source) {
       const pig = packed & 15;
       const x = packed >>> 4 & 63;
       const y = packed >>> 10 & 63;
+      const flags = codecVersion === LEGACY_CODEC_VERSION ? 0 : bytes[offset++];
       if (!PIG_IDS[pig]) return reject('out-of-range-pig');
+      if ((flags & ~(PIG_FLAG_DECOY | PIG_FLAG_FLAK)) !== 0) {
+        return reject('out-of-range-flags');
+      }
       if (x > TUNE.plotW / TUNE.gridSnap || y > TUNE.plotH / TUNE.gridSnap) {
         return reject('out-of-range-position');
       }
-      pigs.push([PIG_IDS[pig], x * TUNE.gridSnap, y * TUNE.gridSnap]);
+      pigs.push([PIG_IDS[pig], x * TUNE.gridSnap, y * TUNE.gridSnap, flags]);
     }
     return { v: BLUEPRINT_VERSION, blocks, pigs };
   } catch (unused) {

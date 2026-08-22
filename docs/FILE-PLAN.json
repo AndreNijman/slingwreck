@@ -70,12 +70,13 @@
     {
       "path": "build.js",
       "phase": "P4",
-      "budget": 600,
+      "budget": 750,
       "imports": [
         "data.js",
         "sim.js"
       ],
-      "job": "Fortress editor: palette, 0.5 grid snap, 15-degree rotation, budget accounting, legality rules including burial depth, settle test, blueprint encode and decode. Produces plain data, never live worlds."
+      "job": "Fortress editor: palette, 0.5 grid snap, 15-degree rotation, budget accounting, legality rules including burial depth, settle test, blueprint encode and decode. Produces plain data, never live worlds.",
+      "budgetNote": "Raised from 600. The estimate predated the legality rules being spelled out: eight validation codes each reporting the offending pieces, a 64-direction burial-depth check, declarative card-effect application, and a bit-packed codec with a legacy path."
     },
     {
       "path": "levels.js",

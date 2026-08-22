@@ -9,13 +9,14 @@ import {
   TUNE
 } from '../data.js';
 import { isSettled, rng, rngInt } from '../physics.js';
-import { makeRound, stepRound } from '../sim.js';
+import { digestRound, makeRound, stepRound } from '../sim.js';
 import {
   burialDepth,
   budgetFor,
   decode,
   earlyLockScrap,
   encode,
+  fromBlueprint,
   makeDraft,
   moveTo,
   place,
@@ -66,7 +67,8 @@ function generatedBlueprint(random) {
     pigs.push([
       pigIds[rngInt(random, pigIds.length)],
       rngInt(random, TUNE.plotW / TUNE.gridSnap + 1) * TUNE.gridSnap,
-      rngInt(random, TUNE.plotH / TUNE.gridSnap + 1) * TUNE.gridSnap
+      rngInt(random, TUNE.plotH / TUNE.gridSnap + 1) * TUNE.gridSnap,
+      index & 3
     ]);
   }
   return { v: 1, blocks, pigs };
@@ -146,6 +148,21 @@ function deepBlueprint() {
   };
 }
 
+function flaggedLimitBlueprint() {
+  return {
+    v: 1,
+    blocks: [],
+    pigs: [
+      ['king', 4, 1, 1],
+      ['king', 6, 1, 1],
+      ['king', 8, 1, 1],
+      ['king', 12, 1, 0],
+      ['runt', 10, 1, 2],
+      ['runt', 14, 1, 2]
+    ]
+  };
+}
+
 function onlyCodes(result) {
   return result.errors.map((item) => item.code);
 }
@@ -170,6 +187,9 @@ function rulesGate() {
     ['too-few-pigs', tooFew, {}],
     ['over-budget', VALID, { budget: 8 }],
     ['locked-material', locked, { budget: 1000 }],
+    ['piece-limit', flaggedLimitBlueprint(), {
+      budget: 100, cards: ['understudy', 'flak-hog']
+    }],
     ['buried-king', deep, {}]
   ];
   let exact = 0;
@@ -218,6 +238,7 @@ function hostileGate() {
     ['material index', mutate((bytes) => { bytes[3] = bytes[3] & 0x0f | 0xf0; })],
     ['rotation index', mutate((bytes) => { bytes[4] = bytes[4] & 0xe0 | 31; })],
     ['pig index', mutate((bytes) => { bytes[7] = bytes[7] & 0xf0 | 0x0f; })],
+    ['pig flags', mutate((bytes) => { bytes[bytes.length - 1] = 4; })],
     ['absurd declared length', wireOf(Uint8Array.from([1, 255, 0]))],
     ['absurd input length', 'A'.repeat(4096)],
     ['invalid alphabet', '@@@@']
@@ -237,6 +258,13 @@ function hostileGate() {
     report(`hostile decode ${name}`, passed,
       threw ? `threw ${value.message}` : `reason ${value?.reason ?? 'missing'}`);
   }
+  const legacyBytes = bytesOf(good).slice(0, -1);
+  legacyBytes[0] = 1;
+  const legacy = decode(wireOf(legacyBytes));
+  const legacyExpected = copy(fixture);
+  legacyExpected.pigs[0].push(0);
+  report('legacy codec defaults pig flags', same(legacy, legacyExpected),
+    `decoded flags ${legacy.pigs?.[0]?.[3] ?? 'missing'}`);
   return { rejected, total: attacks.length };
 }
 
@@ -254,14 +282,49 @@ function editingGate() {
   const undoRemove = undo(draft).ok && draft.pieces.length === 1;
   const undoRotate = undo(draft).ok && draft.pieces[0].rotation === 1;
   const redoRotate = redo(draft).ok && draft.pieces[0].rotation === 3;
-  const direct = rotate(draft, id, { c: 0, s: 1 }).ok && draft.pieces[0].c === 0 &&
-    draft.pieces[0].s === 1 && toBlueprint(draft).blocks[0][4] === 6;
+  const direct = rotate(draft, id, { c: 0, s: 1 });
+  const steppedOnly = !direct.ok && direct.reason === 'invalid-rotation' &&
+    draft.pieces[0].rotation === 3 && toBlueprint(draft).blocks[0][4] === 3;
   const serialisable = same(JSON.parse(JSON.stringify(draft)), draft);
   report('draft edit history', snapped && removed.ok && undoRemove && undoRotate && redoRotate &&
-    direct && serialisable,
+    steppedOnly && serialisable,
     `snap ${snapped}; remove ${removed.ok}; undo/redo ${undoRemove}/${undoRotate}/${redoRotate}; ` +
-    `direct unit ${direct}; history ${draft.history.length}/${draft.historyLimit}`);
+    `free rotation ${direct.reason}; history ${draft.history.length}/${draft.historyLimit}`);
   return draft;
+}
+
+function flagsGate() {
+  const flagged = {
+    v: 1,
+    blocks: copy(VALID.blocks),
+    pigs: [
+      ['king', 12, 1, 1],
+      ['runt', 10, 1, 2],
+      ['runt', 14, 1, 0]
+    ]
+  };
+  const decoded = decode(encode(flagged));
+  const draft = fromBlueprint(decoded, {
+    budget: 100, cards: ['understudy', 'flak-hog']
+  });
+  const round = makeRound({ mode: 'campaign', seed: 1, bag: [], blueprint: decoded });
+  const codes = onlyCodes(validate(decoded, {
+    budget: 100, cards: ['understudy', 'flak-hog']
+  }));
+  const understudyOnly = validate(decoded, { budget: 100, cards: ['understudy'] });
+  const flakOnly = validate(decoded, { budget: 100, cards: ['flak-hog'] });
+  const understudyLocked = understudyOnly.errors.find((item) => item.code === 'locked-piece');
+  const flakLocked = flakOnly.errors.find((item) => item.code === 'locked-piece');
+  const survived = same(decoded, flagged) && same(toBlueprint(draft), flagged) &&
+    draft.pieces.find((piece) => piece.pig === 'king')?.decoy === true &&
+    draft.pieces.find((piece) => piece.pig === 'runt' && piece.flak)?.flak === true &&
+    round.pigs[0].decoy && !round.pigs[0].isKing && round.pigs[1].flak;
+  const gated = same(understudyLocked?.pieceIds, ['pig:1']) &&
+    same(flakLocked?.pieceIds, ['pig:0']);
+  report('pig flags survive codec, draft and simulation', survived && gated &&
+    same(codes, ['king-count']),
+    `decoy ${round.pigs[0].decoy}; flak ${round.pigs[1].flak}; gated ${gated}; ` +
+    `errors [${codes.join(', ')}]`);
 }
 
 function budgetGate() {
@@ -367,20 +430,34 @@ function stableBlueprints() {
 function settleGate() {
   let guaranteed = 0;
   const fixtures = stableBlueprints();
+  const settleSteps = Math.ceil(TUNE.blueprintSettleSeconds / TUNE.step);
+  const settleAuthored = (blueprint) => {
+    const round = makeRound({ mode: 'campaign', seed: 1, bag: [], blueprint });
+    for (let index = 0; index < settleSteps; index++) stepRound(round, TUNE.step);
+    return round;
+  };
   for (const blueprint of fixtures) {
     const legal = validate(blueprint);
     const tested = settleTest(blueprint);
     if (!legal.ok || !tested.ok) continue;
-    const round = makeRound({
-      mode: 'campaign', seed: 1, bag: [], blueprint: tested.settledBlueprint
-    });
+    const round = settleAuthored(blueprint);
     for (let index = 0; index < Math.ceil(10 / TUNE.step); index++) {
       stepRound(round, TUNE.step);
     }
     if (isSettled(round.world) && round.pigs.every((pig) => !pig.dead)) guaranteed++;
   }
   report('settle guarantee plus 10 seconds', guaranteed === fixtures.length,
-    `${guaranteed}/${fixtures.length} legal settled blueprints remain asleep with every pig alive`);
+    `${guaranteed}/${fixtures.length} authored blueprints remain asleep with every pig alive`);
+
+  const contract = settleTest(VALID);
+  const twinA = settleAuthored(VALID);
+  const twinB = settleAuthored(VALID);
+  const digestA = digestRound(twinA);
+  const digestB = digestRound(twinB);
+  const twins = twinA.world !== twinB.world && digestA === digestB;
+  report('authored settle is deterministic without a wire-state result', twins &&
+    !Object.hasOwn(contract, 'settledBlueprint'),
+    `digests ${digestA}/${digestB}; settledBlueprint ${Object.hasOwn(contract, 'settledBlueprint')}`);
 
   const falling = copy(VALID);
   falling.blocks.push(['cube', 'wood', 8, 8, 0]);
@@ -401,6 +478,7 @@ const rules = rulesGate();
 const hostile = hostileGate();
 editingGate();
 budgetGate();
+flagsGate();
 const settling = settleGate();
 
 console.log('\nMeasurements');

@@ -65,33 +65,37 @@
     {
       "id": "P4.1",
       "phase": "P4",
-      "status": "doing",
-      "title": "build.js core — palette, 0.5 grid snap, 15-degree rotation, place, remove, drag-sweep, undo"
+      "status": "done",
+      "title": "build.js core — palette, 0.5 grid snap, 15-degree rotation, place, remove, drag-sweep, undo",
+      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
     },
     {
       "id": "P4.2",
       "phase": "P4",
-      "status": "todo",
-      "title": "Budget accounting — material and pig costs, card-modified costs, early-lock scrap bonus"
+      "status": "done",
+      "title": "Budget accounting — material and pig costs, card-modified costs, early-lock scrap bonus",
+      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
     },
     {
       "id": "P4.3",
       "phase": "P4",
-      "status": "todo",
-      "title": "Legality rules — plot bounds, no overlap at rest (maxPenetration), 120-block cap, exactly one King, at least two other pigs, burial depth <= 5 by 64-ray sampling"
+      "status": "done",
+      "title": "Legality rules — plot bounds, no overlap at rest (maxPenetration), 120-block cap, exactly one King, at least two other pigs, burial depth <= 5 by 64-ray sampling",
+      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
     },
     {
       "id": "P4.4",
       "phase": "P4",
-      "status": "todo",
+      "status": "done",
       "title": "Settle test — 3 s simulation, reject a blueprint that collapses or kills its own pigs, return the offending pieces",
-      "note": "The relay runs this authoritatively in P6, so it must live in sim/build and not in game.js."
+      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
     },
     {
       "id": "P4.5",
       "phase": "P4",
-      "status": "todo",
-      "title": "Blueprint encode and decode — compact wire format, round-trip exact"
+      "status": "done",
+      "title": "Blueprint encode and decode — compact wire format, round-trip exact",
+      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
     },
     {
       "id": "P4.6",
@@ -102,8 +106,9 @@
     {
       "id": "P4.7",
       "phase": "P4",
-      "status": "todo",
-      "title": "tools/editor-test.mjs — 200 generated blueprints round-tripped, every legality rule rejecting exactly what it should, a validated blueprint always settles"
+      "status": "done",
+      "title": "tools/editor-test.mjs — 200 generated blueprints round-tripped, every legality rule rejecting exactly what it should, a validated blueprint always settles",
+      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
     },
     {
       "id": "P4.8",

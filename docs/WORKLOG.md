@@ -332,3 +332,15 @@ Next: P4, the fortress editor. It comes before the campaign because the campaign
 authored with it, which is the only way it gets enough use to be good.
 
 - 2026-08-22 `P4.1` **doing** — build.js core — palette, 0.5 grid snap, 15-degree rotation, place, remove, drag-sweep, undo
+
+- 2026-08-22 `P4.1` **done** — build.js core — palette, 0.5 grid snap, 15-degree rotation, place, remove, drag-sweep, undo. Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry.
+
+- 2026-08-22 `P4.2` **done** — Budget accounting — material and pig costs, card-modified costs, early-lock scrap bonus. Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry.
+
+- 2026-08-22 `P4.3` **done** — Legality rules — plot bounds, no overlap at rest (maxPenetration), 120-block cap, exactly one King, at least two other pigs, burial depth <= 5 by 64-ray sampling. Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry.
+
+- 2026-08-22 `P4.4` **done** — Settle test — 3 s simulation, reject a blueprint that collapses or kills its own pigs, return the offending pieces. Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry.
+
+- 2026-08-22 `P4.5` **done** — Blueprint encode and decode — compact wire format, round-trip exact. Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry.
+
+- 2026-08-22 `P4.7` **done** — tools/editor-test.mjs — 200 generated blueprints round-tripped, every legality rule rejecting exactly what it should, a validated blueprint always settles. Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry.

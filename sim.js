@@ -54,6 +54,10 @@ export const BLOCK_ROTATION = 4;
 export const PIG_ID = 0;
 export const PIG_X = 1;
 export const PIG_Y = 2;
+export const PIG_FLAGS = 3;
+export const PIG_FLAG_DECOY = 1;
+export const PIG_FLAG_FLAK = 2;
+const PIG_FLAG_MASK = PIG_FLAG_DECOY | PIG_FLAG_FLAK;
 
 const BODY_DIGEST_FIELDS = ['x', 'y', 'c', 's', 'vx', 'vy', 'av', 'hp', 'maxHp'];
 const DIGEST_BUFFER = new ArrayBuffer(8);
@@ -92,15 +96,23 @@ function normaliseBlueprint(source) {
   });
 
   const pigs = source.pigs.map((tuple, index) => {
-    if (!Array.isArray(tuple) || tuple.length !== 3) {
-      throw new TypeError(`pig ${index} must be a three-value tuple`);
+    if (!Array.isArray(tuple) || tuple.length < 3 || tuple.length > 4) {
+      throw new TypeError(`pig ${index} must be a three- or four-value tuple`);
     }
     const pigId = tuple[PIG_ID];
     if (!PIGS[pigId]) throw new RangeError(`unknown pig: ${pigId}`);
+    const flags = tuple.length === 3 ? 0 : tuple[PIG_FLAGS];
+    if (!Number.isInteger(flags)) {
+      throw new TypeError(`pig ${index} flags must be an integer bitfield`);
+    }
+    if (flags < 0 || (flags & ~PIG_FLAG_MASK) !== 0) {
+      throw new RangeError(`pig ${index} flags contain unsupported bits`);
+    }
     return [
       pigId,
       finite(tuple[PIG_X], `pig ${index} x`),
-      finite(tuple[PIG_Y], `pig ${index} y`)
+      finite(tuple[PIG_Y], `pig ${index} y`),
+      flags
     ];
   });
 
@@ -162,6 +174,10 @@ function addPig(world, tuple, index) {
   body.role = 'pig';
   body.pigId = pigId;
   body.pig = pig;
+  body.flags = tuple[PIG_FLAGS];
+  body.decoy = (body.flags & PIG_FLAG_DECOY) !== 0;
+  body.flak = (body.flags & PIG_FLAG_FLAK) !== 0;
+  body.isKing = Boolean(pig.traits.king) && !body.decoy;
   body.blueprintIndex = index;
   return body;
 }
@@ -1218,6 +1234,7 @@ function hashString(hash, value) {
 function hashBody(hash, body) {
   hash = hashNumber(hash, body.id);
   hash = fnvWord(hash, body.dead ? 1 : 0);
+  hash = hashNumber(hash, body.flags ?? 0);
   for (const field of BODY_DIGEST_FIELDS) hash = hashNumber(hash, body[field]);
   return hash;
 }
