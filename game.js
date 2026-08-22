@@ -86,6 +86,8 @@ const POINTER_TAP_DISTANCE = 12;
 const AIMING_FRAME_HEIGHT = 12;
 const FORTRESS_FRAME_HEIGHT = 8;
 const FORTRESS_FEEDBACK_SECONDS = 1.25;
+const EDITOR_FRAME_MARGIN = 1;
+const EDITOR_GROUND_LINE = 0.78;
 const scoreFormat = new Intl.NumberFormat('en-AU');
 
 const canvas = document.querySelector('#game');
@@ -142,6 +144,10 @@ const editorCamera = makeCamera();
 const aim = { active: false, dx: 0, dy: 0, startX: 0, startY: 0, scale: 1 };
 const pan = { active: false, pointerId: null, startX: 0, cameraX: 0, targetX: 0 };
 const pointers = new Map();
+const editorPointers = new Map();
+const editorPan = {
+  active: false, pointerId: null, startX: 0, startY: 0, cameraX: 0, cameraY: 0
+};
 
 let round = createRound();
 let playing = false;
@@ -178,6 +184,8 @@ let settleDisplayRound = null;
 let settleMarkers = [];
 let editorCameraWidth = 0;
 let editorCameraHeight = 0;
+let editorPinch = null;
+let editorSpacePan = false;
 
 function createRound() {
   return makeRound({
@@ -588,8 +596,90 @@ function editorWorldPoint(event) {
   return screenToWorld(editorCamera, point.x, point.y);
 }
 
+function clampEditorCamera() {
+  const halfW = editorCamera.viewportW / editorCamera.scale / 2;
+  const halfH = editorCamera.viewportH / editorCamera.scale / 2;
+  const lowX = TUNE.viewMinX + halfW;
+  const highX = TUNE.viewMaxX - halfW;
+  editorCamera.x = lowX <= highX
+    ? clamp(editorCamera.x, lowX, highX)
+    : (TUNE.viewMinX + TUNE.viewMaxX) / 2;
+  const lowY = halfH * (EDITOR_GROUND_LINE - 0.5) * 2;
+  const highY = Math.max(lowY, TUNE.plotH + halfH - 0.5);
+  editorCamera.y = clamp(editorCamera.y, lowY, highY);
+}
+
+function setEditorZoomAt(point, zoom, anchor = screenToWorld(editorCamera, point.x, point.y)) {
+  editorCamera.zoom = clamp(zoom, editorCamera.minZoom, MAX_CAMERA_ZOOM);
+  editorCamera.scale = renderer.height / editorCamera.viewH * editorCamera.zoom;
+  editorCamera.x = anchor.x -
+    (point.x - editorCamera.viewportX - editorCamera.viewportW / 2) / editorCamera.scale;
+  editorCamera.y = anchor.y +
+    (point.y - editorCamera.viewportY - editorCamera.viewportH / 2) / editorCamera.scale;
+  clampEditorCamera();
+}
+
+function beginEditorPan(event, point) {
+  editorPan.active = true;
+  editorPan.pointerId = event.pointerId;
+  editorPan.startX = point.x;
+  editorPan.startY = point.y;
+  editorPan.cameraX = editorCamera.x;
+  editorPan.cameraY = editorCamera.y;
+  canvas.setPointerCapture(event.pointerId);
+  updateEditorGhost(null);
+}
+
+function editorPointerDistance() {
+  const values = editorPointers.values();
+  const first = values.next().value;
+  const second = values.next().value;
+  if (!first || !second) return 0;
+  return Math.sqrt((second.x - first.x) ** 2 + (second.y - first.y) ** 2);
+}
+
+function editorPointerCentre() {
+  const values = [...editorPointers.values()];
+  return {
+    x: (values[0].x + values[1].x) / 2,
+    y: (values[0].y + values[1].y) / 2
+  };
+}
+
+function beginEditorPinch() {
+  const centre = editorPointerCentre();
+  editorPinch = {
+    distance: editorPointerDistance(),
+    zoom: editorCamera.zoom,
+    anchor: screenToWorld(editorCamera, centre.x, centre.y)
+  };
+  editorDrag = null;
+  updateEditorGhost(null);
+}
+
 function editorPointerDown(event) {
-  if (!editing || settleAnimation || event.button !== 0) return;
+  if (!editing || settleAnimation || event.button > 1) return;
+  const point = canvasPoint(event);
+  if (event.button === 1 || editorSpacePan) {
+    event.preventDefault();
+    beginEditorPan(event, point);
+    return;
+  }
+  if (event.pointerType === 'touch') {
+    editorPointers.set(event.pointerId, {
+      x: point.x, y: point.y, startX: point.x, startY: point.y
+    });
+    canvas.setPointerCapture(event.pointerId);
+    if (editorPointers.size === 2) {
+      beginEditorPinch();
+      return;
+    }
+    const world = screenToWorld(editorCamera, point.x, point.y);
+    editorHoverWorld = world;
+    editorDrag = { mode: 'touch-pending', pointerId: event.pointerId, world };
+    updateEditorGhost(world);
+    return;
+  }
   const world = editorWorldPoint(event);
   editorHoverWorld = world;
   const existing = pieceAt(world.x, world.y);
@@ -607,6 +697,41 @@ function editorPointerDown(event) {
 
 function editorPointerMove(event) {
   if (!editing) return;
+  const point = canvasPoint(event);
+  if (editorPan.active && editorPan.pointerId === event.pointerId) {
+    editorCamera.x = editorPan.cameraX - (point.x - editorPan.startX) / editorCamera.scale;
+    editorCamera.y = editorPan.cameraY + (point.y - editorPan.startY) / editorCamera.scale;
+    clampEditorCamera();
+    return;
+  }
+  const touch = editorPointers.get(event.pointerId);
+  if (touch) {
+    touch.x = point.x;
+    touch.y = point.y;
+    if (editorPinch && editorPointers.size >= 2) {
+      const centre = editorPointerCentre();
+      const distance = editorPointerDistance();
+      if (editorPinch.distance > 0 && distance > 0) {
+        setEditorZoomAt(centre, editorPinch.zoom * distance / editorPinch.distance,
+          editorPinch.anchor);
+      }
+      return;
+    }
+    if (editorDrag?.mode === 'touch-pending') {
+      const moved = Math.abs(point.x - touch.startX) + Math.abs(point.y - touch.startY);
+      if (moved <= POINTER_TAP_DISTANCE) {
+        updateEditorGhost(screenToWorld(editorCamera, point.x, point.y));
+        return;
+      }
+      const startWorld = editorDrag.world;
+      editorDrag = {
+        mode: 'sweep', pointerX: startWorld.x, pointerY: startWorld.y
+      };
+      placeEditorPiece(startWorld);
+    } else if (editorDrag?.mode === 'touch-pinch') {
+      return;
+    }
+  }
   const world = editorWorldPoint(event);
   editorHoverWorld = world;
   if (!editorDrag || settleAnimation) {
@@ -632,6 +757,33 @@ function editorPointerMove(event) {
 }
 
 function editorPointerUp(event) {
+  if (editorPan.active && editorPan.pointerId === event.pointerId) {
+    editorPan.active = false;
+    editorPan.pointerId = null;
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    updateEditorGhost(editorWorldPoint(event));
+    return;
+  }
+  if (editorPointers.has(event.pointerId)) {
+    const wasPinching = Boolean(editorPinch);
+    const pending = editorDrag?.mode === 'touch-pending' &&
+      editorDrag.pointerId === event.pointerId ? editorDrag : null;
+    editorPointers.delete(event.pointerId);
+    if (wasPinching) {
+      editorPinch = null;
+      editorDrag = editorPointers.size
+        ? { mode: 'touch-pinch', pointerId: editorPointers.keys().next().value }
+        : null;
+    } else if (pending) {
+      editorDrag = null;
+      placeEditorPiece(editorWorldPoint(event));
+    } else if (editorDrag?.mode === 'touch-pinch') {
+      editorDrag = null;
+    }
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    updateEditorGhost(editorPointers.size ? null : editorWorldPoint(event));
+    if (wasPinching || pending || !editorDrag) return;
+  }
   if (!editorDrag) return;
   const drag = editorDrag;
   const world = editorWorldPoint(event);
@@ -647,6 +799,17 @@ function editorPointerUp(event) {
   }
   if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
   updateEditorGhost(world);
+}
+
+function cancelEditorPointer(event) {
+  editorPointers.delete(event.pointerId);
+  if (editorPointers.size < 2) editorPinch = null;
+  if (editorPan.pointerId === event.pointerId) {
+    editorPan.active = false;
+    editorPan.pointerId = null;
+  }
+  if (editorDrag?.pointerId === event.pointerId || editorDrag) editorDrag = null;
+  if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
 }
 
 function runSettleTest() {
@@ -743,6 +906,10 @@ function openEditor() {
   editing = true;
   accumulator = 0;
   pointers.clear();
+  editorPointers.clear();
+  editorPinch = null;
+  editorPan.active = false;
+  editorSpacePan = false;
   cancelAim();
   cancelPan();
   titleScreen.hidden = true;
@@ -768,6 +935,10 @@ function openEditor() {
 
 function closeEditor() {
   editing = false;
+  editorPointers.clear();
+  editorPinch = null;
+  editorPan.active = false;
+  editorSpacePan = false;
   editorDrag = null;
   editorGhost = null;
   editorHoverWorld = null;
@@ -1198,7 +1369,14 @@ function updateEditorCamera() {
   editorCamera.viewportY = 0;
   editorCamera.viewportW = renderer.width;
   editorCamera.viewportH = renderer.height;
-  frameRect(editorCamera, TUNE.slingX - 1.5, 0, TUNE.plotW + 0.5, TUNE.plotH, 0.5);
+  frameRect(editorCamera, -EDITOR_FRAME_MARGIN, 0,
+    TUNE.plotW + EDITOR_FRAME_MARGIN, TUNE.plotH, 0);
+  const viewH = editorCamera.viewportH / editorCamera.scale;
+  editorCamera.y = Math.max(
+    viewH * (EDITOR_GROUND_LINE - 0.5),
+    TUNE.plotH - viewH / 2 + 0.5
+  );
+  clampEditorCamera();
 }
 
 function frame(now) {
@@ -1233,6 +1411,7 @@ function frame(now) {
       ghostLegal: Boolean(editorGhost?.legal),
       highlightIds: editorHighlightIds,
       bodyPieceIds: editorBodyPieceIds,
+      focusHighlights: Boolean(editorHighlightCode),
       markers: settleMarkers
     });
     requestAnimationFrame(frame);
@@ -1304,13 +1483,12 @@ canvas.addEventListener('pointerup', (event) => {
   editorPointerUp(event);
 });
 canvas.addEventListener('pointercancel', (event) => finishPointer(event, true));
-canvas.addEventListener('pointercancel', (event) => {
-  if (editorDrag) editorDrag = null;
-  if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-});
+canvas.addEventListener('pointercancel', cancelEditorPointer);
 canvas.addEventListener('lostpointercapture', (event) => {
   if (pointers.has(event.pointerId)) finishPointer(event, true);
-  if (editorDrag) editorDrag = null;
+  if (editorPointers.has(event.pointerId) || editorPan.pointerId === event.pointerId) {
+    cancelEditorPointer(event);
+  }
 });
 canvas.addEventListener('pointerleave', () => {
   if (editing && !editorDrag) updateEditorGhost(null);
@@ -1321,6 +1499,13 @@ canvas.addEventListener('contextmenu', (event) => {
   removeEditorPiece(editorWorldPoint(event));
 });
 canvas.addEventListener('wheel', (event) => {
+  if (editing) {
+    event.preventDefault();
+    const point = canvasPoint(event);
+    setEditorZoomAt(point, editorCamera.zoom * Math.exp(-event.deltaY * 0.0015));
+    updateEditorGhost(screenToWorld(editorCamera, point.x, point.y));
+    return;
+  }
   if (!playing) return;
   event.preventDefault();
   adjustUserZoom(-event.deltaY * 0.0015);
@@ -1337,6 +1522,11 @@ document.addEventListener('keydown', (event) => {
     const typing = event.target instanceof HTMLElement &&
       Boolean(event.target.closest('input, textarea, select, [contenteditable="true"]'));
     if (typing) return;
+    if (event.code === 'Space') {
+      event.preventDefault();
+      editorSpacePan = true;
+      return;
+    }
     const key = event.key.toLowerCase();
     if ((event.ctrlKey || event.metaKey) && key === 'z') {
       event.preventDefault();
@@ -1389,6 +1579,11 @@ document.addEventListener('keydown', (event) => {
     setMuted(!muted);
   }
 });
+
+document.addEventListener('keyup', (event) => {
+  if (event.code === 'Space') editorSpacePan = false;
+});
+window.addEventListener('blur', () => { editorSpacePan = false; });
 
 document.documentElement.dataset.gameReady = 'true';
 updateHud(true);

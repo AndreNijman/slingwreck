@@ -3,8 +3,8 @@
   "domain": "slingwreck.andrenijman.com",
   "relay": "slingwreck-relay",
   "architectureRevision": 1,
-  "phase": "P4",
-  "phaseName": "Editor",
+  "phase": "P5",
+  "phaseName": "Campaign",
   "phases": [
     {
       "id": "P0",
@@ -33,13 +33,13 @@
     {
       "id": "P4",
       "name": "Editor",
-      "status": "doing",
+      "status": "done",
       "gate": "node tools/editor-test.mjs"
     },
     {
       "id": "P5",
       "name": "Campaign",
-      "status": "todo",
+      "status": "doing",
       "gate": "node tools/balance.mjs --campaign"
     },
     {
@@ -63,65 +63,59 @@
   ],
   "tasks": [
     {
-      "id": "P4.1",
-      "phase": "P4",
-      "status": "done",
-      "title": "build.js core — palette, 0.5 grid snap, 15-degree rotation, place, remove, drag-sweep, undo",
-      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
-    },
-    {
-      "id": "P4.2",
-      "phase": "P4",
-      "status": "done",
-      "title": "Budget accounting — material and pig costs, card-modified costs, early-lock scrap bonus",
-      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
-    },
-    {
-      "id": "P4.3",
-      "phase": "P4",
-      "status": "done",
-      "title": "Legality rules — plot bounds, no overlap at rest (maxPenetration), 120-block cap, exactly one King, at least two other pigs, burial depth <= 5 by 64-ray sampling",
-      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
-    },
-    {
-      "id": "P4.4",
-      "phase": "P4",
-      "status": "done",
-      "title": "Settle test — 3 s simulation, reject a blueprint that collapses or kills its own pigs, return the offending pieces",
-      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
-    },
-    {
-      "id": "P4.5",
-      "phase": "P4",
-      "status": "done",
-      "title": "Blueprint encode and decode — compact wire format, round-trip exact",
-      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
-    },
-    {
-      "id": "P4.6",
-      "phase": "P4",
-      "status": "doing",
-      "title": "Editor UI — ghost preview, palette, budget meter, validation feedback, settle-test button"
-    },
-    {
-      "id": "P4.7",
-      "phase": "P4",
-      "status": "done",
-      "title": "tools/editor-test.mjs — 200 generated blueprints round-tripped, every legality rule rejecting exactly what it should, a validated blueprint always settles",
-      "note": "Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry."
-    },
-    {
-      "id": "P4.8",
-      "phase": "P4",
-      "status": "todo",
-      "title": "P4 gate — editor-test green, all prior suites and four-engine determinism, commit"
-    },
-    {
-      "id": "P5.0",
+      "id": "P5.1",
       "phase": "P5",
       "status": "todo",
-      "title": "Author per-level campaign star thresholds",
-      "note": "SCORE.campaign has the formula but no thresholds; they arrive with the levels."
+      "title": "Structural motif library \u2014 tower, bunker, bridge, stack, keep; composable and parameterised",
+      "note": "Levels are authored as data composed from motifs, then tuned in the editor. See the P5 correction in docs/BUILD_PLAN.md."
+    },
+    {
+      "id": "P5.2",
+      "phase": "P5",
+      "status": "todo",
+      "title": "Episode 1 'Sty' \u2014 13 levels, teaches nib/chip/wedge, runt/swine, wood and glass"
+    },
+    {
+      "id": "P5.3",
+      "phase": "P5",
+      "status": "todo",
+      "title": "Episode 2 'Quarry' \u2014 13 levels, adds lob/spike, hogg/helm, stone and TNT"
+    },
+    {
+      "id": "P5.4",
+      "phase": "P5",
+      "status": "todo",
+      "title": "Episode 3 'Highwind' \u2014 13 levels, adds pebble/boomer, tusk/zep, spring pads"
+    },
+    {
+      "id": "P5.5",
+      "phase": "P5",
+      "status": "todo",
+      "title": "Episode 4 'Ironworks' \u2014 13 levels, adds hulk/zip, sarge, iron and gel"
+    },
+    {
+      "id": "P5.6",
+      "phase": "P5",
+      "status": "todo",
+      "title": "tools/level-export.mjs \u2014 load a level into the editor, export back out, and lint all 52 through validate + settleTest"
+    },
+    {
+      "id": "P5.7",
+      "phase": "P5",
+      "status": "todo",
+      "title": "Episode and level select, three-star thresholds, progress save via /_guard/profile with localStorage fallback"
+    },
+    {
+      "id": "P5.8",
+      "phase": "P5",
+      "status": "todo",
+      "title": "tools/balance.mjs --campaign \u2014 a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground"
+    },
+    {
+      "id": "P5.9",
+      "phase": "P5",
+      "status": "todo",
+      "title": "P5 gate \u2014 balance --campaign green, all 52 pass validate + settleTest, all prior suites, commit"
     }
   ],
   "deployed": false,

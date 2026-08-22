@@ -939,39 +939,46 @@ function drawFaces(r, items, outline) {
   ctx.stroke(featureOutline);
 }
 function drawEditorHighlights(r, items, camera, editor, outline) {
-  const ids = editor?.highlightIds;
-  const bodyIds = editor?.bodyPieceIds;
-  if ((!ids || ids.size === 0) && !editor?.markers?.length) return;
-  const path = new r.Path();
-  for (const item of items) {
-    if (ids?.has(bodyIds?.get(item.body.id))) path.addPath(item.path);
+  const ids = editor?.highlightIds; const bodyIds = editor?.bodyPieceIds; if ((!ids || ids.size === 0) && !editor?.markers?.length) return;
+  const highlighted = items.filter((item) => ids?.has(bodyIds?.get(item.body.id))); const path = new r.Path();
+  for (const item of highlighted) path.addPath(item.path); const ctx = r.ctx; ctx.save(); ctx.globalAlpha = 0.28; ctx.fillStyle = PALETTE.tnt;
+  ctx.fill(path); ctx.globalAlpha = 1;
+  for (const item of highlighted) {
+    ctx.strokeStyle = PALETTE.cream; ctx.lineWidth = Math.max(7, outline * 3.1); ctx.stroke(item.path);
+    ctx.strokeStyle = PALETTE.tntDark; ctx.lineWidth = Math.max(3.5, outline * 1.65); ctx.setLineDash([8, 5]); ctx.stroke(item.path);
+  } ctx.setLineDash([]);
+  if (editor?.focusHighlights && highlighted.length) {
+    const centreX = highlighted.reduce((sum, item) => sum + item.sx, 0) / highlighted.length; const leaderY = clamp(Math.min(...highlighted.map((item) => item.sy)) - 44, camera.viewportY + 20, camera.viewportY + camera.viewportH - 20);
+    highlighted.forEach((item, index) => {
+      const badgeX = clamp(centreX + (index - (highlighted.length - 1) / 2) * 36, camera.viewportX + 18, camera.viewportX + camera.viewportW - 18);
+      ctx.strokeStyle = PALETTE.tntDark; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(item.sx, item.sy); ctx.lineTo(badgeX, leaderY); ctx.stroke();
+      ctx.fillStyle = PALETTE.cream; ctx.beginPath(); ctx.arc(badgeX, leaderY, 12, 0, TAU); ctx.fill();
+      ctx.strokeStyle = PALETTE.tntDark; ctx.lineWidth = 3; ctx.stroke(); ctx.fillStyle = PALETTE.tntDark;
+      ctx.font = '700 11px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(index + 1), badgeX, leaderY + 0.5);
+    });
   }
-  const ctx = r.ctx;
-  ctx.save();
-  ctx.globalAlpha = 0.32;
-  ctx.fillStyle = PALETTE.tnt;
-  ctx.fill(path);
-  ctx.globalAlpha = 0.92;
-  ctx.strokeStyle = PALETTE.tntDark;
-  ctx.lineWidth = Math.max(3, outline * 1.8);
-  ctx.setLineDash([8, 5]);
-  ctx.stroke(path);
-  ctx.setLineDash([]);
   for (const marker of editor?.markers ?? []) {
-    const point = worldToScreen(camera, marker.x, marker.y);
-    const radius = Math.max(12, camera.scale * 0.48);
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, radius, 0, TAU);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(point.x - radius * 0.48, point.y - radius * 0.48);
-    ctx.lineTo(point.x + radius * 0.48, point.y + radius * 0.48);
-    ctx.moveTo(point.x + radius * 0.48, point.y - radius * 0.48);
-    ctx.lineTo(point.x - radius * 0.48, point.y + radius * 0.48);
-    ctx.stroke();
+    const point = worldToScreen(camera, marker.x, marker.y); const radius = Math.max(12, camera.scale * 0.48);
+    ctx.beginPath(); ctx.arc(point.x, point.y, radius, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(point.x - radius * 0.48, point.y - radius * 0.48);
+    ctx.lineTo(point.x + radius * 0.48, point.y + radius * 0.48); ctx.moveTo(point.x + radius * 0.48, point.y - radius * 0.48);
+    ctx.lineTo(point.x - radius * 0.48, point.y + radius * 0.48); ctx.stroke();
   }
   ctx.restore();
 }
+function drawEditorSlingMarker(ctx, camera) { const slingLeft = worldToScreen(camera, TUNE.slingX - 0.7, 2.6); const slingRight = worldToScreen(camera, TUNE.slingX + 0.7, 0);
+  if (slingLeft.x >= camera.viewportX + 8 && slingRight.x <= camera.viewportX + camera.viewportW - 8) return;
+  const x = camera.viewportX + 10; const ground = worldToScreen(camera, 0, 0).y; const y = clamp(ground - 54, camera.viewportY + 10, camera.viewportY + camera.viewportH - 50);
+  ctx.save(); ctx.fillStyle = 'rgba(237, 217, 182, 0.94)'; ctx.strokeStyle = PALETTE.ink; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.roundRect(x, y, 92, 40, 5); ctx.fill(); ctx.stroke(); ctx.strokeStyle = PALETTE.woodDark; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(x + 15, y + 32); ctx.lineTo(x + 15, y + 20); ctx.lineTo(x + 9, y + 11);
+  ctx.moveTo(x + 15, y + 20); ctx.lineTo(x + 21, y + 11); ctx.stroke();
+  ctx.strokeStyle = PALETTE.ink; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + 29, y + 20); ctx.lineTo(x + 45, y + 20); ctx.stroke();
+  ctx.fillStyle = PALETTE.ink; ctx.beginPath(); ctx.moveTo(x + 45, y + 20); ctx.lineTo(x + 39, y + 16); ctx.lineTo(x + 39, y + 24); ctx.closePath(); ctx.fill();
+  const distance = Math.abs(TUNE.slingX).toLocaleString('en-AU', { maximumFractionDigits: 1 });
+  ctx.font = '700 10px ui-monospace, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(`${distance} units`, x + 51, y + 20.5); ctx.restore(); }
 function drawEditorGhost(r, camera, editor, outline) {
   const body = editor?.ghostBody;
   if (!body) return;
@@ -1357,6 +1364,7 @@ export function draw(r, round, camera, alpha, aim = round?.aim, editor = null) {
   drawEditorHighlights(r, items, camera, editor, outline);
   drawEditorGhost(r, camera, editor, outline);
   drawEffects(r, camera, now, outline);
+  if (editor) drawEditorSlingMarker(ctx, camera);
   ctx.restore();
   r.effects = r.effects.filter((effect) => effectProgress(effect, now) < 1);
 }
