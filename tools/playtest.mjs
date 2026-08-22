@@ -125,7 +125,7 @@ function createStaticServer() {
 
 async function installHarness(page) {
   await page.evaluate(async ({ blueprint, draw, materials }) => {
-    const [{ TUNE }, sim, render] = await Promise.all([
+    const [{ AMMO_BY_ID, TUNE }, sim, render] = await Promise.all([
       import('/data.js'),
       import('/sim.js'),
       import('/render.js')
@@ -175,7 +175,15 @@ async function installHarness(page) {
     }
 
     function stepOnce() {
+      const activeAmmo = trial.round.flying && AMMO_BY_ID[trial.round.flying.ammoId];
+      const tappableNow = trial.round.flying && !trial.round.flying.dead && activeAmmo?.ability &&
+        (trial.round.phase === 'flying' ||
+          trial.round.phase === 'settling' && activeAmmo.params.tappableAtRest);
+      if (tappableNow) {
+        trial.tapWindowEnd = trial.round.stepCount - trial.launchStep;
+      }
       if (trial.tapAt !== null && trial.round.stepCount === trial.launchStep + trial.tapAt) {
+        trial.tapPhase = trial.round.phase;
         trial.tapAccepted = sim.tap(trial.round);
       }
       render.capturePose(renderer, trial.round);
@@ -215,6 +223,8 @@ async function installHarness(page) {
         launchStep: round.stepCount,
         tapAt,
         tapAccepted: false,
+        tapPhase: null,
+        tapWindowEnd: null,
         impact: 0,
         captureAt: Infinity,
         settled: false,
@@ -258,6 +268,8 @@ async function installHarness(page) {
         timedOut: trial.round.settleTimer >= TUNE.settleTimeout,
         settled: trial.settled,
         tapAccepted: trial.tapAccepted,
+        tapPhase: trial.tapPhase,
+        tapWindowEnd: trial.tapWindowEnd,
         impact: trial.impact ? trial.impact - trial.launchStep : 0,
         phase: trial.round.phase,
         moving: trial.round.world.bodies.filter((body) =>
@@ -284,9 +296,10 @@ async function runShot(page, ammo, tapStep, screenshot) {
   return { ammo: ammo.id, tapStep, ...result };
 }
 
-function tapStepsFor(impactStep) {
+function tapStepsFor(ammo, baseline) {
   const first = 6;
-  const last = impactStep - 1;
+  const last = ammo.params.tappableAtRest ? baseline.tapWindowEnd : baseline.impact - 1;
+  if (!Number.isInteger(last)) return [];
   if (last < first) return [];
   return Array.from({ length: last - first + 1 }, (_, index) => first + index);
 }
@@ -303,6 +316,68 @@ function bestByScore(candidates) {
 function damageCell(damage, capacity) {
   const percent = capacity > 0 ? damage / capacity * 100 : 0;
   return `${damage.toFixed(1)} / ${capacity.toFixed(1)} (${percent.toFixed(0)}%)`;
+}
+
+function stepRanges(steps) {
+  if (!steps.length) return 'none';
+  const ranges = [];
+  let first = steps[0];
+  let last = first;
+  for (const step of steps.slice(1)) {
+    if (step === last + 1) {
+      last = step;
+      continue;
+    }
+    ranges.push(first === last ? `${first}` : `${first}–${last}`);
+    first = step;
+    last = step;
+  }
+  ranges.push(first === last ? `${first}` : `${first}–${last}`);
+  return ranges.join(', ');
+}
+
+function markedWinningSteps(winners, impactStep) {
+  const preImpact = winners.filter((row) => row.tapStep < impactStep)
+    .map((row) => row.tapStep);
+  const postImpact = winners.filter((row) => row.tapStep >= impactStep)
+    .map((row) => row.tapStep);
+  const groups = [];
+  if (preImpact.length) groups.push(`${stepRanges(preImpact)} pre-impact`);
+  if (postImpact.length) groups.push(`${stepRanges(postImpact)} post-impact`);
+  return groups.join('; ') || 'none';
+}
+
+function winningTimingRow(ammo, baseline, best, candidates, winners) {
+  if (!ammo.ability) {
+    return {
+      Ammo: ammo.id,
+      'Tap window': 'none',
+      Impact: baseline.impact,
+      'Best tap': '—',
+      'Pre-impact wins': '—',
+      'All wins': '—',
+      'Winning timings': '—',
+      'Rest-window wins': '—'
+    };
+  }
+  const preImpactCandidates = candidates.filter((row) => row.tapStep < baseline.impact);
+  const preImpactWinners = winners.filter((row) => row.tapStep < baseline.impact);
+  const restCandidates = candidates.filter((row) => row.tapPhase === 'settling');
+  const restWinners = winners.filter((row) => row.tapPhase === 'settling');
+  const bestPosition = best.tapStep < baseline.impact ? 'pre-impact' : 'post-impact';
+  const windowKind = ammo.params.tappableAtRest ? 'flight + settling' : 'pre-impact only';
+  return {
+    Ammo: ammo.id,
+    'Tap window': `6–${candidates.at(-1).tapStep} ${windowKind}`,
+    Impact: baseline.impact,
+    'Best tap': `${best.tapStep} ${bestPosition} (${best.tapPhase})`,
+    'Pre-impact wins': `${preImpactWinners.length}/${preImpactCandidates.length}`,
+    'All wins': `${winners.length}/${candidates.length}`,
+    'Winning timings': markedWinningSteps(winners, baseline.impact),
+    'Rest-window wins': restWinners.length ?
+      `${restWinners.length}/${restCandidates.length}: ` +
+        stepRanges(restWinners.map((row) => row.tapStep)) : `0/${restCandidates.length}`
+  };
 }
 
 function tableRow(row) {
@@ -353,6 +428,7 @@ try {
   await installHarness(page);
 
   const summaryRows = [];
+  const timingRows = [];
   const verdicts = [];
   for (const ammo of selected) {
     try {
@@ -364,8 +440,8 @@ try {
 
       let screenshotTap = null;
       if (ammo.ability) {
-        const tapSteps = tapStepsFor(baseline.impact);
-        if (!tapSteps.length) throw new Error('flight ended before a tap sweep was possible');
+        const tapSteps = tapStepsFor(ammo, baseline);
+        if (!tapSteps.length) throw new Error('tap window ended before a sweep was possible');
         const candidates = [];
         for (const tapStep of tapSteps) {
           const row = await runShot(page, ammo, tapStep, false);
@@ -379,23 +455,29 @@ try {
         // the original hard settle-timeout failure.
         const valid = candidates.filter((row) => !row.timedOut && row.settled);
         const best = bestByScore(valid.length ? valid : candidates);
-        const winningTaps = valid.filter((row) => row.score > baseline.score).length;
+        const winners = valid.filter((row) => row.score > baseline.score);
+        const winningTaps = winners.length;
         for (const row of candidates) {
           row.winningTaps = winningTaps;
           row.sweepCount = candidates.length;
         }
         checkShot(best);
         summaryRows.push(best);
+        timingRows.push(winningTimingRow(ammo, baseline, best, candidates, winners));
         screenshotTap = best.tapStep;
+        const restCandidates = candidates.filter((row) => row.tapPhase === 'settling');
+        const restWinners = winners.filter((row) => row.tapPhase === 'settling');
         const comparison = `best tap step ${best.tapStep} scored ${Math.round(best.score)} ` +
           `vs ${Math.round(baseline.score)} untapped; ${winningTaps}/${candidates.length} ` +
-          `tap steps won`;
+          `tap steps won (${markedWinningSteps(winners, baseline.impact)}; ` +
+          `${restWinners.length}/${restCandidates.length} settling steps won)`;
         verdicts.push(`${winningTaps ? 'WORKING' : 'BROKEN '} ${ammo.id}: ${comparison}`);
         if (!winningTaps) {
           failures.push(`${ammo.id}: no tap step beat untapped score ` +
             `${Math.round(baseline.score)}; ${comparison}; flag for tools/balance.mjs`);
         }
       } else {
+        timingRows.push(winningTimingRow(ammo, baseline, null, [], []));
         verdicts.push(`BASELINE ${ammo.id}: untapped score ${Math.round(baseline.score)}`);
       }
       if (!noShots) await runShot(page, ammo, screenshotTap, true);
@@ -405,6 +487,8 @@ try {
   }
 
   console.table((sweep ? rows : summaryRows).map(tableRow));
+  console.log('\nWinning-timing coverage (post-impact timings are marked explicitly):');
+  console.table(timingRows);
   for (const verdict of verdicts) console.log(verdict);
   failures.push(...runtimeIssues);
   if (failures.length) {

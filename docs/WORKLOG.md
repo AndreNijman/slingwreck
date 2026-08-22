@@ -259,3 +259,55 @@ in the thing under test.
 `pages.yml` ran only `npm run check`, which is pure Node. The 23-assertion smoke test had
 never run in CI, so a broken page could have deployed with every gate reporting green.
 The workflow now installs Chromium and runs `npm test` and `npm run test:audio`.
+
+#### P3.7 — the playtest harness, and a conclusion I got wrong
+
+`tools/playtest.mjs` fires every critter into one shared fortress across every tap
+timing, prints damage per material against the total available, and fails only when an
+ability has **no** timing at which it beats not tapping. 774 measured shots, nine
+screenshots, and it was verified to fail by neutering an ability.
+
+It took four passes to make it measure anything trustworthy, and each pass invalidated
+the conclusion of the one before:
+
+1. First run: `lob`, `zip` and `chip` looked "strictly worse when tapped". All three were
+   artifacts — one fixed tap step for every ability, which is unfair to a detonator, and
+   a glass column that read `36.00` both ways because the fixture held exactly 36 hit
+   points of glass and both runs destroyed all of it.
+2. Sweeping the tap step and reporting damage against the total available cleared all
+   three. It also caught something the coarse sample had missed entirely: Zip's winning
+   window is five steps wide, so the original sampling had reported a working ability as
+   broken.
+3. That sweep still stopped at `impactStep - 1`, which is where I got it wrong.
+
+**The mistake worth recording.** Lob measured 2 winning timings out of 46. I read that as
+a design fault — a bomb with a 33 ms window — and had the fix built: abilities can now be
+tapped at rest, and Lob gained a three-second fuse.
+
+Then the sweep was extended past impact and Lob measured **46 of 226**. The original
+number was mostly the truncated window, not the ability. Worse, the rest-phase tap I
+added on the strength of it wins **0 of 4** rest steps for Lob and **0 of 43** for Hulk in
+this fixture. I changed the design on the basis of a measurement I had not yet
+established was sound.
+
+Both changes stay, for reasons that hold independently of the bad number:
+
+- The fuse means an untapped Lob is never simply wasted, and a deliberate tap still beats
+  it by 5,500 points, so it is a floor rather than a ceiling. That was checked explicitly
+  because a fuse generous enough to dominate tapping would have been worse than no fuse.
+- The rest tap is situational rather than useless: `tools/sim-test.mjs` measures a Hulk
+  tapped at rest doing 31.47 damage against 17.69 tapped in flight, because wedging into
+  a gap and then expanding is exactly what that card is for. The standard fixture simply
+  does not present that situation. It also replays bit-identically, which matters because
+  the relay audit replays `tapStep`.
+
+The lesson, now rule 9 in `docs/BUILD_PLAN.md`: establish that a measurement is sound
+*before* acting on what it says. A truncated window and a saturated metric both look
+exactly like a broken feature.
+
+Final winning-timing counts, pre-impact plus post-impact, out of the swept window:
+spike 47/47, hulk 123/257, pebble 32/47, lob 46/226, wedge 20/47, boomer 10/47,
+chip 5/47, zip 5/47. Chip and Zip stay narrow on purpose — both must be triggered at a
+particular distance, which is skill rather than reflex.
+
+- 2026-08-22 `P3.7` **done** — tools/playtest.mjs --all — assert every tap ability measurably changes the outcome. 774-shot sweep across every tap timing, damage reported against material available, fails only when no timing beats untapped. Verified it can fail. Took four passes to measure honestly - see WORKLOG; I acted on Lob's 2/46 before establishing the sweep window was sound, and it was 46/226 once fixed.
