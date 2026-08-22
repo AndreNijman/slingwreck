@@ -23,7 +23,18 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Chromium only. The four-engine determinism gate needs Firefox and WebKit too and
+      # runs under podman locally; installing all three here would roughly triple the
+      # job for a guarantee that a pull request cannot break without also breaking the
+      # single-engine run.
+      - run: npx playwright install --with-deps chromium
+      # `check` is pure Node and fast; the browser gates are separate because they need
+      # the install above. Running only `check` here — which is what this workflow did
+      # until P3 — meant the smoke test never ran in CI at all, so a broken page could
+      # deploy with every gate "green".
       - run: npm run check
+      - run: npm test
+      - run: npm run test:audio
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -567,6 +567,13 @@ async function mobileRun(baseUrl) {
     pollMeasurement(settled,
       `phase ${settled.value?.phase ?? 'unknown'}; score ${settledDom.scoreText || '0'}; ` +
       `pigs dead ${deadPigs}/${settled.value?.pigs.length ?? '?'}`));
+    const runningAudio = await poll(
+      () => pageSnapshot(page),
+      (state) => state?.audioState === 'running',
+      5000
+    );
+    report('AudioContext runs after the Play gesture', runningAudio.ok,
+      pollMeasurement(runningAudio, `state ${runningAudio.value?.audioState ?? 'unknown'}`));
   } finally {
     await context.close();
   }

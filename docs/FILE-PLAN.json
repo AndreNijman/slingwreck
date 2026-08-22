@@ -60,11 +60,12 @@
     {
       "path": "audio.js",
       "phase": "P3",
-      "budget": 200,
+      "budget": 320,
       "imports": [
         "data.js"
       ],
-      "job": "WebAudio synthesis driven by the sim event list. No audio files."
+      "job": "WebAudio synthesis driven by the sim event list. No audio files.",
+      "budgetNote": "Raised from 200. The estimate predated the event list; there are 15 event kinds plus nine per-ability contours, each needing its own synthesis recipe."
     },
     {
       "path": "build.js",

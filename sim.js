@@ -24,6 +24,27 @@ import {
 
 export const BLUEPRINT_VERSION = 1;
 
+export const EVENT_KINDS = Object.freeze([
+  'launch',
+  'hit',
+  'shatter',
+  'crumble',
+  'stone-split',
+  'boom',
+  'pop',
+  'balloon-pop',
+  'spring-launch',
+  'repair',
+  'ability',
+  'gel-absorb',
+  'won',
+  'lost',
+  'settled'
+]);
+const EVENT_KIND = Object.freeze(Object.fromEntries(
+  EVENT_KINDS.map((kind) => [kind, kind])
+));
+
 export const BLOCK_SHAPE_ID = 0;
 export const BLOCK_MATERIAL_ID = 1;
 export const BLOCK_X = 2;
@@ -229,7 +250,7 @@ export function instantiate(world, blueprint) {
 }
 
 function queueAbilityEvent(round, body, ability, extra = {}) {
-  round.queuedEvents.push({ kind: 'ability', ability, x: body.x, y: body.y, ...extra });
+  round.queuedEvents.push({ kind: EVENT_KIND.ability, ability, x: body.x, y: body.y, ...extra });
 }
 
 function splitAbility(round, body, ammo) {
@@ -411,11 +432,11 @@ function springLaunchEvent(round, contact, point) {
   if (!(contact.restitutionBias > 0)) return;
   const pair = springPair(contact.a, contact.b);
   if (!pair) return;
-  const duplicate = round.events.some((event) => event.kind === 'spring-launch' &&
+  const duplicate = round.events.some((event) => event.kind === EVENT_KIND['spring-launch'] &&
     event.springId === pair.spring.id && event.critterId === pair.critter.id);
   if (duplicate) return;
   round.events.push({
-    kind: 'spring-launch',
+    kind: EVENT_KIND['spring-launch'],
     x: point.x,
     y: point.y,
     springId: pair.spring.id,
@@ -430,7 +451,7 @@ function killBody(round, body) {
   round.deadThisStep.push(body);
   if (body.role === 'block') {
     round.events.push({
-      kind: 'shatter',
+      kind: EVENT_KIND.shatter,
       x: body.x,
       y: body.y,
       mat: body.materialId,
@@ -438,7 +459,7 @@ function killBody(round, body) {
     });
     if (body.mat.chunks) {
       round.events.push({
-        kind: 'crumble',
+        kind: EVENT_KIND.crumble,
         x: body.x,
         y: body.y,
         mat: body.materialId,
@@ -447,7 +468,7 @@ function killBody(round, body) {
     }
     if (body.materialId === 'tnt') queueExplosion(round, body);
   } else if (body.role === 'pig') {
-    round.events.push({ kind: 'pop', pig: body.pigId, x: body.x, y: body.y });
+    round.events.push({ kind: EVENT_KIND.pop, pig: body.pigId, x: body.x, y: body.y });
     if (body.balloon && !body.balloon.dead) killBody(round, body.balloon);
   } else if (body.role === 'balloon') {
     const pig = body.pigBody;
@@ -456,7 +477,7 @@ function killBody(round, body) {
       wakeBody(round.world, pig);
     }
     round.events.push({
-      kind: 'balloon-pop',
+      kind: EVENT_KIND['balloon-pop'],
       x: body.x,
       y: body.y,
       pigId: pig?.id ?? null
@@ -496,7 +517,7 @@ function damageTarget(round, body, source, contact, towardSourceX, towardSourceY
   body.hp -= amount;
   if (absorbed > 0) {
     round.events.push({
-      kind: 'gel-absorb',
+      kind: EVENT_KIND['gel-absorb'],
       x: point.x,
       y: point.y,
       gelId: source.id,
@@ -505,7 +526,7 @@ function damageTarget(round, body, source, contact, towardSourceX, towardSourceY
     });
   }
   round.events.push({
-    kind: 'hit',
+    kind: EVENT_KIND.hit,
     x: point.x,
     y: point.y,
     impulse: contact.pn,
@@ -576,7 +597,7 @@ function explosionTargets(world, explosion) {
 }
 
 function applyExplosion(round, world, explosion) {
-  round.events.push({ kind: 'boom', x: explosion.x, y: explosion.y, r: explosion.r });
+  round.events.push({ kind: EVENT_KIND.boom, x: explosion.x, y: explosion.y, r: explosion.r });
   // Occlusion is captured before applying damage. Letting a wall disappear halfway
   // through this loop made later ids receive a different blast than earlier ids.
   const targets = explosionTargets(world, explosion);
@@ -749,7 +770,7 @@ function splitLargeStone(round, body) {
   addDebrisBody(round, body, shape, body.mat,
     splitX ? along : 0, splitX ? 0 : along, `${body.tag}:half:1`);
   round.events.push({
-    kind: 'stone-split',
+    kind: EVENT_KIND['stone-split'],
     x: body.x,
     y: body.y,
     parentId: body.id,
@@ -866,7 +887,7 @@ function restoreBlock(round, sarge, block) {
   wakeBody(round.world, target);
   wakeBody(round.world, sarge);
   round.events.push({
-    kind: 'repair',
+    kind: EVENT_KIND.repair,
     x: target.x,
     y: target.y,
     pigId: sarge.id,
@@ -941,11 +962,11 @@ function retireFlyingBody(round) {
 }
 
 function finishSettling(round) {
-  round.events.push({ kind: 'settled' });
+  round.events.push({ kind: EVENT_KIND.settled });
   round.flying = null;
   if (round.shotIndex >= round.bag.length && !allPigsDead(round)) {
     round.phase = 'lost';
-    round.events.push({ kind: 'lost' });
+    round.events.push({ kind: EVENT_KIND.lost });
   } else {
     round.phase = 'aiming';
   }
@@ -1031,7 +1052,7 @@ export function launch(round, dx, dy) {
   round.phase = 'flying';
   round.flying = body;
   round.settleTimer = 0;
-  round.queuedEvents.push({ kind: 'launch', ammo: ammoId });
+  round.queuedEvents.push({ kind: EVENT_KIND.launch, ammo: ammoId });
   scoreRound(round);
   return body;
 }
@@ -1081,7 +1102,7 @@ export function stepRound(round, dt = TUNE.step) {
   if (allPigsDead(round)) {
     round.phase = 'won';
     round.flying = null;
-    round.events.push({ kind: 'won' });
+    round.events.push({ kind: EVENT_KIND.won });
   } else if (round.phase === 'flying') {
     const flightFinished = retired || round.flying?.isAsleep || isSettled(round.world) || timedOut;
     if (flightFinished) round.phase = 'settling';

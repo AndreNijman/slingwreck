@@ -100,8 +100,9 @@
     {
       "id": "P3.6",
       "phase": "P3",
-      "status": "todo",
-      "title": "audio.js — WebAudio synthesis driven by the sim event list"
+      "status": "done",
+      "title": "audio.js — WebAudio synthesis driven by the sim event list",
+      "note": "audio.js 259 lines, all synthesis, lazy AudioContext on the Play gesture, 16 voices, 30ms coalescing, compressor bus. Added tools/audio-render-test.mjs because the coverage check only proved a handler EXISTS - it renders every event kind offline and measures peak/tail, so a handler that outputs silence now fails. All 15 audible, none clipping, none ringing, settled verified exactly silent. Also found pages.yml only ran 'check', so the browser smoke test had never run in CI at all; added chromium + npm test + test:audio to the workflow."
     },
     {
       "id": "P3.7",

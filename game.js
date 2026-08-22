@@ -17,6 +17,12 @@ import {
   pushEvents,
   screenToWorld
 } from './render.js?v=20260822-1';
+import {
+  makeAudio,
+  pushEvents as pushAudioEvents,
+  setMuted as setAudioMuted,
+  unlock as unlockAudio
+} from './audio.js?v=20260822-1';
 
 // P5 moves this authored level, including its star thresholds, into levels.js.
 const SLICE_LEVEL = Object.freeze({
@@ -82,9 +88,10 @@ const stars = document.querySelector('#stars');
 const statusMessage = document.querySelector('#status-message');
 
 const renderer = makeRenderer(canvas);
+const audio = makeAudio();
 const camera = makeCamera();
 const cameraTarget = makeCamera();
-const aim = { active: false, dx: 0, dy: 0 };
+const aim = { active: false, dx: 0, dy: 0, startX: 0, startY: 0, scale: 1 };
 const pan = { active: false, pointerId: null, startX: 0, cameraX: 0, targetX: 0 };
 const pointers = new Map();
 
@@ -189,6 +196,7 @@ function showTitle() {
 
 function setMuted(nextMuted) {
   muted = nextMuted;
+  setAudioMuted(audio, muted);
   muteButton.textContent = muted ? 'Sound off' : 'Sound on';
   muteButton.setAttribute('aria-label', `${muted ? 'Unmute' : 'Mute'} sound (M)`);
   muteButton.title = `${muted ? 'Unmute' : 'Mute'} sound (M)`;
@@ -310,14 +318,9 @@ function canvasPoint(event) {
   };
 }
 
-function worldPoint(event) {
-  const point = canvasPoint(event);
-  return screenToWorld(camera, point.x, point.y);
-}
-
 function updateAim(point) {
-  let dx = point.x - TUNE.slingX;
-  let dy = point.y - TUNE.slingY;
+  let dx = (point.x - aim.startX) / aim.scale;
+  let dy = (aim.startY - point.y) / aim.scale;
   const length = Math.sqrt(dx * dx + dy * dy);
   if (length > TUNE.slingRadius) {
     const scale = TUNE.slingRadius / length;
@@ -379,8 +382,11 @@ function onPointerDown(event) {
     if (dx * dx + dy * dy <= GRAB_RADIUS * GRAB_RADIUS) {
       pointers.get(event.pointerId).mode = 'aim';
       aimPointerId = event.pointerId;
+      aim.startX = point.x;
+      aim.startY = point.y;
+      aim.scale = camera.scale;
       setAimActive(true);
-      updateAim(world);
+      updateAim(point);
       return;
     }
   }
@@ -404,7 +410,7 @@ function onPointerMove(event) {
     return;
   }
   if (aim.active && event.pointerId === aimPointerId) {
-    updateAim(worldPoint(event));
+    updateAim(point);
   } else if (pan.active && event.pointerId === pan.pointerId) {
     pan.targetX = pan.cameraX - (point.x - pan.startX) / camera.scale;
   }
@@ -521,6 +527,7 @@ function frame(now) {
       capturePose(renderer, round);
       const events = stepRound(round, TUNE.step);
       pushEvents(renderer, events);
+      pushAudioEvents(audio, events);
       observeCameraEvents(events);
       accumulator -= TUNE.step;
       steps++;
@@ -537,7 +544,10 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-playButton.addEventListener('click', startRound);
+playButton.addEventListener('click', () => {
+  void unlockAudio(audio);
+  startRound();
+});
 restartButton.addEventListener('click', startRound);
 retryButton.addEventListener('click', startRound);
 menuButton.addEventListener('click', showTitle);
@@ -584,6 +594,7 @@ if (new URLSearchParams(window.location.search).has('smoke-test')) {
     configurable: true,
     value: () => ({
       phase: round.phase,
+      audioState: audio.context?.state ?? 'locked',
       shotIndex: round.shotIndex,
       bagSize: round.bag.length,
       stepCount: round.stepCount,

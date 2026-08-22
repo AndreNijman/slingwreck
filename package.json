@@ -9,6 +9,7 @@
     "serve": "npx serve . -l 4173",
     "check": "node tools/check.mjs",
     "test": "node tools/smoke.mjs",
+    "test:audio": "node tools/audio-render-test.mjs",
     "test:determinism": "node tools/determinism-test.mjs",
     "test:determinism:all": "podman run --rm -v \"$PWD\":/w:z -w /w --network=host -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright mcr.microsoft.com/playwright:v1.62.1-noble node tools/determinism-test.mjs",
     "test:physics": "node tools/physics-test.mjs",

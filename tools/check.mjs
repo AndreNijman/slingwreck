@@ -157,6 +157,36 @@ if (here('data.js')) {
   console.log('  todo  data.js not written yet');
 }
 
+// ------------------------------------------------ event sound coverage
+// A declared null is different from a forgotten handler: settled is quiet by design,
+// while every future simulation event must make this gate fail until audio owns it.
+head('event sound coverage');
+if (here('sim.js') && here('audio.js')) {
+  const { EVENT_KINDS } = await import(new URL('../sim.js', import.meta.url));
+  const { EVENT_SOUNDS } = await import(new URL('../audio.js', import.meta.url));
+  let soundFailures = 0;
+  const missing = EVENT_KINDS.filter((kind) => !Object.hasOwn(EVENT_SOUNDS, kind));
+  const extra = Object.keys(EVENT_SOUNDS).filter((kind) => !EVENT_KINDS.includes(kind));
+  const duplicate = EVENT_KINDS.filter((kind, index) => EVENT_KINDS.indexOf(kind) !== index);
+  if (missing.length) { fail(`event sound(s) missing: ${missing.join(', ')}`); soundFailures++; }
+  if (extra.length) { fail(`sound(s) for unknown event kind: ${extra.join(', ')}`); soundFailures++; }
+  if (duplicate.length) { fail(`duplicate event kind(s): ${duplicate.join(', ')}`); soundFailures++; }
+  if (EVENT_SOUNDS.settled !== null) {
+    fail('settled must explicitly map to null (intentional silence)');
+    soundFailures++;
+  }
+  for (const kind of EVENT_KINDS) {
+    if (kind !== 'settled' && Object.hasOwn(EVENT_SOUNDS, kind) &&
+        typeof EVENT_SOUNDS[kind] !== 'function') {
+      fail(`event sound "${kind}" is not a handler`);
+      soundFailures++;
+    }
+  }
+  if (!soundFailures) ok(`${EVENT_KINDS.length} event kinds covered; settled is declared silent`);
+} else {
+  console.log('  todo  sim.js and audio.js are both required for event sound coverage');
+}
+
 // ----------------------------------------------------------- cache stamp
 head('cache stamps');
 const stampRe = /\?v=(\d{8}-\d+)/g;
