@@ -122,3 +122,48 @@ Next: P2, the vertical slice. Tasks P2.1 to P2.8 are in `BUILD_STATE.json`.
 - 2026-08-22 `P2.7` **done** — tools/smoke.mjs — Playwright: boot, drag, fire, kill a pig, see the win screen. tools/smoke.mjs: 22 assertions through the real UI, desktop + portrait touch, 11-17 s. Verified it actually fails: injected console error -> FAIL + exit 1. Sol also found and fixed the result panel focusing Retry instead of the heading.
 
 - 2026-08-22 `P2.8` **done** — P2 gate — npm test green, re-run test:determinism:all, commit. check green, smoke 22/22, physics 7/7, sim 8/8, settle 3/3, four engines bit-identical.
+
+### P2 complete — 2026-08-22
+
+The game is playable. Title screen, drag-to-aim slingshot, a real level, destruction,
+scoring, win and lose, restart, portrait touch.
+
+Gates: `check` clean, `smoke` 22/22 through the real UI in ~11 s, `physics` 7/7,
+`sim` 8/8, `settle-probe` 3/3, and four engines still bit-identical.
+
+Three defects found by reviewing rather than by reading a report:
+
+1. **Circles rolled forever.** No rolling resistance anywhere, so a critter on flat
+   ground kept exactly 7.0000 units per second indefinitely, `isSettled` never latched,
+   and every single shot burned the full 6-second settle timeout before the player
+   could fire again. Global angular damping was tried and rejected with numbers — it is
+   still too slow at a value high enough to drain spin from a critter in flight, and it
+   removes the energy that carries a pig off the plot. Contact rolling resistance,
+   which only acts while something rests on something, fixed it: shots now resolve in
+   1.6 to 2.1 s.
+2. **The camera never showed the fortress.** While aiming, the fortress was entirely
+   off-screen; after a shot settled, the camera stayed parked at the slingshot, so the
+   player never saw what their shot did. That is the entire feedback loop of the genre.
+   Root cause was `slingX` at -16 against a 24-wide plot — over 40 world units, which no
+   height-fitted camera can show — compounded by a "never zoom below the default" rule
+   in the spec that was simply wrong. Sling moved to -9, three camera states, and
+   dragging the background now pans.
+3. **The slingshot was not drawn at all** in the first renderer pass. In a slingshot
+   game.
+
+All three were only visible by rendering frames to PNG and looking at them. The written
+reports for those same passes said everything worked.
+
+Moving `slingX` broke four test fixtures that had the old geometry baked in. They were
+fixed as fixtures, not as thresholds — and the reach assertion came back stronger than
+it went in: it now requires a partial draw to land inside the plot **and** a full draw
+to overshoot it, because a tuning with no headroom passes a plain reach test and is
+still wrong.
+
+The smoke gate was verified to actually fail: injecting a console error produces a FAIL
+line and exit code 1.
+
+Next: P3, content. **P3.1 first** — the four-engine determinism gate currently covers
+`physics.js` only, because its scenario is 40 falling bodies and never touches
+`sim.js`. The relay audit replays `sim.js`. Prove that portable before adding eight
+abilities' worth of new arithmetic to it.
