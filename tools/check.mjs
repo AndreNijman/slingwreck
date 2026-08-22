@@ -93,6 +93,70 @@ for (const f of PURE.filter(here)) {
 }
 if (!impure) ok(`${PURE.filter(here).length || 0} simulation file(s) clean`);
 
+// ------------------------------------------------------- data invariants
+// data.js is hand-authored content that three hosts agree on by convention alone.
+// These are the ways that convention has already broken once: a shape id that
+// collided with an ammo id, and index maps written by hand beside the array they
+// index. Both are cheap to assert and expensive to debug in P6.
+head('data invariants');
+if (here('data.js')) {
+  const D = await import(new URL('../data.js', import.meta.url));
+  const dupes = (xs) => xs.filter((x, i) => xs.indexOf(x) !== i);
+
+  const ammoIds = D.AMMO.map((a) => a.id);
+  const shapeIds = Object.keys(D.SHAPES);
+  const pigIds = Object.keys(D.PIGS);
+  const matIds = Object.keys(D.MATERIALS);
+  const cardIds = D.CARDS.map((c) => c.id);
+
+  for (const [label, ids] of [['ammo', ammoIds], ['card', cardIds]])
+    if (dupes(ids).length) fail(`duplicate ${label} id(s): ${dupes(ids).join(', ')}`);
+
+  // Ids from different tables share one wire namespace in blueprints and shot logs.
+  const collide = shapeIds.filter((s) => ammoIds.includes(s));
+  if (collide.length) fail(`shape id(s) collide with ammo id(s): ${collide.join(', ')} — both are wire format`);
+
+  if (Object.keys(D.AMMO_BY_ID).length !== ammoIds.length) fail('AMMO_BY_ID does not cover AMMO');
+  if (Object.keys(D.CARDS_BY_ID).length !== cardIds.length) fail('CARDS_BY_ID does not cover CARDS');
+  const tiered = [1, 2, 3].reduce((n, t) => n + D.CARDS_BY_TIER[t].length, 0);
+  if (tiered !== cardIds.length) fail(`CARDS_BY_TIER holds ${tiered} of ${cardIds.length} cards`);
+  for (const c of D.CARDS) {
+    const expect = { 1: 'reinforce', 2: 'dirty', 3: 'desperado' }[c.tier];
+    if (c.tierName !== expect) fail(`card ${c.id} is tier ${c.tier} but tierName "${c.tierName}"`);
+    if (typeof c.effect !== 'object' || c.effect === null) fail(`card ${c.id} has a non-data effect`);
+  }
+
+  // Cross-table references. A card naming a material that does not exist is a P7 bug
+  // that would otherwise surface as a silent no-op.
+  for (const c of D.CARDS) {
+    const e = c.effect;
+    if (e.material && !matIds.includes(e.material)) fail(`card ${c.id} references unknown material "${e.material}"`);
+    if (e.pig && !pigIds.includes(e.pig)) fail(`card ${c.id} references unknown pig "${e.pig}"`);
+    if (e.ammo && !ammoIds.includes(e.ammo)) fail(`card ${c.id} references unknown ammo "${e.ammo}"`);
+    for (const a of e.add ?? []) if (!ammoIds.includes(a)) fail(`card ${c.id} adds unknown ammo "${a}"`);
+  }
+
+  const kings = pigIds.filter((p) => D.PIGS[p].traits?.king);
+  if (kings.length !== 1) fail(`expected exactly one king pig, found ${kings.length}`);
+  const scored = Object.keys(D.SCORE.siege.pigs);
+  const unscored = pigIds.filter((p) => !D.PIGS[p].traits?.king && !scored.includes(p));
+  if (unscored.length) fail(`pig(s) with no siege score: ${unscored.join(', ')}`);
+  const phantom = scored.filter((p) => !pigIds.includes(p));
+  if (phantom.length) fail(`siege score for unknown pig(s): ${phantom.join(', ')}`);
+
+  for (const [id, s] of Object.entries(D.SHAPES)) {
+    const area = s.kind === 'circle' ? 3.141592653589793 * s.r * s.r
+      : s.kind === 'tri' ? s.w * s.h / 2 : s.w * s.h;
+    if (Math.abs(area - s.area) > 1e-9) fail(`shape ${id} area ${s.area} should be ${area}`);
+  }
+
+  const guesses = read('data.js').split('\n').filter((l) => l.includes('// guess')).length;
+  ok(`${ammoIds.length} ammo, ${pigIds.length} pigs, ${matIds.length} materials, ${shapeIds.length} shapes, ${cardIds.length} cards`);
+  if (guesses) console.log(`  note  ${guesses} value(s) marked \`// guess\` — balance.mjs should revisit these`);
+} else {
+  console.log('  todo  data.js not written yet');
+}
+
 // ----------------------------------------------------------- cache stamp
 head('cache stamps');
 const stampRe = /\?v=(\d{8}-\d+)/g;

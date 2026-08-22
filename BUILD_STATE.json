@@ -3,18 +3,122 @@
   "domain": "slingwreck.andrenijman.com",
   "relay": "slingwreck-relay",
   "architectureRevision": 1,
-  "phase": "P0",
-  "phaseName": "Scaffold",
+  "phase": "P1",
+  "phaseName": "Physics core",
   "phases": [
-    { "id": "P0", "name": "Scaffold", "status": "done", "gate": "npm run check" },
-    { "id": "P1", "name": "Physics core", "status": "todo", "gate": "npm run check && npm run test:determinism" },
-    { "id": "P2", "name": "Vertical slice", "status": "todo", "gate": "npm test" },
-    { "id": "P3", "name": "Content", "status": "todo", "gate": "node tools/playtest.mjs --all" },
-    { "id": "P4", "name": "Editor", "status": "todo", "gate": "node tools/editor-test.mjs" },
-    { "id": "P5", "name": "Campaign", "status": "todo", "gate": "node tools/balance.mjs --campaign" },
-    { "id": "P6", "name": "Relay and online Siege", "status": "todo", "gate": "npm run test:mp && node tools/audit-test.mjs" },
-    { "id": "P7", "name": "Match flow", "status": "todo", "gate": "node tools/balance.mjs --siege -n 400" },
-    { "id": "P8", "name": "Polish and ship", "status": "todo", "gate": "all gates green plus a live smoke test" }
+    {
+      "id": "P0",
+      "name": "Scaffold",
+      "status": "done",
+      "gate": "npm run check"
+    },
+    {
+      "id": "P1",
+      "name": "Physics core",
+      "status": "doing",
+      "gate": "npm run check && npm run test:determinism"
+    },
+    {
+      "id": "P2",
+      "name": "Vertical slice",
+      "status": "todo",
+      "gate": "npm test"
+    },
+    {
+      "id": "P3",
+      "name": "Content",
+      "status": "todo",
+      "gate": "node tools/playtest.mjs --all"
+    },
+    {
+      "id": "P4",
+      "name": "Editor",
+      "status": "todo",
+      "gate": "node tools/editor-test.mjs"
+    },
+    {
+      "id": "P5",
+      "name": "Campaign",
+      "status": "todo",
+      "gate": "node tools/balance.mjs --campaign"
+    },
+    {
+      "id": "P6",
+      "name": "Relay and online Siege",
+      "status": "todo",
+      "gate": "npm run test:mp && node tools/audit-test.mjs"
+    },
+    {
+      "id": "P7",
+      "name": "Match flow",
+      "status": "todo",
+      "gate": "node tools/balance.mjs --siege -n 400"
+    },
+    {
+      "id": "P8",
+      "name": "Polish and ship",
+      "status": "todo",
+      "gate": "all gates green plus a live smoke test"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "P1.1",
+      "phase": "P1",
+      "status": "done",
+      "title": "data.js — TUNE, MATERIALS, SHAPES, AMMO, PIGS, CARDS",
+      "note": "697 lines. Reviewed: renamed shape wedge->tri (wire-format collision with ammo wedge), replaced hand-written index maps with loops, dropped CONTROLS, removed the unreachable match-point tier rule. 10 design gaps tracked as P3.0."
+    },
+    {
+      "id": "P1.2",
+      "phase": "P1",
+      "status": "todo",
+      "title": "physics.js core — deterministic scalar math, bodies, (c,s) rotation, integration, digest"
+    },
+    {
+      "id": "P1.3",
+      "phase": "P1",
+      "status": "todo",
+      "title": "tools/determinism-test.mjs — run against integration-only, across node + 3 browser engines"
+    },
+    {
+      "id": "P1.4",
+      "phase": "P1",
+      "status": "todo",
+      "title": "physics.js solver — broadphase, SAT, manifolds, sequential impulses, position solve"
+    },
+    {
+      "id": "P1.5",
+      "phase": "P1",
+      "status": "todo",
+      "title": "physics.js islands — union-find, sleeping, waking, raycast"
+    },
+    {
+      "id": "P1.6",
+      "phase": "P1",
+      "status": "todo",
+      "title": "tools/physics-test.mjs — the seven solver assertions"
+    },
+    {
+      "id": "P1.7",
+      "phase": "P1",
+      "status": "todo",
+      "title": "P1 gate — check + determinism green against the full solver, commit"
+    },
+    {
+      "id": "P3.0",
+      "phase": "P3",
+      "status": "todo",
+      "title": "Author the sim params DESIGN.md left underspecified",
+      "note": "Found while writing data.js. Blocks P3, not P1. Hulk radius vs '3x volume' disagree: 0.40->0.86 is neither 3x area (0.69) nor 3x radius. Chip's 22deg spread: total or per-fragment, and does each fragment keep parent speed or parent momentum. Pebble payload has no mass, size, release velocity or recoil. Gale's 2.5 has no unit. Kingslayer 'weakly' has no steering number. Airlift king drift has no range or period. Flak Hog does not say WHICH pig, and it must be deterministic - suggest a builder toggle in the editor. Mason does not say which destroyed block returns. Decoy King has no cost or stats. Second Slingshot has no second height."
+    },
+    {
+      "id": "P5.0",
+      "phase": "P5",
+      "status": "todo",
+      "title": "Author per-level campaign star thresholds",
+      "note": "SCORE.campaign has the formula but no thresholds; they arrive with the levels."
+    }
   ],
   "deployed": false,
   "guardRegistered": false,
