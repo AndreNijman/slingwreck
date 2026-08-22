@@ -28,8 +28,84 @@
         <p class="eyebrow">A small tale of large collapses</p>
         <h1 id="game-title">SLING<br>WRECK</h1>
         <p class="lede">Fling a brave little critter into a pig-built fortress and bring the whole story tumbling down.</p>
-        <button id="play-button" class="button primary" type="button">Play the first wreck</button>
+        <div class="title-actions">
+          <button id="play-button" class="button primary" type="button">Play the first wreck</button>
+          <button id="editor-button" class="button secondary" type="button">Build a fortress</button>
+        </div>
         <p id="controls-hint" class="controls-hint"><b>Drag</b> to aim · <b>release</b> to fire · <b>R</b> restart · <b>M</b> mute</p>
+      </div>
+    </section>
+
+    <section id="editor-screen" class="editor-screen" aria-labelledby="editor-title" hidden>
+      <header class="editor-toolbar paper-panel">
+        <div class="editor-heading">
+          <button id="editor-back-button" class="button editor-back" type="button">← Title</button>
+          <div>
+            <p class="eyebrow">Fortress workshop</p>
+            <h2 id="editor-title">Build the trouble</h2>
+          </div>
+        </div>
+        <div id="budget-meter" class="budget-meter" role="status" aria-live="polite">
+          <span>Scrap left</span>
+          <strong id="scrap-left">110</strong>
+          <small id="hover-cost">Choose a piece</small>
+        </div>
+        <div class="editor-actions" aria-label="Editor actions">
+          <button id="undo-button" class="button tool-button" type="button">Undo</button>
+          <button id="redo-button" class="button tool-button" type="button">Redo</button>
+          <button id="grid-button" class="button tool-button" type="button" aria-pressed="false">Grid</button>
+          <button id="settle-button" class="button primary tool-button" type="button">Test tower</button>
+        </div>
+      </header>
+
+      <div class="editor-stage-slot" aria-hidden="true"></div>
+      <div class="editor-dock">
+        <aside class="paper-panel palette-panel" aria-labelledby="palette-title">
+          <div class="palette-heading">
+            <div>
+              <p class="eyebrow">The parts bin</p>
+              <h3 id="palette-title">Pieces</h3>
+            </div>
+            <div class="palette-tabs" role="tablist" aria-label="Piece groups">
+              <button id="materials-tab" class="palette-tab" type="button" role="tab" aria-selected="true" aria-controls="materials-palette">Materials</button>
+              <button id="pigs-tab" class="palette-tab" type="button" role="tab" aria-selected="false" aria-controls="pigs-palette">Pigs</button>
+            </div>
+          </div>
+          <div id="materials-palette" class="palette-group" role="tabpanel" aria-labelledby="materials-tab">
+            <div id="material-list" class="material-list" aria-label="Materials"></div>
+            <p id="rotation-status" class="rotation-status">Rotation 0°</p>
+            <div id="shape-list" class="piece-list" aria-label="Shapes"></div>
+          </div>
+          <div id="pigs-palette" class="palette-group" role="tabpanel" aria-labelledby="pigs-tab" hidden>
+            <div id="pig-list" class="piece-list pig-list" aria-label="Pigs"></div>
+          </div>
+          <p id="editor-controls-hint" class="editor-hint"><b>1–9</b> choose · <b>Tab</b> changes group · <b>R</b> rotates · <b>X</b> removes · <b>G</b> grid</p>
+        </aside>
+
+        <aside class="paper-panel editor-inspector" aria-label="Fortress checks and blueprint transfer">
+          <section class="validation-block">
+            <div class="inspector-heading">
+              <div>
+                <p class="eyebrow">Before it can stand</p>
+                <h3>Fortress checks</h3>
+              </div>
+              <strong id="validation-count" class="validation-count">2 to fix</strong>
+            </div>
+            <div id="validation-summary" aria-live="polite" aria-atomic="true">
+              <ul id="validation-list" class="validation-list"></ul>
+            </div>
+            <p id="settle-result" class="settle-result" role="status" aria-live="polite">Test the tower to watch three seconds of settling.</p>
+          </section>
+          <section class="blueprint-block">
+            <label for="blueprint-input">Blueprint string</label>
+            <textarea id="blueprint-input" rows="3" spellcheck="false" autocomplete="off" placeholder="Paste an encoded blueprint here"></textarea>
+            <div class="blueprint-actions">
+              <button id="copy-blueprint-button" class="button secondary" type="button">Copy blueprint</button>
+              <button id="paste-blueprint-button" class="button secondary" type="button">Paste &amp; load</button>
+              <button id="load-blueprint-button" class="text-button" type="button">Load typed string</button>
+            </div>
+          </section>
+        </aside>
       </div>
     </section>
 

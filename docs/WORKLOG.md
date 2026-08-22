@@ -386,3 +386,5 @@ separate worlds produces identical digests.
 controls in P2.5 without checking it against the blueprint format. An arbitrary angle
 needs a second, much larger codec; 24 steps of 15° is ample for a fortress. A capability
 that cannot survive serialisation should not exist in the editor at all.
+
+- 2026-08-22 `P4.6` **doing** — Editor UI — ghost preview, palette, budget meter, validation feedback, settle-test button

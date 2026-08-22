@@ -1,4 +1,4 @@
-import { AMMO_BY_ID, SCORE, TUNE } from './data.js?v=20260822-1';
+import { AMMO_BY_ID, CARDS, MATERIALS, PIGS, SCORE, SHAPES, TUNE } from './data.js?v=20260822-1';
 import {
   isRoundOver,
   launch,
@@ -10,6 +10,7 @@ import {
   PALETTE,
   capturePose,
   draw,
+  drawThumbnail,
   frameRect,
   makeCamera,
   makeRenderer,
@@ -23,6 +24,21 @@ import {
   setMuted as setAudioMuted,
   unlock as unlockAudio
 } from './audio.js?v=20260822-1';
+import {
+  decode,
+  encode,
+  fromBlueprint,
+  makeDraft,
+  moveTo,
+  place,
+  redo,
+  removeAt,
+  settleTest,
+  spent,
+  toBlueprint,
+  undo,
+  validate
+} from './build.js?v=20260822-1';
 
 // P5 moves this authored level, including its star thresholds, into levels.js.
 const SLICE_LEVEL = Object.freeze({
@@ -73,10 +89,15 @@ const FORTRESS_FEEDBACK_SECONDS = 1.25;
 const scoreFormat = new Intl.NumberFormat('en-AU');
 
 const canvas = document.querySelector('#game');
+const gameCanvasLabel = canvas.getAttribute('aria-label');
+const editorCanvasLabel = 'Fortress plot. Click to place, drag to sweep a run, click an existing piece to move it, and right-click to remove it.';
 const titleScreen = document.querySelector('#title-screen');
+const editorScreen = document.querySelector('#editor-screen');
 const roundHud = document.querySelector('#round-hud');
 const roundOver = document.querySelector('#round-over');
 const playButton = document.querySelector('#play-button');
+const editorButton = document.querySelector('#editor-button');
+const editorBackButton = document.querySelector('#editor-back-button');
 const restartButton = document.querySelector('#restart-button');
 const muteButton = document.querySelector('#mute-button');
 const abilityButton = document.querySelector('#ability-button');
@@ -90,11 +111,34 @@ const roundAnnouncement = document.querySelector('#round-announcement');
 const finalScore = document.querySelector('#final-score');
 const stars = document.querySelector('#stars');
 const statusMessage = document.querySelector('#status-message');
+const scrapLeft = document.querySelector('#scrap-left');
+const hoverCost = document.querySelector('#hover-cost');
+const budgetMeter = document.querySelector('#budget-meter');
+const undoButton = document.querySelector('#undo-button');
+const redoButton = document.querySelector('#redo-button');
+const gridButton = document.querySelector('#grid-button');
+const settleButton = document.querySelector('#settle-button');
+const materialsTab = document.querySelector('#materials-tab');
+const pigsTab = document.querySelector('#pigs-tab');
+const materialsPalette = document.querySelector('#materials-palette');
+const pigsPalette = document.querySelector('#pigs-palette');
+const materialList = document.querySelector('#material-list');
+const shapeList = document.querySelector('#shape-list');
+const pigList = document.querySelector('#pig-list');
+const rotationStatus = document.querySelector('#rotation-status');
+const validationCount = document.querySelector('#validation-count');
+const validationList = document.querySelector('#validation-list');
+const settleResult = document.querySelector('#settle-result');
+const blueprintInput = document.querySelector('#blueprint-input');
+const copyBlueprintButton = document.querySelector('#copy-blueprint-button');
+const pasteBlueprintButton = document.querySelector('#paste-blueprint-button');
+const loadBlueprintButton = document.querySelector('#load-blueprint-button');
 
 const renderer = makeRenderer(canvas);
 const audio = makeAudio();
 const camera = makeCamera();
 const cameraTarget = makeCamera();
+const editorCamera = makeCamera();
 const aim = { active: false, dx: 0, dy: 0, startX: 0, startY: 0, scale: 1 };
 const pan = { active: false, pointerId: null, startX: 0, cameraX: 0, targetX: 0 };
 const pointers = new Map();
@@ -114,6 +158,26 @@ let shownPhase = '';
 let cameraMode = 'aiming';
 let cameraPhase = round.phase;
 let fortressFeedbackTime = 0;
+let editing = false;
+let editorDraft = makeDraft();
+let editorRound = null;
+let editorBodyPieceIds = new Map();
+let editorGroup = 'materials';
+let editorMaterial = 'glass';
+let editorShape = 'cube';
+let editorPig = 'runt';
+let editorRotation = 0;
+let editorGrid = false;
+let editorGhost = null;
+let editorHoverWorld = null;
+let editorDrag = null;
+let editorHighlightCode = null;
+let editorHighlightIds = new Set();
+let settleAnimation = null;
+let settleDisplayRound = null;
+let settleMarkers = [];
+let editorCameraWidth = 0;
+let editorCameraHeight = 0;
 
 function createRound() {
   return makeRound({
@@ -122,6 +186,599 @@ function createRound() {
     bag: pinnedAmmo ? SLICE_LEVEL.bag.map(() => pinnedAmmo) : SLICE_LEVEL.bag,
     blueprint: SLICE_LEVEL.blueprint
   });
+}
+
+const placementErrors = new Set([
+  'out-of-bounds', 'overlap', 'too-many-blocks', 'over-budget',
+  'locked-material', 'locked-piece', 'piece-limit'
+]);
+
+function editorOptions(budget = editorDraft.budget) {
+  return { budget, cards: editorDraft.cards };
+}
+
+function editorRoundFor(blueprint = toBlueprint(editorDraft), seed = 0x51a9) {
+  return makeRound({ mode: 'campaign', seed, bag: [], blueprint });
+}
+
+function mapEditorBodies(round) {
+  const map = new Map();
+  const blocks = editorDraft.pieces.filter((piece) => piece.kind === 'block');
+  const pigs = editorDraft.pieces.filter((piece) => piece.kind === 'pig');
+  for (const body of round.blocks ?? []) map.set(body.id, blocks[body.blueprintIndex]?.id);
+  for (const body of round.pigs ?? []) map.set(body.id, pigs[body.blueprintIndex]?.id);
+  for (const body of round.balloons ?? []) map.set(body.id, pigs[body.pigBody?.blueprintIndex]?.id);
+  return map;
+}
+
+function rebuildEditorRound() {
+  editorRound = editorRoundFor();
+  editorBodyPieceIds = mapEditorBodies(editorRound);
+}
+
+function cloneEditorDraft(budget = editorDraft.budget, excludedId = null) {
+  const clone = fromBlueprint(toBlueprint(editorDraft), editorOptions(budget));
+  if (excludedId !== null) {
+    const index = editorDraft.pieces.findIndex((piece) => piece.id === excludedId);
+    const piece = clone.pieces[index];
+    if (piece) removeAt(clone, piece.x, piece.y);
+  }
+  return clone;
+}
+
+function selectedSource(x, y) {
+  if (editorGroup === 'pigs') return { kind: 'pig', pig: editorPig, x, y };
+  return {
+    kind: 'block', material: editorMaterial, shape: editorShape,
+    rotation: editorRotation, x, y
+  };
+}
+
+function ghostBodyFor(piece) {
+  if (!piece) return null;
+  const round = editorRoundFor(toBlueprint({ pieces: [piece] }));
+  return piece.kind === 'block' ? round.blocks[0] : round.pigs[0];
+}
+
+function probePlacement(x, y, excludedId = null) {
+  const source = selectedSource(x, y);
+  const real = cloneEditorDraft(editorDraft.budget, excludedId);
+  const placed = place(real, source);
+  let candidate = placed.piece ?? null;
+  let reason = placed.reason;
+  let legal = placed.ok;
+  if (placed.ok) {
+    const issue = validate(real).errors.find((entry) =>
+      placementErrors.has(entry.code) && entry.pieceIds.includes(placed.piece.id));
+    if (issue) {
+      legal = false;
+      reason = issue.code;
+    }
+  }
+  const roomy = cloneEditorDraft(1_000_000_000, excludedId);
+  const before = spent(roomy);
+  const costPlacement = place(roomy, source);
+  if (!candidate) candidate = costPlacement.piece ?? null;
+  const cost = excludedId !== null ? 0 : costPlacement.ok ? spent(roomy) - before : null;
+  return { legal, reason, cost, piece: candidate, body: ghostBodyFor(candidate) };
+}
+
+function pieceAt(x, y) {
+  const clone = cloneEditorDraft();
+  const ids = clone.pieces.map((piece) => piece.id);
+  const removed = removeAt(clone, x, y);
+  if (!removed.ok) return null;
+  const index = ids.indexOf(removed.piece.id);
+  return editorDraft.pieces[index] ?? null;
+}
+
+function unlockCardFor(material) {
+  return CARDS.find((card) => card.effect.material === material &&
+    (card.effect.kind === 'unlock' ||
+      card.effect.kind === 'materialCost' && Object.hasOwn(card.effect, 'limit')));
+}
+
+function materialAvailability(material) {
+  const probe = makeDraft({ budget: 1_000_000_000, cards: editorDraft.cards });
+  const result = place(probe, {
+    kind: 'block', material, shape: 'cube', x: 12, y: 8, rotation: 0
+  });
+  return { unlocked: result.reason !== 'locked-material', card: unlockCardFor(material) };
+}
+
+function catalogueCost(source, unlockCard = null) {
+  const cards = [...editorDraft.cards];
+  if (unlockCard && !cards.includes(unlockCard.id)) cards.push(unlockCard.id);
+  const probe = makeDraft({ budget: 1_000_000_000, cards });
+  const result = place(probe, { ...source, x: 12, y: 8 });
+  return result.ok ? spent(probe) : null;
+}
+
+function formatScrap(value) {
+  if (!Number.isFinite(value)) return '—';
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
+}
+
+function drawPaletteThumbnail(canvas, source) {
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const width = 60;
+  const height = 48;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const piece = source.kind === 'block'
+    ? { ...source, id: 1, x: 4, y: 4 }
+    : { ...source, id: 1, x: 4, y: 4 };
+  drawThumbnail(ctx, editorRoundFor(toBlueprint({ pieces: [piece] })), width, height);
+}
+
+function makePieceButton(source, name, cost, index, selected) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'piece-choice';
+  button.dataset.paletteIndex = String(index + 1);
+  button.setAttribute('aria-pressed', String(selected));
+  button.setAttribute('aria-label', `${index + 1}. ${name}, ${formatScrap(cost)} scrap`);
+  const icon = document.createElement('canvas');
+  icon.setAttribute('aria-hidden', 'true');
+  const meta = document.createElement('span');
+  meta.className = 'piece-meta';
+  const label = document.createElement('span');
+  label.className = 'piece-name';
+  label.textContent = name;
+  const price = document.createElement('span');
+  price.className = 'piece-cost';
+  price.textContent = cost === null ? 'locked' : `${formatScrap(cost)} scrap`;
+  meta.append(label, price);
+  button.append(icon, meta);
+  drawPaletteThumbnail(icon, source);
+  return button;
+}
+
+function renderMaterialList() {
+  const fragment = document.createDocumentFragment();
+  for (const material of Object.values(MATERIALS)) {
+    const availability = materialAvailability(material.id);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'material-choice';
+    button.dataset.material = material.id;
+    button.setAttribute('aria-pressed', String(editorMaterial === material.id));
+    button.classList.toggle('locked', !availability.unlocked);
+    button.setAttribute('aria-label', availability.unlocked
+      ? material.name
+      : `${material.name}, locked; inspect shapes. Unlocks with ${availability.card?.name ?? 'a draft card'}.`);
+    button.textContent = material.name;
+    if (!availability.unlocked) {
+      const lock = document.createElement('small');
+      lock.textContent = `Locked · ${availability.card?.name ?? 'draft card'}`;
+      button.append(lock);
+    }
+    button.addEventListener('click', () => {
+      editorMaterial = material.id;
+      renderPalette();
+      updateEditorGhost();
+      if (!availability.unlocked) {
+        statusMessage.textContent = `${material.name} unlocks with ${availability.card?.name ?? 'a draft card'}.`;
+      }
+    });
+    fragment.append(button);
+  }
+  materialList.replaceChildren(fragment);
+}
+
+function renderShapeList() {
+  const fragment = document.createDocumentFragment();
+  const unlock = unlockCardFor(editorMaterial);
+  const availability = materialAvailability(editorMaterial);
+  Object.values(SHAPES).forEach((shape, index) => {
+    const source = {
+      kind: 'block', material: editorMaterial, shape: shape.id,
+      rotation: editorRotation
+    };
+    const button = makePieceButton(source, shape.id,
+      catalogueCost(source, unlock), index, editorShape === shape.id);
+    button.id = `palette-block-${shape.id}`;
+    button.setAttribute('aria-disabled', String(!availability.unlocked));
+    button.addEventListener('click', () => {
+      if (!availability.unlocked) {
+        statusMessage.textContent = `${MATERIALS[editorMaterial].name} unlocks with ` +
+          `${availability.card?.name ?? 'a draft card'}.`;
+        return;
+      }
+      editorShape = shape.id;
+      renderPalette();
+      updateEditorGhost();
+    });
+    fragment.append(button);
+  });
+  shapeList.replaceChildren(fragment);
+  rotationStatus.textContent = `Rotation ${editorRotation * TUNE.rotSnapDeg}°`;
+}
+
+function renderPigList() {
+  const fragment = document.createDocumentFragment();
+  Object.values(PIGS).forEach((pig, index) => {
+    const source = { kind: 'pig', pig: pig.id };
+    const button = makePieceButton(source, pig.name,
+      catalogueCost(source), index, editorPig === pig.id);
+    button.id = `palette-pig-${pig.id}`;
+    button.addEventListener('click', () => {
+      editorPig = pig.id;
+      renderPalette();
+      updateEditorGhost();
+    });
+    fragment.append(button);
+  });
+  pigList.replaceChildren(fragment);
+}
+
+function renderPalette() {
+  renderMaterialList();
+  renderShapeList();
+  renderPigList();
+}
+
+function setEditorGroup(group, focusSelection = false) {
+  editorGroup = group === 'pigs' ? 'pigs' : 'materials';
+  const materials = editorGroup === 'materials';
+  materialsTab.setAttribute('aria-selected', String(materials));
+  pigsTab.setAttribute('aria-selected', String(!materials));
+  materialsPalette.hidden = !materials;
+  pigsPalette.hidden = materials;
+  updateEditorGhost();
+  if (focusSelection) {
+    const id = materials ? `#palette-block-${editorShape}` : `#palette-pig-${editorPig}`;
+    document.querySelector(id)?.focus({ preventScroll: true });
+  }
+}
+
+function guidanceFor(error) {
+  const kings = editorDraft.pieces.filter((piece) =>
+    piece.kind === 'pig' && PIGS[piece.pig].traits.king && !piece.decoy).length;
+  const messages = {
+    'king-count': kings === 0
+      ? 'Place one real King Hog so the fortress has someone to defend.'
+      : 'Keep one real King Hog and remove the extra crown.',
+    'too-few-pigs': 'Add at least two pigs besides your King to guard the place.',
+    'buried-king': `Your King is too deeply buried — there must be a way in within ${TUNE.maxBurialDepth} blocks.`,
+    overlap: 'These pieces overlap. Let them touch without passing through each other.',
+    'out-of-bounds': 'Bring the marked pieces fully back inside the 24 × 16 plot.',
+    'too-many-blocks': `Trim the fortress to ${TUNE.maxBlocks} blocks or fewer.`,
+    'over-budget': 'This fortress spends more scrap than you have left.',
+    'locked-material': 'A marked block needs its named draft card before it can be used.',
+    'locked-piece': 'A marked pig ability needs its draft card first.',
+    'piece-limit': 'Only one pig can carry each drafted special flag.'
+  };
+  return messages[error.code] ?? error.message;
+}
+
+function renderValidation() {
+  const result = validate(editorDraft);
+  const fragment = document.createDocumentFragment();
+  if (editorHighlightCode && !result.errors.some((error) => error.code === editorHighlightCode)) {
+    editorHighlightCode = null;
+    editorHighlightIds = new Set();
+  }
+  if (result.ok) {
+    const item = document.createElement('li');
+    item.className = 'valid-message';
+    item.textContent = 'All build rules are satisfied. Now make sure it stands.';
+    fragment.append(item);
+  } else {
+    for (const error of result.errors) {
+      const item = document.createElement('li');
+      item.className = 'validation-item';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'validation-problem';
+      button.dataset.validationCode = error.code;
+      button.setAttribute('aria-pressed', String(editorHighlightCode === error.code));
+      button.textContent = guidanceFor(error);
+      button.addEventListener('click', () => {
+        editorHighlightCode = error.code;
+        editorHighlightIds = new Set(error.pieceIds);
+        renderValidation();
+        statusMessage.textContent = error.pieceIds.length
+          ? `${error.pieceIds.length} offending piece${error.pieceIds.length === 1 ? '' : 's'} highlighted.`
+          : guidanceFor(error);
+      });
+      item.append(button);
+      fragment.append(item);
+    }
+  }
+  validationList.replaceChildren(fragment);
+  validationCount.textContent = result.ok
+    ? 'Ready'
+    : `${result.errors.length} to fix`;
+  validationCount.classList.toggle('valid', result.ok);
+  return result;
+}
+
+function updateBudgetMeter() {
+  const left = editorDraft.budget - spent(editorDraft);
+  scrapLeft.textContent = formatScrap(left);
+  const unaffordable = editorGhost?.reason === 'over-budget' ||
+    Number.isFinite(editorGhost?.cost) && editorGhost.cost > left;
+  budgetMeter.classList.toggle('unaffordable', unaffordable);
+  if (!editorGhost) {
+    hoverCost.textContent = 'Hover the plot to price a placement';
+  } else if (editorGhost.cost === null) {
+    hoverCost.textContent = 'This piece is not available';
+  } else {
+    const outcome = left - editorGhost.cost;
+    const reason = {
+      overlap: ' · overlaps',
+      'out-of-bounds': ' · leaves the plot',
+      'over-budget': ' · not enough scrap',
+      'too-many-blocks': ' · block limit reached'
+    }[editorGhost.reason] ?? '';
+    hoverCost.textContent = `This costs ${formatScrap(editorGhost.cost)} · ` +
+      `${formatScrap(outcome)} left${reason}`;
+  }
+  undoButton.disabled = !editorDraft.history.length || Boolean(settleAnimation);
+  redoButton.disabled = !editorDraft.future.length || Boolean(settleAnimation);
+}
+
+function updateEditorGhost(world = editorHoverWorld) {
+  editorHoverWorld = world;
+  if (!editing || !world || settleAnimation) {
+    editorGhost = null;
+  } else {
+    const excluded = editorDrag?.mode === 'move' ? editorDrag.id : null;
+    editorGhost = probePlacement(world.x, world.y, excluded);
+  }
+  updateBudgetMeter();
+}
+
+function clearSettleDisplay(message = 'Draft changed — test it again when the tower is ready.') {
+  settleDisplayRound = null;
+  settleMarkers = [];
+  settleResult.classList.remove('testing');
+  settleResult.textContent = message;
+}
+
+function refreshEditor(changed = false) {
+  if (changed) clearSettleDisplay();
+  rebuildEditorRound();
+  renderValidation();
+  updateEditorGhost();
+}
+
+function selectExistingPiece(piece) {
+  if (piece.kind === 'block') {
+    editorGroup = 'materials';
+    editorMaterial = piece.material;
+    editorShape = piece.shape;
+    editorRotation = piece.rotation;
+  } else {
+    editorGroup = 'pigs';
+    editorPig = piece.pig;
+  }
+  renderPalette();
+  setEditorGroup(editorGroup);
+}
+
+function placeEditorPiece(world) {
+  const probe = probePlacement(world.x, world.y);
+  editorGhost = probe;
+  if (!probe.legal) {
+    updateBudgetMeter();
+    return false;
+  }
+  const result = place(editorDraft, selectedSource(world.x, world.y));
+  if (!result.ok) return false;
+  refreshEditor(true);
+  return true;
+}
+
+function removeEditorPiece(world = editorHoverWorld) {
+  if (!world || settleAnimation) return false;
+  const result = removeAt(editorDraft, world.x, world.y);
+  if (!result.ok) return false;
+  editorHighlightIds.delete(result.piece.id);
+  refreshEditor(true);
+  statusMessage.textContent = 'Piece removed.';
+  return true;
+}
+
+function editorWorldPoint(event) {
+  const point = canvasPoint(event);
+  return screenToWorld(editorCamera, point.x, point.y);
+}
+
+function editorPointerDown(event) {
+  if (!editing || settleAnimation || event.button !== 0) return;
+  const world = editorWorldPoint(event);
+  editorHoverWorld = world;
+  const existing = pieceAt(world.x, world.y);
+  canvas.focus({ preventScroll: true });
+  canvas.setPointerCapture(event.pointerId);
+  if (existing) {
+    selectExistingPiece(existing);
+    editorDrag = { mode: 'move', id: existing.id, startX: existing.x, startY: existing.y };
+    updateEditorGhost(world);
+  } else {
+    editorDrag = { mode: 'sweep', pointerX: world.x, pointerY: world.y };
+    placeEditorPiece(world);
+  }
+}
+
+function editorPointerMove(event) {
+  if (!editing) return;
+  const world = editorWorldPoint(event);
+  editorHoverWorld = world;
+  if (!editorDrag || settleAnimation) {
+    updateEditorGhost(world);
+    return;
+  }
+  if (editorDrag.mode === 'move') {
+    updateEditorGhost(world);
+    return;
+  }
+  const dx = world.x - editorDrag.pointerX;
+  const dy = world.y - editorDrag.pointerY;
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / TUNE.gridSnap));
+  for (let index = 1; index <= steps; index++) {
+    placeEditorPiece({
+      x: editorDrag.pointerX + dx * index / steps,
+      y: editorDrag.pointerY + dy * index / steps
+    });
+  }
+  editorDrag.pointerX = world.x;
+  editorDrag.pointerY = world.y;
+  updateEditorGhost(world);
+}
+
+function editorPointerUp(event) {
+  if (!editorDrag) return;
+  const drag = editorDrag;
+  const world = editorWorldPoint(event);
+  editorDrag = null;
+  if (drag.mode === 'move') {
+    const probe = probePlacement(world.x, world.y, drag.id);
+    if (probe.legal && probe.piece &&
+        (probe.piece.x !== drag.startX || probe.piece.y !== drag.startY)) {
+      moveTo(editorDraft, drag.id, world.x, world.y);
+      refreshEditor(true);
+      statusMessage.textContent = 'Piece moved.';
+    }
+  }
+  if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+  updateEditorGhost(world);
+}
+
+function runSettleTest() {
+  if (settleAnimation) return;
+  const result = settleTest(editorDraft);
+  const round = editorRoundFor(toBlueprint(editorDraft), 1);
+  settleAnimation = { result, round, steps: 0, accumulator: 0 };
+  editorBodyPieceIds = mapEditorBodies(round);
+  settleDisplayRound = null;
+  settleMarkers = [];
+  editorGhost = null;
+  settleButton.disabled = true;
+  settleButton.textContent = 'Watching… 3.0 s';
+  settleResult.classList.add('testing');
+  settleResult.textContent = 'Gravity is on. Watch what shifts during the next three seconds.';
+  updateBudgetMeter();
+}
+
+function finishSettleTest() {
+  const animation = settleAnimation;
+  settleAnimation = null;
+  settleDisplayRound = animation.round;
+  editorBodyPieceIds = mapEditorBodies(animation.round);
+  editorHighlightIds = new Set([
+    ...animation.result.movedPieces,
+    ...animation.result.deadPigs
+  ]);
+  editorHighlightCode = null;
+  const pigs = editorDraft.pieces.filter((piece) => piece.kind === 'pig');
+  settleMarkers = animation.result.deadPigs.map((id) => {
+    const index = pigs.findIndex((piece) => piece.id === id);
+    const body = animation.round.pigs[index];
+    return body ? { x: body.x, y: body.y } : null;
+  }).filter(Boolean);
+  settleButton.disabled = false;
+  settleButton.textContent = 'Test tower';
+  settleResult.classList.remove('testing');
+  if (animation.result.ok) {
+    settleResult.textContent = 'It stands: nothing shifted and every pig survived the full three seconds.';
+  } else {
+    const moved = animation.result.movedPieces.length;
+    const dead = animation.result.deadPigs.length;
+    settleResult.textContent = `It needs bracing: ${moved} piece${moved === 1 ? '' : 's'} moved` +
+      `${dead ? ` and ${dead} pig${dead === 1 ? '' : 's'} died` : ''}. The draft is unchanged.`;
+  }
+  statusMessage.textContent = settleResult.textContent;
+  editorGhost = null;
+  updateBudgetMeter();
+}
+
+async function copyBlueprint() {
+  const encoded = encode(toBlueprint(editorDraft));
+  blueprintInput.value = encoded;
+  try {
+    await navigator.clipboard.writeText(encoded);
+    statusMessage.textContent = 'Blueprint copied to the clipboard.';
+  } catch (unused) {
+    blueprintInput.focus();
+    blueprintInput.select();
+    document.execCommand('copy');
+    statusMessage.textContent = 'Blueprint selected and copied.';
+  }
+}
+
+function loadBlueprint(source = blueprintInput.value) {
+  const decoded = decode(source.trim());
+  if (decoded?.ok === false) {
+    statusMessage.textContent = `That blueprint could not be loaded: ${decoded.reason.replaceAll('-', ' ')}.`;
+    blueprintInput.setAttribute('aria-invalid', 'true');
+    return false;
+  }
+  editorDraft = fromBlueprint(decoded, editorOptions());
+  blueprintInput.value = encode(toBlueprint(editorDraft));
+  blueprintInput.removeAttribute('aria-invalid');
+  editorHighlightCode = null;
+  editorHighlightIds = new Set();
+  refreshEditor(true);
+  statusMessage.textContent = `Blueprint loaded with ${editorDraft.pieces.length} pieces.`;
+  return true;
+}
+
+async function pasteBlueprint() {
+  try {
+    blueprintInput.value = await navigator.clipboard.readText();
+    loadBlueprint();
+  } catch (unused) {
+    blueprintInput.focus();
+    statusMessage.textContent = 'Paste the blueprint string into the field, then choose Load typed string.';
+  }
+}
+
+function openEditor() {
+  playing = false;
+  editing = true;
+  accumulator = 0;
+  pointers.clear();
+  cancelAim();
+  cancelPan();
+  titleScreen.hidden = true;
+  roundHud.hidden = true;
+  roundOver.hidden = true;
+  editorScreen.hidden = false;
+  document.body.classList.remove('playing');
+  document.body.classList.add('editing');
+  editorCameraWidth = 0;
+  editorCameraHeight = 0;
+  canvas.tabIndex = 0;
+  canvas.setAttribute('aria-label', editorCanvasLabel);
+  canvas.setAttribute('aria-describedby', 'editor-controls-hint');
+  editorDraft = makeDraft();
+  editorHighlightCode = null;
+  editorHighlightIds = new Set();
+  clearSettleDisplay('Test the tower to watch three seconds of settling.');
+  renderPalette();
+  setEditorGroup('materials');
+  refreshEditor();
+  editorBackButton.focus({ preventScroll: true });
+}
+
+function closeEditor() {
+  editing = false;
+  editorDrag = null;
+  editorGhost = null;
+  editorHoverWorld = null;
+  settleAnimation = null;
+  settleDisplayRound = null;
+  editorScreen.hidden = true;
+  document.body.classList.remove('editing');
+  canvas.tabIndex = -1;
+  canvas.setAttribute('aria-label', gameCanvasLabel);
+  canvas.setAttribute('aria-describedby', 'controls-hint');
+  showTitle(editorButton);
 }
 
 function clamp(value, low, high) {
@@ -167,6 +824,7 @@ function observeCameraEvents(events) {
 function startRound() {
   round = createRound();
   playing = true;
+  editing = false;
   roundOverShown = false;
   accumulator = 0;
   last = performance.now();
@@ -177,25 +835,36 @@ function startRound() {
   cancelAim();
   resetCameraState('aiming');
   titleScreen.hidden = true;
+  editorScreen.hidden = true;
   roundOver.hidden = true;
   roundHud.hidden = false;
   document.body.classList.add('playing');
+  document.body.classList.remove('editing');
+  canvas.tabIndex = -1;
+  canvas.setAttribute('aria-label', gameCanvasLabel);
+  canvas.setAttribute('aria-describedby', 'controls-hint');
   updateHud(true);
   canvas.focus({ preventScroll: true });
 }
 
-function showTitle() {
+function showTitle(focusTarget = playButton) {
   playing = false;
+  editing = false;
   accumulator = 0;
   pointers.clear();
   cancelAim();
   resetCameraState('fortress');
   roundHud.hidden = true;
   roundOver.hidden = true;
+  editorScreen.hidden = true;
   titleScreen.hidden = false;
   abilityButton.hidden = true;
   document.body.classList.remove('playing');
-  playButton.focus({ preventScroll: true });
+  document.body.classList.remove('editing');
+  canvas.tabIndex = -1;
+  canvas.setAttribute('aria-label', gameCanvasLabel);
+  canvas.setAttribute('aria-describedby', 'controls-hint');
+  focusTarget.focus({ preventScroll: true });
 }
 
 function setMuted(nextMuted) {
@@ -519,9 +1188,56 @@ function updateCamera(dt) {
   panTo(camera, cameraTarget.x, cameraTarget.y, dt);
 }
 
+function updateEditorCamera() {
+  if (editorCameraWidth === renderer.width && editorCameraHeight === renderer.height) return;
+  editorCameraWidth = renderer.width;
+  editorCameraHeight = renderer.height;
+  editorCamera.canvasW = renderer.width;
+  editorCamera.canvasH = renderer.height;
+  editorCamera.viewportX = 0;
+  editorCamera.viewportY = 0;
+  editorCamera.viewportW = renderer.width;
+  editorCamera.viewportH = renderer.height;
+  frameRect(editorCamera, TUNE.slingX - 1.5, 0, TUNE.plotW + 0.5, TUNE.plotH, 0.5);
+}
+
 function frame(now) {
   const elapsed = Math.min(250, Math.max(0, now - last));
   last = now;
+  if (editing) {
+    updateEditorCamera();
+    let displayRound = settleDisplayRound ?? editorRound;
+    let alpha = 1;
+    if (settleAnimation) {
+      settleAnimation.accumulator += elapsed / 1000;
+      const total = Math.ceil(TUNE.blueprintSettleSeconds / TUNE.step);
+      while (settleAnimation.accumulator >= TUNE.step && settleAnimation.steps < total) {
+        capturePose(renderer, settleAnimation.round);
+        stepRound(settleAnimation.round, TUNE.step);
+        settleAnimation.accumulator -= TUNE.step;
+        settleAnimation.steps++;
+      }
+      const remaining = Math.max(0, (total - settleAnimation.steps) * TUNE.step);
+      settleButton.textContent = `Watching… ${remaining.toFixed(1)} s`;
+      displayRound = settleAnimation.round;
+      alpha = settleAnimation.accumulator / TUNE.step;
+      if (settleAnimation.steps >= total) {
+        finishSettleTest();
+        displayRound = settleDisplayRound;
+        alpha = 1;
+      }
+    }
+    draw(renderer, displayRound, editorCamera, alpha, null, {
+      grid: editorGrid,
+      ghostBody: editorGhost?.body,
+      ghostLegal: Boolean(editorGhost?.legal),
+      highlightIds: editorHighlightIds,
+      bodyPieceIds: editorBodyPieceIds,
+      markers: settleMarkers
+    });
+    requestAnimationFrame(frame);
+    return;
+  }
   if (playing && !isRoundOver(round)) {
     accumulator = Math.min(
       accumulator + elapsed / 1000,
@@ -553,19 +1269,56 @@ playButton.addEventListener('click', () => {
   void unlockAudio(audio);
   startRound();
 });
+editorButton.addEventListener('click', openEditor);
+editorBackButton.addEventListener('click', closeEditor);
 restartButton.addEventListener('click', startRound);
 retryButton.addEventListener('click', startRound);
 menuButton.addEventListener('click', showTitle);
 muteButton.addEventListener('click', () => setMuted(!muted));
 abilityButton.addEventListener('click', useAbility);
 nextButton.addEventListener('click', () => {});
+materialsTab.addEventListener('click', () => setEditorGroup('materials'));
+pigsTab.addEventListener('click', () => setEditorGroup('pigs'));
+undoButton.addEventListener('click', () => {
+  if (undo(editorDraft).ok) refreshEditor(true);
+});
+redoButton.addEventListener('click', () => {
+  if (redo(editorDraft).ok) refreshEditor(true);
+});
+gridButton.addEventListener('click', () => {
+  editorGrid = !editorGrid;
+  gridButton.setAttribute('aria-pressed', String(editorGrid));
+  statusMessage.textContent = `Grid ${editorGrid ? 'shown' : 'hidden'}.`;
+});
+settleButton.addEventListener('click', runSettleTest);
+copyBlueprintButton.addEventListener('click', () => void copyBlueprint());
+pasteBlueprintButton.addEventListener('click', () => void pasteBlueprint());
+loadBlueprintButton.addEventListener('click', () => loadBlueprint());
 
 canvas.addEventListener('pointerdown', onPointerDown);
+canvas.addEventListener('pointerdown', editorPointerDown);
 canvas.addEventListener('pointermove', onPointerMove);
-canvas.addEventListener('pointerup', (event) => finishPointer(event, false));
+canvas.addEventListener('pointermove', editorPointerMove);
+canvas.addEventListener('pointerup', (event) => {
+  finishPointer(event, false);
+  editorPointerUp(event);
+});
 canvas.addEventListener('pointercancel', (event) => finishPointer(event, true));
+canvas.addEventListener('pointercancel', (event) => {
+  if (editorDrag) editorDrag = null;
+  if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+});
 canvas.addEventListener('lostpointercapture', (event) => {
   if (pointers.has(event.pointerId)) finishPointer(event, true);
+  if (editorDrag) editorDrag = null;
+});
+canvas.addEventListener('pointerleave', () => {
+  if (editing && !editorDrag) updateEditorGhost(null);
+});
+canvas.addEventListener('contextmenu', (event) => {
+  if (!editing) return;
+  event.preventDefault();
+  removeEditorPiece(editorWorldPoint(event));
 });
 canvas.addEventListener('wheel', (event) => {
   if (!playing) return;
@@ -575,6 +1328,53 @@ canvas.addEventListener('wheel', (event) => {
 
 document.addEventListener('keydown', (event) => {
   if (event.repeat) return;
+  if (editing) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeEditor();
+      return;
+    }
+    const typing = event.target instanceof HTMLElement &&
+      Boolean(event.target.closest('input, textarea, select, [contenteditable="true"]'));
+    if (typing) return;
+    const key = event.key.toLowerCase();
+    if ((event.ctrlKey || event.metaKey) && key === 'z') {
+      event.preventDefault();
+      const result = event.shiftKey ? redo(editorDraft) : undo(editorDraft);
+      if (result.ok) refreshEditor(true);
+    } else if (event.key === 'Tab' && document.activeElement === canvas) {
+      event.preventDefault();
+      setEditorGroup(editorGroup === 'materials' ? 'pigs' : 'materials', true);
+    } else if (/^[1-9]$/.test(event.key)) {
+      const entries = editorGroup === 'materials' ? Object.keys(SHAPES) : Object.keys(PIGS);
+      const id = entries[Number(event.key) - 1];
+      if (!id) return;
+      event.preventDefault();
+      if (editorGroup === 'materials') editorShape = id;
+      else editorPig = id;
+      renderPalette();
+      updateEditorGhost();
+      statusMessage.textContent = `${editorGroup === 'materials' ? id : PIGS[id].name} selected.`;
+    } else if (key === 'r') {
+      event.preventDefault();
+      if (editorGroup === 'materials') {
+        editorRotation = (editorRotation + 1) % 24;
+        renderShapeList();
+        updateEditorGhost();
+        statusMessage.textContent = `Rotation ${editorRotation * TUNE.rotSnapDeg} degrees.`;
+      }
+    } else if (key === 'g') {
+      event.preventDefault();
+      gridButton.click();
+    } else if (key === 'x') {
+      event.preventDefault();
+      removeEditorPiece();
+    } else if (key === 't') {
+      event.preventDefault();
+      runSettleTest();
+    }
+    return;
+  }
   if (event.key === 'Escape' && playing) {
     event.preventDefault();
     showTitle();
@@ -626,7 +1426,35 @@ if (new URLSearchParams(window.location.search).has('smoke-test')) {
         viewMaxX: TUNE.viewMaxX
       },
       pigs: round.pigs.map(({ dead, x, y }) => ({ dead, x, y })),
-      blocks: round.blocks.map(({ dead }) => ({ dead }))
+      blocks: round.blocks.map(({ dead }) => ({ dead })),
+      editor: editing ? {
+        group: editorGroup,
+        material: editorMaterial,
+        shape: editorShape,
+        pig: editorPig,
+        rotation: editorRotation,
+        grid: editorGrid,
+        pieceCount: editorDraft.pieces.length,
+        spent: spent(editorDraft),
+        budget: editorDraft.budget,
+        blueprint: toBlueprint(editorDraft),
+        encoded: encode(toBlueprint(editorDraft)),
+        validation: validate(editorDraft).errors.map((error) => error.code),
+        ghost: editorGhost ? {
+          legal: editorGhost.legal,
+          reason: editorGhost.reason,
+          cost: editorGhost.cost,
+          x: editorGhost.piece?.x,
+          y: editorGhost.piece?.y
+        } : null,
+        settling: Boolean(settleAnimation),
+        settleResult: settleDisplayRound ? settleResult.textContent : null,
+        camera: {
+          x: editorCamera.x, y: editorCamera.y, scale: editorCamera.scale,
+          viewportX: editorCamera.viewportX, viewportY: editorCamera.viewportY,
+          viewportW: editorCamera.viewportW, viewportH: editorCamera.viewportH
+        }
+      } : null
     })
   });
 }

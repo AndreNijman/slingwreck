@@ -373,6 +373,36 @@ function drawBackground(r, round, camera) {
   ctx.fillRect(camera.viewportX, ground, camera.viewportW, lip);
   drawGroundDetails(ctx, camera);
 }
+function drawEditorGrid(ctx, camera, showGrid) {
+  ctx.save();
+  if (showGrid) {
+    const path = new Path2D();
+    for (let x = 0; x <= TUNE.plotW; x += TUNE.gridSnap) {
+      const bottom = worldToScreen(camera, x, 0);
+      const top = worldToScreen(camera, x, TUNE.plotH);
+      path.moveTo(bottom.x, bottom.y);
+      path.lineTo(top.x, top.y);
+    }
+    for (let y = 0; y <= TUNE.plotH; y += TUNE.gridSnap) {
+      const left = worldToScreen(camera, 0, y);
+      const right = worldToScreen(camera, TUNE.plotW, y);
+      path.moveTo(left.x, left.y);
+      path.lineTo(right.x, right.y);
+    }
+    ctx.globalAlpha = 0.11;
+    ctx.strokeStyle = PALETTE.ink;
+    ctx.lineWidth = Math.max(0.6, camera.scale * 0.018);
+    ctx.stroke(path);
+  }
+  ctx.globalAlpha = 0.52;
+  ctx.strokeRect(
+    worldToScreen(camera, 0, TUNE.plotH).x,
+    worldToScreen(camera, 0, TUNE.plotH).y,
+    TUNE.plotW * camera.scale,
+    TUNE.plotH * camera.scale
+  );
+  ctx.restore();
+}
 function styleKey(body) {
   if (body.role === 'pig') return body.pig?.traits?.king ? 'king' : 'pig';
   if (body.role === 'ammo') return 'critter';
@@ -908,6 +938,73 @@ function drawFaces(r, items, outline) {
   ctx.lineWidth = Math.max(1, outline * 0.62);
   ctx.stroke(featureOutline);
 }
+function drawEditorHighlights(r, items, camera, editor, outline) {
+  const ids = editor?.highlightIds;
+  const bodyIds = editor?.bodyPieceIds;
+  if ((!ids || ids.size === 0) && !editor?.markers?.length) return;
+  const path = new r.Path();
+  for (const item of items) {
+    if (ids?.has(bodyIds?.get(item.body.id))) path.addPath(item.path);
+  }
+  const ctx = r.ctx;
+  ctx.save();
+  ctx.globalAlpha = 0.32;
+  ctx.fillStyle = PALETTE.tnt;
+  ctx.fill(path);
+  ctx.globalAlpha = 0.92;
+  ctx.strokeStyle = PALETTE.tntDark;
+  ctx.lineWidth = Math.max(3, outline * 1.8);
+  ctx.setLineDash([8, 5]);
+  ctx.stroke(path);
+  ctx.setLineDash([]);
+  for (const marker of editor?.markers ?? []) {
+    const point = worldToScreen(camera, marker.x, marker.y);
+    const radius = Math.max(12, camera.scale * 0.48);
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius, 0, TAU);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(point.x - radius * 0.48, point.y - radius * 0.48);
+    ctx.lineTo(point.x + radius * 0.48, point.y + radius * 0.48);
+    ctx.moveTo(point.x + radius * 0.48, point.y - radius * 0.48);
+    ctx.lineTo(point.x - radius * 0.48, point.y + radius * 0.48);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawEditorGhost(r, camera, editor, outline) {
+  const body = editor?.ghostBody;
+  if (!body) return;
+  const item = makeStaticItem(r.Path, body, camera);
+  const items = [item];
+  const groups = new Map([[item.style, items]]);
+  const ctx = r.ctx;
+  ctx.save();
+  ctx.globalAlpha = 0.52;
+  drawBackDetails(r, items, outline);
+  ctx.globalAlpha = 0.52;
+  ctx.fillStyle = STYLES[item.style].fill;
+  ctx.fill(item.path);
+  ctx.globalAlpha = 0.52;
+  drawMotifs(r, groups, outline);
+  ctx.globalAlpha = 0.58;
+  ctx.strokeStyle = PALETTE.ink;
+  ctx.lineWidth = outline;
+  ctx.stroke(item.path);
+  ctx.globalAlpha = 0.52;
+  drawPigVariants(r, items, outline);
+  ctx.globalAlpha = 0.52;
+  drawFaces(r, items, outline);
+  ctx.globalAlpha = 0.34;
+  ctx.fillStyle = editor.ghostLegal ? PALETTE.hillNear : PALETTE.tnt;
+  ctx.fill(item.path);
+  ctx.globalAlpha = 0.95;
+  ctx.strokeStyle = editor.ghostLegal ? '#536F48' : PALETTE.tntDark;
+  ctx.lineWidth = Math.max(2.5, outline * 1.25);
+  ctx.setLineDash([7, 4]);
+  ctx.stroke(item.path);
+  ctx.restore();
+}
 function drawDamage(r, items, outline) {
   const ctx = r.ctx;
   const cracks = new r.Path();
@@ -1200,7 +1297,7 @@ function collectItems(r, round, camera, alpha) {
   for (const id of r.poses.keys()) if (!live.has(id)) r.poses.delete(id);
   return items;
 }
-export function draw(r, round, camera, alpha, aim = round?.aim) {
+export function draw(r, round, camera, alpha, aim = round?.aim, editor = null) {
   if (!r?.ctx || !camera) throw new TypeError('draw requires a renderer and camera');
   if (r.world !== round?.world) {
     r.world = round?.world ?? null;
@@ -1227,6 +1324,7 @@ export function draw(r, round, camera, alpha, aim = round?.aim) {
   ctx.clip();
   ctx.translate(shake.x, shake.y);
   drawBackground(r, round, camera);
+  if (editor) drawEditorGrid(ctx, camera, editor.grid);
   drawSlingshot(r, camera, round, aim);
   const items = collectItems(r, round, camera, mix);
   const groups = new Map();
@@ -1256,9 +1354,43 @@ export function draw(r, round, camera, alpha, aim = round?.aim) {
   drawPigVariants(r, items, outline);
   drawDamage(r, items, outline);
   drawFaces(r, items, outline);
+  drawEditorHighlights(r, items, camera, editor, outline);
+  drawEditorGhost(r, camera, editor, outline);
   drawEffects(r, camera, now, outline);
   ctx.restore();
   r.effects = r.effects.filter((effect) => effectProgress(effect, now) < 1);
+}
+export function drawThumbnail(ctx, round, width, height) {
+  const Path = ctx?.canvas?.ownerDocument?.defaultView?.Path2D ?? globalThis.Path2D;
+  const body = round?.world?.bodies?.find((candidate) =>
+    !candidate.dead && (candidate.role === 'block' || candidate.role === 'pig'));
+  if (!ctx || !Path || !body || !(width > 0) || !(height > 0)) return;
+  const bounds = bodyBounds(body);
+  const span = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY,
+    body.role === 'pig' ? body.r * 2.8 : 0.5);
+  const camera = {
+    x: body.x,
+    y: body.y + (body.role === 'pig' ? body.r * 0.28 : 0),
+    scale: Math.min(width, height) / (span * 1.38),
+    viewportX: 0, viewportY: 0, viewportW: width, viewportH: height
+  };
+  const r = { ctx, Path, canvas: ctx.canvas, patterns: new Map() };
+  const item = makeStaticItem(Path, body, camera);
+  const items = [item];
+  const outline = 2;
+  ctx.save();
+  ctx.clearRect(0, 0, width, height);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  drawBackDetails(r, items, outline);
+  drawBodyFills(r, new Map([[item.style, items]]));
+  drawMotifs(r, new Map([[item.style, items]]), outline);
+  ctx.strokeStyle = PALETTE.ink;
+  ctx.lineWidth = outline;
+  ctx.stroke(item.path);
+  drawPigVariants(r, items, outline);
+  drawFaces(r, items, outline);
+  ctx.restore();
 }
 function previewBodyPaths(ctx, Path, round, camera) {
   const groups = new Map();

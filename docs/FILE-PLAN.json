@@ -34,8 +34,8 @@
     {
       "path": "render.js",
       "phase": "P2",
-      "budget": 1400,
-      "budgetNote": "Raised from 1300. Second raise; if it needs a third, split the material motifs and the pig faces into their own module rather than raising again.",
+      "budget": 1450,
+      "budgetNote": "Raised from 1400 in P4 within the editor's explicit 150-line renderer allowance. The added surface is limited to plot/grid, ghost, validation/settle highlights and real-renderer palette thumbnails; any growth beyond this still requires splitting material motifs and pig faces.",
       "imports": [
         "data.js"
       ],
@@ -44,7 +44,7 @@
     {
       "path": "game.js",
       "phase": "P2",
-      "budget": 1300,
+      "budget": 1800,
       "imports": [
         "data.js",
         "sim.js",
@@ -55,7 +55,8 @@
         "levels.js",
         "bots.js"
       ],
-      "job": "Screens, input, HUD, camera, the fixed-step accumulator, campaign flow, siege match flow. The only file allowed to touch the DOM outside render.js."
+      "job": "Screens, input, HUD, camera, the fixed-step accumulator, campaign flow, siege match flow. The only file allowed to touch the DOM outside render.js.",
+      "budgetNote": "Raised from 1300 in P4. The fortress editor adds a second complete input and screen flow, continuous validation presentation, settle playback, palette thumbnails and clipboard transfer; at 1800 lines it still remains the one browser controller rather than splitting UI state across modules."
     },
     {
       "path": "audio.js",
@@ -149,6 +150,11 @@
       "path": "tools/editor-test.mjs",
       "phase": "P4",
       "job": "Blueprint encode/decode round trip, legality rule coverage, settle guarantee."
+    },
+    {
+      "path": "tools/editor-shots.mjs",
+      "phase": "P4",
+      "job": "Drive the real fortress editor and capture empty, building, invalid and failed-settle frames at desktop and portrait sizes while failing on browser runtime issues."
     },
     {
       "path": "tools/level-export.mjs",

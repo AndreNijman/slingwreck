@@ -343,6 +343,161 @@ async function loadReady(page, url) {
   );
 }
 
+async function editorPoint(page, x, y) {
+  return page.evaluate(({ x, y }) => {
+    const camera = window.__SLINGWRECK_SMOKE__?.().editor?.camera;
+    const rect = document.querySelector('#game')?.getBoundingClientRect();
+    if (!camera || !rect) return null;
+    const scaleX = rect.width / camera.viewportW;
+    const scaleY = rect.height / camera.viewportH;
+    return {
+      x: rect.left + (camera.viewportX + camera.viewportW / 2 +
+        (x - camera.x) * camera.scale) * scaleX,
+      y: rect.top + (camera.viewportY + camera.viewportH / 2 -
+        (y - camera.y) * camera.scale) * scaleY
+    };
+  }, { x, y });
+}
+
+async function clickEditorPoint(page, x, y) {
+  const point = await editorPoint(page, x, y);
+  if (!point) throw new Error(`editor camera unavailable for ${x}, ${y}`);
+  await page.mouse.click(point.x, point.y);
+}
+
+async function editorRun(baseUrl) {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 720 },
+    deviceScaleFactor: 1
+  });
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: new URL(baseUrl).origin
+  });
+  const page = await context.newPage();
+  attachFailureCollectors(page, 'editor');
+
+  try {
+    const loaded = await loadReady(page, smokeUrl(baseUrl));
+    await page.locator('#editor-button').click();
+    const opened = await poll(
+      () => pageSnapshot(page),
+      (state) => state?.editor?.pieceCount === 0 &&
+        state.editor.camera.viewportW === 712,
+      5000
+    );
+    report('title opens the fortress editor with the plot framed outside its chrome',
+      loaded.ok && opened.ok,
+      pollMeasurement(opened,
+        `pieces ${opened.value?.editor?.pieceCount ?? '?'}; canvas ` +
+        `${opened.value?.editor?.camera.viewportW ?? '?'}×${opened.value?.editor?.camera.viewportH ?? '?'}`));
+
+    const initialText = await page.locator('#validation-summary').textContent();
+    report('empty draft gives human King and guard guidance',
+      opened.value?.editor?.validation.join(',') === 'king-count,too-few-pigs' &&
+        /Place one real King Hog/.test(initialText) && /Add at least two pigs/.test(initialText),
+      `codes [${opened.value?.editor?.validation.join(', ') ?? ''}]; guidance "${compact(initialText?.trim())}"`);
+
+    await page.locator('#pigs-tab').click();
+    await page.locator('#palette-pig-king').click();
+    await clickEditorPoint(page, 8, 1);
+    const oneKing = await poll(
+      () => pageSnapshot(page),
+      (state) => state?.editor?.pieceCount === 1 &&
+        state.editor.validation.length === 1 && state.editor.validation[0] === 'too-few-pigs',
+      3000
+    );
+    report('placing the King reaches the intended one-problem invalid state', oneKing.ok,
+      pollMeasurement(oneKing,
+        `pieces ${oneKing.value?.editor?.pieceCount ?? '?'}; errors ` +
+        `[${oneKing.value?.editor?.validation.join(', ') ?? ''}]`));
+
+    await page.locator('#palette-pig-runt').click();
+    await clickEditorPoint(page, 6, 1);
+    await clickEditorPoint(page, 10, 1);
+    const fixed = await poll(
+      () => pageSnapshot(page),
+      (state) => state?.editor?.pieceCount === 3 && state.editor.validation.length === 0,
+      3000
+    );
+    report('two guard pigs fix the continuous validation state', fixed.ok,
+      pollMeasurement(fixed,
+        `pieces ${fixed.value?.editor?.pieceCount ?? '?'}; errors ` +
+        `[${fixed.value?.editor?.validation.join(', ') ?? ''}]`));
+
+    await page.locator('#materials-tab').click();
+    await page.locator('#palette-block-cube').click();
+    const sweepStart = await editorPoint(page, 2, 0.5);
+    const sweepEnd = await editorPoint(page, 5, 0.5);
+    await page.mouse.move(sweepStart.x, sweepStart.y);
+    await page.mouse.down();
+    await page.mouse.move(sweepEnd.x, sweepEnd.y, { steps: 18 });
+    await page.mouse.up();
+    const swept = await poll(
+      () => pageSnapshot(page),
+      (state) => state?.editor?.pieceCount >= 6 && state.editor.spent >= 7,
+      3000
+    );
+    report('drag sweep places a snapped run and spends its scrap', swept.ok,
+      pollMeasurement(swept,
+        `${(swept.value?.editor?.pieceCount ?? 3) - 3} blocks; ` +
+        `${swept.value?.editor?.spent ?? '?'} scrap spent`));
+
+    const beforeUndo = swept.value?.editor?.pieceCount;
+    await page.keyboard.press('Control+z');
+    const undone = await poll(() => pageSnapshot(page),
+      (state) => state?.editor?.pieceCount === beforeUndo - 1, 2000);
+    await page.keyboard.press('Control+Shift+z');
+    const redone = await poll(() => pageSnapshot(page),
+      (state) => state?.editor?.pieceCount === beforeUndo, 2000);
+    report('editor undo and redo restore the swept draft', undone.ok && redone.ok,
+      `counts ${beforeUndo} → ${undone.value?.editor?.pieceCount ?? '?'} → ` +
+      `${redone.value?.editor?.pieceCount ?? '?'}`);
+
+    const beforeSettle = redone.value?.editor?.encoded;
+    const settleStartedAt = performance.now();
+    await page.locator('#settle-button').click();
+    const settled = await poll(
+      () => pageSnapshot(page),
+      (state) => state?.editor && !state.editor.settling &&
+        typeof state.editor.settleResult === 'string',
+      7000
+    );
+    const settleSeconds = (performance.now() - settleStartedAt) / 1000;
+    report('settle test plays for three seconds and leaves the draft untouched',
+      settled.ok && settleSeconds >= 2.8 && settled.value?.editor?.encoded === beforeSettle,
+      pollMeasurement(settled,
+        `${settleSeconds.toFixed(2)} s; same encoded draft ` +
+        `${settled.value?.editor?.encoded === beforeSettle}; "${settled.value?.editor?.settleResult ?? ''}"`));
+
+    await page.locator('#copy-blueprint-button').click();
+    const copied = await poll(
+      async () => ({
+        clipboard: await page.evaluate(() => navigator.clipboard.readText()),
+        state: await pageSnapshot(page)
+      }),
+      ({ clipboard, state }) => clipboard === beforeSettle && state.editor.encoded === beforeSettle,
+      3000
+    );
+    report('export copies the exact encoded blueprint', copied.ok,
+      pollMeasurement(copied,
+        `${copied.value?.clipboard?.length ?? 0} clipboard characters; exact ` +
+        `${copied.value?.clipboard === beforeSettle}`));
+
+    await clickEditorPoint(page, 14, 0.5);
+    const mutated = await poll(() => pageSnapshot(page),
+      (state) => state?.editor?.encoded !== beforeSettle, 2000);
+    await page.locator('#paste-blueprint-button').click();
+    const imported = await poll(() => pageSnapshot(page),
+      (state) => state?.editor?.encoded === beforeSettle, 3000);
+    report('paste-to-load round-trips the authored draft exactly', mutated.ok && imported.ok,
+      pollMeasurement(imported,
+        `mutated ${mutated.ok}; restored ${imported.value?.editor?.encoded === beforeSettle}; ` +
+        `${imported.value?.editor?.pieceCount ?? '?'} pieces`));
+  } finally {
+    await context.close();
+  }
+}
+
 async function desktopRun(baseUrl) {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
@@ -596,6 +751,11 @@ try {
     await desktopRun(baseUrl);
   } catch (error) {
     runtimeIssues.push(`desktop run aborted: ${error.stack ?? error}`);
+  }
+  try {
+    await editorRun(baseUrl);
+  } catch (error) {
+    runtimeIssues.push(`editor run aborted: ${error.stack ?? error}`);
   }
   try {
     await mobileRun(baseUrl);
