@@ -311,3 +311,22 @@ chip 5/47, zip 5/47. Chip and Zip stay narrow on purpose — both must be trigge
 particular distance, which is skill rather than reflex.
 
 - 2026-08-22 `P3.7` **done** — tools/playtest.mjs --all — assert every tap ability measurably changes the outcome. 774-shot sweep across every tap timing, damage reported against material available, fails only when no timing beats untapped. Verified it can fail. Took four passes to measure honestly - see WORKLOG; I acted on Lob's 2/46 before establishing the sweep window was sound, and it was 46/226 once fixed.
+
+- 2026-08-22 `P3.8` **done** — P3 gate — playtest --all green, re-run all suites and the four-engine determinism, commit. check, smoke 23/23, audio render 15/15, sim 25/25, physics 7/7, settle 3/3, playtest 774 shots all WORKING, four engines agree on both scenarios.
+
+### P3 complete — 2026-08-22
+
+Every critter, pig and material in `data.js` now does something, and each one is asserted
+as a measured difference rather than a claim.
+
+Gates: `check`, smoke 23/23, audio render 15/15, sim 25/25, physics 7/7, settle-probe
+3/3, playtest 774 shots with all nine critters WORKING, and four engines bit-identical on
+both the physics and the sim scenario.
+
+Two gaps closed that were not on the plan: the four-engine gate now covers `sim.js` as
+well as the solver — it was replaying 40 falling bodies and never touching the code the
+relay audit actually replays — and CI now runs the browser gates, which it had never
+done, so a broken page could previously have deployed with everything green.
+
+Next: P4, the fortress editor. It comes before the campaign because the campaign is
+authored with it, which is the only way it gets enough use to be good.

@@ -3,8 +3,8 @@
   "domain": "slingwreck.andrenijman.com",
   "relay": "slingwreck-relay",
   "architectureRevision": 1,
-  "phase": "P3",
-  "phaseName": "Content",
+  "phase": "P4",
+  "phaseName": "Editor",
   "phases": [
     {
       "id": "P0",
@@ -27,13 +27,13 @@
     {
       "id": "P3",
       "name": "Content",
-      "status": "doing",
+      "status": "done",
       "gate": "node tools/playtest.mjs --all"
     },
     {
       "id": "P4",
       "name": "Editor",
-      "status": "todo",
+      "status": "doing",
       "gate": "node tools/editor-test.mjs"
     },
     {
@@ -63,59 +63,53 @@
   ],
   "tasks": [
     {
-      "id": "P3.1",
-      "phase": "P3",
-      "status": "done",
-      "title": "Extend the determinism test to cover sim.js, not just physics.js",
-      "note": "Second scenario: 30+ blocks of every material, every pig type, 3 TNT, 6-shot log. Exercise counts 12 blocks destroyed / 5 pigs killed / 3 explosions / 2 TNT chained, so the paths are genuinely hit. All four engines agree on both tables. The relay audit model is now proven for sim.js, not just the solver."
-    },
-    {
-      "id": "P3.2",
-      "phase": "P3",
-      "status": "done",
-      "title": "Author the underspecified sim params (was P3.0)",
-      "note": "All 10 authored in data.js with the reasoning inline, DESIGN.md corrected where it contradicted itself, and a resolved-ambiguities table added. Notable: Hulk is 4x area not 3x volume (sqrt is exactly 2, so the radius stays a clean decimal); Chip fragments keep parent SPEED because splitting momentum would make the tap worse than no tap; Flak Hog's pig is chosen by the builder because every automatic rule was arbitrary, exploitable, or both."
-    },
-    {
-      "id": "P3.3",
-      "phase": "P3",
-      "status": "done",
-      "title": "Implement the 8 remaining critter abilities: split, accel, boom, drop, reverse, inflate, harden, blink",
-      "note": "All 8 abilities, each with a measured tapped-vs-untapped assertion (16 sim assertions now). Chip rotation uses precomputed (c,s) literals so no trig enters the sim; blink raycasts and backs off so it cannot teleport into a block; harden uses a generic pierce filter in physics.js plus a swept damage test in sim.js. Determinism sim scenario now taps every ability. ALSO fixed a 50% flaky smoke assertion that Sol had shipped knowingly: the test pressed at fixed screen pixels while the camera was still easing, so screenToWorld gave a different shot each run. Now waits for camera stability and aims in world space; 13 consecutive runs give an identical score of 6,400 and 1/3 pigs."
-    },
-    {
-      "id": "P3.4",
-      "phase": "P3",
-      "status": "done",
-      "title": "Implement the remaining pig traits: helm/tusk armour verification, zep balloon, sarge repair",
-      "note": "Helm/tusk armour verified from BOTH sides (0.40 ratio armoured, 1.00 unarmoured). Zep balloon hovers and drops when popped. Sarge repair is siege-only, deterministic, skips occupied space, and its test covers the tie-break too. Spring 4.6x rebound for critters only. Gel far-side ratio exactly 0.30 with its own damage unchanged. Sand and large stone both conserve mass exactly (1.2 and 3.8). 24 sim assertions, four engines agree, 9 exercise counts all non-zero."
-    },
-    {
-      "id": "P3.5",
-      "phase": "P3",
-      "status": "done",
-      "title": "Implement remaining material behaviours: spring ammoRestitution, gel absorb, sand chunks, large-stone sub-bodies",
-      "note": "Delivered with P3.4 - spring, gel, sand chunks and large-stone splitting were the same task."
-    },
-    {
-      "id": "P3.6",
-      "phase": "P3",
-      "status": "done",
-      "title": "audio.js — WebAudio synthesis driven by the sim event list",
-      "note": "audio.js 259 lines, all synthesis, lazy AudioContext on the Play gesture, 16 voices, 30ms coalescing, compressor bus. Added tools/audio-render-test.mjs because the coverage check only proved a handler EXISTS - it renders every event kind offline and measures peak/tail, so a handler that outputs silence now fails. All 15 audible, none clipping, none ringing, settled verified exactly silent. Also found pages.yml only ran 'check', so the browser smoke test had never run in CI at all; added chromium + npm test + test:audio to the workflow."
-    },
-    {
-      "id": "P3.7",
-      "phase": "P3",
-      "status": "done",
-      "title": "tools/playtest.mjs --all — assert every tap ability measurably changes the outcome",
-      "note": "774-shot sweep across every tap timing, damage reported against material available, fails only when no timing beats untapped. Verified it can fail. Took four passes to measure honestly - see WORKLOG; I acted on Lob's 2/46 before establishing the sweep window was sound, and it was 46/226 once fixed."
-    },
-    {
-      "id": "P3.8",
-      "phase": "P3",
+      "id": "P4.1",
+      "phase": "P4",
       "status": "todo",
-      "title": "P3 gate — playtest --all green, re-run all suites and the four-engine determinism, commit"
+      "title": "build.js core \u2014 palette, 0.5 grid snap, 15-degree rotation, place, remove, drag-sweep, undo"
+    },
+    {
+      "id": "P4.2",
+      "phase": "P4",
+      "status": "todo",
+      "title": "Budget accounting \u2014 material and pig costs, card-modified costs, early-lock scrap bonus"
+    },
+    {
+      "id": "P4.3",
+      "phase": "P4",
+      "status": "todo",
+      "title": "Legality rules \u2014 plot bounds, no overlap at rest (maxPenetration), 120-block cap, exactly one King, at least two other pigs, burial depth <= 5 by 64-ray sampling"
+    },
+    {
+      "id": "P4.4",
+      "phase": "P4",
+      "status": "todo",
+      "title": "Settle test \u2014 3 s simulation, reject a blueprint that collapses or kills its own pigs, return the offending pieces",
+      "note": "The relay runs this authoritatively in P6, so it must live in sim/build and not in game.js."
+    },
+    {
+      "id": "P4.5",
+      "phase": "P4",
+      "status": "todo",
+      "title": "Blueprint encode and decode \u2014 compact wire format, round-trip exact"
+    },
+    {
+      "id": "P4.6",
+      "phase": "P4",
+      "status": "todo",
+      "title": "Editor UI \u2014 ghost preview, palette, budget meter, validation feedback, settle-test button"
+    },
+    {
+      "id": "P4.7",
+      "phase": "P4",
+      "status": "todo",
+      "title": "tools/editor-test.mjs \u2014 200 generated blueprints round-tripped, every legality rule rejecting exactly what it should, a validated blueprint always settles"
+    },
+    {
+      "id": "P4.8",
+      "phase": "P4",
+      "status": "todo",
+      "title": "P4 gate \u2014 editor-test green, all prior suites and four-engine determinism, commit"
     },
     {
       "id": "P5.0",
