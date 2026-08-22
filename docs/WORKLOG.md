@@ -189,3 +189,73 @@ abilities' worth of new arithmetic to it.
 - 2026-08-22 `P3.6` **doing** — audio.js — WebAudio synthesis driven by the sim event list
 
 - 2026-08-22 `P3.6` **done** — audio.js — WebAudio synthesis driven by the sim event list. audio.js 259 lines, all synthesis, lazy AudioContext on the Play gesture, 16 voices, 30ms coalescing, compressor bus. Added tools/audio-render-test.mjs because the coverage check only proved a handler EXISTS - it renders every event kind offline and measures peak/tail, so a handler that outputs silence now fails. All 15 audible, none clipping, none ringing, settled verified exactly silent. Also found pages.yml only ran 'check', so the browser smoke test had never run in CI at all; added chromium + npm test + test:audio to the workflow.
+
+- 2026-08-22 `P3.7` **doing** — tools/playtest.mjs --all — assert every tap ability measurably changes the outcome
+
+### P3 in progress — 2026-08-22
+
+Six of eight done: the determinism gate extended to `sim.js`, the ten underspecified
+parameters authored, all eight critter abilities, all four pig traits, all four material
+behaviours, and audio.
+
+`tools/sim-test.mjs` is at 24 assertions. Every ability, trait and material is asserted
+as a **measured difference between having it and not having it**, printing both numbers,
+because a feature that does nothing measurable is a bug and nothing else catches it. The
+numbers line up exactly with the authored data — gel's far-side damage ratio is 0.30,
+both armour ratios are 0.40, and sand and large stone each conserve mass to the digit.
+
+#### The flaky gate, twice
+
+The portrait smoke assertion was fixed in P3.3 and was still not fixed.
+
+After the first fix it passed six times idle with an identical score, which looked
+conclusive. It was not: under eight busy CPU workers it produced a different shot one run
+in three. It still *passed*, because the assertion is "at least one pig" — so it was
+concealing its own nondeterminism rather than reporting it.
+
+The remaining cause turned out to be a **gameplay bug**, not a test bug. `P2.5b`
+specified that the aiming camera zooms out at full stretch. The draw vector was being
+recomputed each frame with `screenToWorld` against the live camera, so the mapping
+shifted while the pointer was still down, by an amount that depended on how many frames
+had elapsed. Read as a player rather than as a test: **you pull the sling back, the
+camera zooms out, and your aim slides under your finger without you moving it.**
+
+The aim is now anchored — screen-space delta since the press, converted with the scale
+captured at the press. Ten runs, six idle and four under load, all report an identical
+score of 11,600 and 2 of 3 pigs.
+
+One consequence, noted deliberately: because the draw uses the press-time scale, the
+pouch's *screen* position drifts from the pointer by however much the camera zoom
+changes during the drag. That zoom change is currently about 1%, so it is invisible. If
+the aiming zoom-out is ever made more dramatic, this becomes a visible lag and the right
+answer is to reduce the zoom during drag, **not** to go back to live conversion — the
+aim being what you pointed at matters more than the pouch tracking your finger exactly.
+
+Two lessons, now in `docs/BUILD_PLAN.md`: passing is not the same as deterministic, and a
+test should be measured under load before it is believed.
+
+#### Audio, and a check that could not fail
+
+`audio.js` is all synthesis, no files, with a lazy `AudioContext`, a 16-voice cap and
+30 ms coalescing so a collapsing tower is one shatter rather than twenty.
+
+The event-coverage check added alongside it asserts that every kind in `EVENT_KINDS` has
+an entry in `EVENT_SOUNDS`. That proves a handler *exists*; it does not prove the handler
+makes any sound, which is the same failure one level down.
+`tools/audio-render-test.mjs` now renders every kind through a real WebAudio graph
+offline and measures peak and tail energy. All 15 are audible, none clip, none are still
+ringing at 2.5 s, and `settled` is verified to be exactly silent rather than silent by
+omission.
+
+Writing that test produced three failures that were all **mine**: an `OfflineAudioContext`
+reports `suspended`, so `pushEvents` correctly refused to schedule anything; RMS over a
+fixed 2.5 s window penalises short sounds, which is all of them; and one generic payload
+gave `shatter` wood instead of glass and `gel-absorb` no `amount`. Worth recording — the
+harness is as likely to be wrong as the code, and a red test is not automatically a bug
+in the thing under test.
+
+#### CI was not running the browser gates at all
+
+`pages.yml` ran only `npm run check`, which is pure Node. The 23-assertion smoke test had
+never run in CI, so a broken page could have deployed with every gate reporting green.
+The workflow now installs Chromium and runs `npm test` and `npm run test:audio`.
