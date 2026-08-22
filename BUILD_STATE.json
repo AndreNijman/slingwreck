@@ -79,8 +79,9 @@
     {
       "id": "P3.3",
       "phase": "P3",
-      "status": "todo",
-      "title": "Implement the 8 remaining critter abilities: split, accel, boom, drop, reverse, inflate, harden, blink"
+      "status": "done",
+      "title": "Implement the 8 remaining critter abilities: split, accel, boom, drop, reverse, inflate, harden, blink",
+      "note": "All 8 abilities, each with a measured tapped-vs-untapped assertion (16 sim assertions now). Chip rotation uses precomputed (c,s) literals so no trig enters the sim; blink raycasts and backs off so it cannot teleport into a block; harden uses a generic pierce filter in physics.js plus a swept damage test in sim.js. Determinism sim scenario now taps every ability. ALSO fixed a 50% flaky smoke assertion that Sol had shipped knowingly: the test pressed at fixed screen pixels while the camera was still easing, so screenToWorld gave a different shot each run. Now waits for camera stability and aims in world space; 13 consecutive runs give an identical score of 6,400 and 1/3 pigs."
     },
     {
       "id": "P3.4",

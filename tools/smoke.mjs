@@ -10,6 +10,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const startedAt = performance.now();
 const failures = [];
 const runtimeIssues = [];
+const CAMERA_STABLE_EPSILON = 1e-7;
+const CAMERA_STABLE_FRAMES = 3;
 let assertion = 0;
 let server;
 let browser;
@@ -190,6 +192,18 @@ function screenPoint(state, worldX, worldY) {
   };
 }
 
+async function liveWorldDraw(page, draw) {
+  const state = await pageSnapshot(page);
+  if (!state) throw new Error('smoke hook unavailable while preparing world-space draw');
+  const pouch = screenPoint(state, state.sling.x, state.sling.y);
+  const target = screenPoint(
+    state,
+    state.sling.x + draw.dx,
+    state.sling.y + draw.dy
+  );
+  return { state, pouch, target };
+}
+
 function drawAtLivePig(state) {
   const pig = state.pigs.find((candidate) => !candidate.dead);
   if (!pig) return { dx: -1, dy: -0.5 };
@@ -206,14 +220,42 @@ function drawAtLivePig(state) {
 }
 
 async function waitForAimingCamera(page) {
-  return poll(
-    () => pageSnapshot(page),
-    (state) => state?.phase === 'aiming' && state.camera.mode === 'aiming' &&
-      Math.abs(state.camera.x - state.cameraTarget.x) < 0.03 &&
-      Math.abs(state.camera.y - state.cameraTarget.y) < 0.03 &&
-      Math.abs(state.camera.zoom - state.cameraTarget.zoom) < 0.01,
-    5000
-  );
+  const timeout = 5000;
+  const deadline = performance.now() + timeout;
+  let previous;
+  let value;
+  let stableFrames = 0;
+  let movement = { x: Infinity, y: Infinity, zoom: Infinity };
+
+  while (performance.now() < deadline) {
+    value = await page.evaluate(() => new Promise((resolveFrame) => {
+      requestAnimationFrame(() => resolveFrame(window.__SLINGWRECK_SMOKE__?.()));
+    }));
+    const aiming = value?.phase === 'aiming' && value.camera.mode === 'aiming';
+    if (aiming && previous?.phase === 'aiming' && previous.camera.mode === 'aiming') {
+      movement = {
+        x: Math.abs(value.camera.x - previous.camera.x),
+        y: Math.abs(value.camera.y - previous.camera.y),
+        zoom: Math.abs(value.camera.zoom - previous.camera.zoom)
+      };
+      stableFrames = movement.x <= CAMERA_STABLE_EPSILON &&
+        movement.y <= CAMERA_STABLE_EPSILON &&
+        movement.zoom <= CAMERA_STABLE_EPSILON
+        ? stableFrames + 1
+        : 0;
+      if (stableFrames >= CAMERA_STABLE_FRAMES) return { ok: true, value };
+    } else {
+      stableFrames = 0;
+    }
+    previous = value;
+  }
+
+  return {
+    ok: false,
+    value,
+    detail: `timed out after ${timeout} ms waiting for ${CAMERA_STABLE_FRAMES} stable frames; ` +
+      `last frame movement x ${movement.x}, y ${movement.y}, zoom ${movement.zoom}`
+  };
 }
 
 async function beginMouseDraw(page, draw) {
@@ -221,46 +263,41 @@ async function beginMouseDraw(page, draw) {
   if (!ready.ok) {
     throw new Error(`aiming camera did not settle (${ready.detail}): ${compact(ready.value)}`);
   }
-  const pouch = screenPoint(ready.value, ready.value.sling.x, ready.value.sling.y);
-  const target = screenPoint(
-    ready.value,
-    ready.value.sling.x + draw.dx,
-    ready.value.sling.y + draw.dy
-  );
+  const { state, pouch, target } = await liveWorldDraw(page, draw);
   await page.mouse.move(pouch.x, pouch.y);
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 8 });
-  return { ready: ready.value, pouch, target };
+  return { ready: state, pouch, target };
 }
 
 async function beginTouchDraw(context, page, draw) {
-  const ready = await waitForAimingCamera(page);
-  if (!ready.ok) {
-    throw new Error(`aiming camera did not settle (${ready.detail}): ${compact(ready.value)}`);
-  }
-  const pouch = screenPoint(ready.value, ready.value.sling.x, ready.value.sling.y);
-  const target = screenPoint(
-    ready.value,
-    ready.value.sling.x + draw.dx,
-    ready.value.sling.y + draw.dy
-  );
   const session = await context.newCDPSession(page);
-  const touch = (x, y) => ({ x, y, id: 1, radiusX: 4, radiusY: 4, force: 1 });
-  await session.send('Input.dispatchTouchEvent', {
-    type: 'touchStart',
-    touchPoints: [touch(pouch.x, pouch.y)]
-  });
-  for (let step = 1; step <= 8; step++) {
-    const fraction = step / 8;
+  try {
+    const ready = await waitForAimingCamera(page);
+    if (!ready.ok) {
+      throw new Error(`aiming camera did not settle (${ready.detail}): ${compact(ready.value)}`);
+    }
+    const { state, pouch, target } = await liveWorldDraw(page, draw);
+    const touch = (x, y) => ({ x, y, id: 1, radiusX: 4, radiusY: 4, force: 1 });
     await session.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: [touch(
-        pouch.x + (target.x - pouch.x) * fraction,
-        pouch.y + (target.y - pouch.y) * fraction
-      )]
+      type: 'touchStart',
+      touchPoints: [touch(pouch.x, pouch.y)]
     });
+    for (let step = 1; step <= 8; step++) {
+      const fraction = step / 8;
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [touch(
+          pouch.x + (target.x - pouch.x) * fraction,
+          pouch.y + (target.y - pouch.y) * fraction
+        )]
+      });
+    }
+    return { ready: state, pouch, target, session };
+  } catch (error) {
+    await session.detach().catch(() => {});
+    throw error;
   }
-  return { ready: ready.value, pouch, target, session };
 }
 
 async function endTouchDraw(session) {

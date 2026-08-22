@@ -204,7 +204,9 @@ export const AMMO = [
     params: {
       count: 3,
       spreadDeg: 22,
-      keepsParentSpeed: true
+      keepsParentSpeed: true,
+      spreadCos: 0.9271838545667874,
+      spreadSin: 0.37460659341591196
     }
   },
   {

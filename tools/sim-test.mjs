@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
-import { MATERIALS, TUNE } from '../data.js';
+import { AMMO_BY_ID, MATERIALS, TUNE } from '../data.js';
 import { addBody } from '../physics.js';
 import {
   digestRound,
   launch,
   makeRound,
-  stepRound
+  stepRound,
+  tap
 } from '../sim.js';
 
 let failures = 0;
@@ -179,6 +180,221 @@ function occlusionGate() {
     `clear damage ${clearDamage.toFixed(5)}; behind stone ${shieldedDamage.toFixed(5)}`);
 }
 
+const ABILITY_BLUEPRINT = { v: 1, blocks: [], pigs: [['runt', 20, 10]] };
+
+function abilityPair(ammoId, blueprint = ABILITY_BLUEPRINT, dx = -TUNE.slingRadius, dy = 0) {
+  const tapped = roundWith(blueprint, [ammoId], 12345);
+  const untapped = roundWith(blueprint, [ammoId], 12345);
+  tapped.world.gravity = 0;
+  tapped.world.lastGravity = 0;
+  untapped.world.gravity = 0;
+  untapped.world.lastGravity = 0;
+  return {
+    tapped,
+    untapped,
+    tappedBody: launch(tapped, dx, dy),
+    untappedBody: launch(untapped, dx, dy)
+  };
+}
+
+function hasAbilityEvent(round, ability) {
+  return round.queuedEvents.some((event) =>
+    event.kind === 'ability' && event.ability === ability);
+}
+
+function splitAbilityGate() {
+  const trial = abilityPair('chip');
+  const parentSpeed = speed(trial.tappedBody);
+  const firstTap = tap(trial.tapped);
+  const secondTap = tap(trial.tapped);
+  const fragments = trial.tapped.world.bodies.filter((body) => body.role === 'ammo');
+  const control = trial.untapped.world.bodies.filter((body) => body.role === 'ammo');
+  const expected = AMMO_BY_ID.chip;
+  const expectedRadius = expected.radius / Math.sqrt(expected.params.count);
+  const speedError = Math.max(...fragments.map((body) => Math.abs(speed(body) - parentSpeed)));
+  const massError = Math.max(...fragments.map((body) =>
+    Math.abs(1 / body.im - expected.mass / expected.params.count)));
+  const radiusError = Math.max(...fragments.map((body) => Math.abs(body.r - expectedRadius)));
+  const passed = firstTap && !secondTap && fragments.length === 3 && control.length === 1 &&
+    trial.tappedBody.dead && !trial.tapped.world.bodies.includes(trial.tappedBody) &&
+    speedError < 1e-12 && massError < 1e-12 && radiusError < 1e-12 &&
+    hasAbilityEvent(trial.tapped, 'split');
+  report('ability split', passed,
+    `tapped ${fragments.length} bodies vs untapped ${control.length}; ` +
+    `max speed error ${speedError.toExponential(3)}`);
+}
+
+function accelAbilityGate() {
+  const trial = abilityPair('wedge');
+  const untappedSpeed = speed(trial.untappedBody);
+  const firstTap = tap(trial.tapped);
+  const secondTap = tap(trial.tapped);
+  const tappedSpeed = speed(trial.tappedBody);
+  const multiplier = AMMO_BY_ID.wedge.params.speedMultiplier;
+  const passed = firstTap && !secondTap &&
+    Math.abs(tappedSpeed - untappedSpeed * multiplier) < 1e-12 &&
+    hasAbilityEvent(trial.tapped, 'accel');
+  report('ability accel', passed,
+    `tapped speed ${tappedSpeed.toFixed(5)} vs untapped ${untappedSpeed.toFixed(5)}`);
+}
+
+function boomAbilityGate() {
+  const blueprint = {
+    v: 1,
+    blocks: [['cube', 'glass', TUNE.slingX + 3, TUNE.slingY, 0]],
+    pigs: [['runt', 20, 10]]
+  };
+  const trial = abilityPair('lob', blueprint);
+  const firstTap = tap(trial.tapped);
+  const secondTap = tap(trial.tapped);
+  stepRound(trial.tapped, TUNE.step);
+  stepRound(trial.untapped, TUNE.step);
+  const tappedDamage = trial.tapped.blocks[0].maxHp - trial.tapped.blocks[0].hp;
+  const untappedDamage = trial.untapped.blocks[0].maxHp - trial.untapped.blocks[0].hp;
+  const boomEvent = trial.tapped.events.some((event) => event.kind === 'boom');
+  const abilityEvent = trial.tapped.events.some((event) =>
+    event.kind === 'ability' && event.ability === 'boom');
+  report('ability boom', firstTap && !secondTap && tappedDamage > untappedDamage &&
+    boomEvent && abilityEvent,
+    `tapped damage ${tappedDamage.toFixed(5)} vs untapped ${untappedDamage.toFixed(5)}`);
+}
+
+function dropAbilityGate() {
+  const trial = abilityPair('pebble');
+  const initialVy = trial.tappedBody.vy;
+  const firstTap = tap(trial.tapped);
+  const secondTap = tap(trial.tapped);
+  const payload = trial.tapped.world.bodies.find((body) => body.role === 'payload');
+  const tappedBodies = [trial.tappedBody, payload];
+  const tappedSpread = Math.max(...tappedBodies.map((body) => body.vy)) -
+    Math.min(...tappedBodies.map((body) => body.vy));
+  const untappedSpread = 0;
+  const params = AMMO_BY_ID.pebble.params;
+  const passed = firstTap && !secondTap && payload &&
+    Math.abs(payload.vy - (initialVy - params.payloadSpeed)) < 1e-12 &&
+    Math.abs(trial.tappedBody.vy - (initialVy + params.recoilSpeed)) < 1e-12 &&
+    Math.abs(1 / payload.im - params.payloadMass) < 1e-12 &&
+    Math.abs(payload.r - params.payloadRadius) < 1e-12 &&
+    hasAbilityEvent(trial.tapped, 'drop');
+  report('ability drop', passed,
+    `tapped vertical spread ${tappedSpread.toFixed(5)} vs untapped ${untappedSpread.toFixed(5)}`);
+}
+
+function reverseAbilityGate() {
+  const trial = abilityPair('boomer', ABILITY_BLUEPRINT, -TUNE.slingRadius, -0.4);
+  const beforeVy = trial.tappedBody.vy;
+  const firstTap = tap(trial.tapped);
+  const secondTap = tap(trial.tapped);
+  const passed = firstTap && !secondTap &&
+    trial.tappedBody.vx === -trial.untappedBody.vx && trial.tappedBody.vy === beforeVy &&
+    hasAbilityEvent(trial.tapped, 'reverse');
+  report('ability reverse', passed,
+    `tapped vx ${trial.tappedBody.vx.toFixed(5)} vs untapped ${trial.untappedBody.vx.toFixed(5)}`);
+}
+
+function inflateAbilityGate() {
+  const blueprint = {
+    v: 1,
+    blocks: [['cube', 'wood', TUNE.slingX + 0.9, TUNE.slingY, 0]],
+    pigs: [['runt', 20, 10]]
+  };
+  const trial = abilityPair('hulk', blueprint, 0, 0);
+  const firstTap = tap(trial.tapped);
+  const secondTap = tap(trial.tapped);
+  const abilityEvent = hasAbilityEvent(trial.tapped, 'inflate');
+  const steps = Math.ceil(AMMO_BY_ID.hulk.params.inflateSeconds / TUNE.step);
+  for (let index = 0; index < steps; index++) {
+    stepRound(trial.tapped, TUNE.step);
+    stepRound(trial.untapped, TUNE.step);
+  }
+  const tappedRadius = trial.tappedBody.r;
+  const untappedRadius = trial.untappedBody.r;
+  const pushed = trial.tapped.blocks[0].x - trial.untapped.blocks[0].x;
+  const massRatio = (1 / trial.tappedBody.im) / AMMO_BY_ID.hulk.mass;
+  const passed = firstTap && !secondTap &&
+    Math.abs(tappedRadius - AMMO_BY_ID.hulk.params.inflatedRadius) < 1e-12 &&
+    untappedRadius === AMMO_BY_ID.hulk.radius && Math.abs(massRatio - 4) < 1e-12 &&
+    pushed > 0 && abilityEvent;
+  report('ability inflate', passed,
+    `tapped radius ${tappedRadius.toFixed(5)} vs untapped ${untappedRadius.toFixed(5)}; ` +
+    `neighbour pushed ${pushed.toFixed(5)}`);
+}
+
+function hardenGlassTrial(useTap) {
+  const round = roundWith({
+    v: 1,
+    blocks: [['cube', 'glass', TUNE.slingX + 3, TUNE.slingY, 0]],
+    pigs: [['runt', 20, 10]]
+  }, ['spike'], 2468);
+  round.world.gravity = 0;
+  round.world.lastGravity = 0;
+  const body = launch(round, -TUNE.slingRadius, 0);
+  const firstTap = useTap ? tap(round) : false;
+  const secondTap = useTap ? tap(round) : false;
+  let abilityEvent = false;
+  for (let index = 0; index < 18; index++) {
+    const events = stepRound(round, TUNE.step);
+    abilityEvent ||= events.some((event) => event.kind === 'ability' && event.ability === 'harden');
+  }
+  return {
+    x: body.x,
+    speed: speed(body),
+    damage: round.blocks[0].maxHp - round.blocks[0].hp,
+    firstTap,
+    secondTap,
+    abilityEvent
+  };
+}
+
+function hardenStoneTrial(useTap) {
+  const round = roundWith({
+    v: 1,
+    blocks: [['cube', 'stone', TUNE.slingX + 3, TUNE.slingY, 0]],
+    pigs: [['runt', 20, 10]]
+  }, ['spike'], 9753);
+  round.world.gravity = 0;
+  round.world.lastGravity = 0;
+  launch(round, -TUNE.slingRadius, 0);
+  if (useTap) tap(round);
+  const block = round.blocks[0];
+  for (let index = 0; index < 20 && block.hp === block.maxHp; index++) {
+    stepRound(round, TUNE.step);
+  }
+  return block.maxHp - block.hp;
+}
+
+function hardenAbilityGate() {
+  const tappedGlass = hardenGlassTrial(true);
+  const untappedGlass = hardenGlassTrial(false);
+  const tappedStone = hardenStoneTrial(true);
+  const untappedStone = hardenStoneTrial(false);
+  const passed = tappedGlass.firstTap && !tappedGlass.secondTap && tappedGlass.abilityEvent &&
+    tappedGlass.damage > 0 && tappedGlass.x > untappedGlass.x &&
+    tappedGlass.speed > untappedGlass.speed && untappedStone > 0 &&
+    tappedStone > untappedStone * 1.7;
+  report('ability harden', passed,
+    `glass x tapped ${tappedGlass.x.toFixed(5)} vs untapped ${untappedGlass.x.toFixed(5)}; ` +
+    `stone damage tapped ${tappedStone.toFixed(5)} vs untapped ${untappedStone.toFixed(5)}`);
+}
+
+function blinkAbilityGate() {
+  const wallX = TUNE.slingX + 2.5;
+  const trial = abilityPair('zip', {
+    v: 1,
+    blocks: [['cube', 'stone', wallX, TUNE.slingY, 0]],
+    pigs: [['runt', 20, 10]]
+  });
+  const firstTap = tap(trial.tapped);
+  const secondTap = tap(trial.tapped);
+  const safe = trial.tappedBody.x + trial.tappedBody.r <= wallX - 0.5 + 1e-12;
+  const passed = firstTap && !secondTap && trial.tappedBody.x > trial.untappedBody.x && safe &&
+    speed(trial.tappedBody) === speed(trial.untappedBody) &&
+    hasAbilityEvent(trial.tapped, 'blink');
+  report('ability blink', passed,
+    `tapped x ${trial.tappedBody.x.toFixed(5)} vs untapped ${trial.untappedBody.x.toFixed(5)}; ` +
+    `wall near face ${(wallX - 0.5).toFixed(5)}`);
+}
+
 function runToEnd(round, limit = 600) {
   for (let index = 0; index < limit && round.phase !== 'won' && round.phase !== 'lost'; index++) {
     stepRound(round, TUNE.step);
@@ -211,9 +427,9 @@ function replayGate() {
     blueprint: {
       v: 1,
       blocks: [['cube', 'wood', 5, 0.5, 0]],
-      pigs: [['runt', 0, 0.3]]
+      pigs: [['runt', 30, 0.3]]
     },
-    bag: ['nib', 'nib'],
+    bag: ['wedge', 'nib'],
     seed: 8675309,
     mode: 'campaign'
   };
@@ -223,6 +439,7 @@ function replayGate() {
     -Math.sqrt(TUNE.slingRadius * TUNE.slingRadius - upward * upward),
     -upward);
   while (original.phase !== 'aiming' && original.stepCount < 1000) {
+    if (original.stepCount === 12) tap(original);
     stepRound(original, TUNE.step);
   }
   launch(original, -TUNE.slingRadius, 0);
@@ -233,12 +450,13 @@ function replayGate() {
   while (replay.stepCount < original.stepCount) {
     for (const shot of shotLog) {
       if (shot.step === replay.stepCount) launch(replay, shot.dx, shot.dy);
+      if (shot.tapStep === replay.stepCount) tap(replay);
     }
     stepRound(replay, TUNE.step);
   }
   const originalDigest = digestRound(original);
   const replayDigest = digestRound(replay);
-  report('shot-log replay digest', originalDigest === replayDigest,
+  report('shot-log replay digest', originalDigest === replayDigest && shotLog[0].tapStep === 12,
     `${originalDigest} = ${replayDigest}; ${shotLog.length} shots over ` +
     `${original.stepCount} steps from seed ${spec.seed}`);
 }
@@ -249,6 +467,14 @@ damageThresholdGate();
 restingDamageGate();
 tntChainGate();
 occlusionGate();
+splitAbilityGate();
+accelAbilityGate();
+boomAbilityGate();
+dropAbilityGate();
+reverseAbilityGate();
+inflateAbilityGate();
+hardenAbilityGate();
+blinkAbilityGate();
 roundEndGate();
 replayGate();
 
@@ -256,5 +482,5 @@ if (failures) {
   console.error(`\n${failures} simulation assertion(s) failed.`);
   process.exitCode = 1;
 } else {
-  console.log('\nAll eight simulation assertions passed.');
+  console.log('\nAll sixteen simulation assertions passed.');
 }

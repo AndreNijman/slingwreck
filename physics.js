@@ -92,7 +92,9 @@ export function addBody(world, def) {
     islandId: id, wakeIslandId: 0, islandParent: null,
     islandAwake: false, islandAsleep: false, islandReady: false,
     minX: 0, minY: 0, maxX: 0, maxY: 0,
-    hp: maxHp, maxHp, tag: def.tag ?? null, dead: false
+    hp: maxHp, maxHp, tag: def.tag ?? null,
+    filterTag: def.filterTag ?? null, pierces: def.pierces ?? null,
+    dead: false
   };
   world.bodies.push(body);
   return body;
@@ -182,6 +184,8 @@ function broadphase(world) {
       if (b.minX > a.maxX) break;
       if (a.maxY < b.minY || b.maxY < a.minY) continue;
       if ((a.isStatic && b.isStatic) || (a.isAsleep && b.isAsleep)) continue;
+      if (a.pierces !== null && a.pierces === b.filterTag ||
+          b.pierces !== null && b.pierces === a.filterTag) continue;
       pairs.push(a.id < b.id ? { a, b } : { a: b, b: a });
     }
   }

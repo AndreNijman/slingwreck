@@ -1,18 +1,29 @@
 const BODY_FIELDS = ['x', 'y', 'c', 's', 'vx', 'vy', 'av'];
 const CHECKPOINT_STEPS = [0, 300, 600, 900, 1200, 1500, 1800];
 const SIM_BODY_FIELDS = [...BODY_FIELDS, 'hp', 'maxHp'];
-const SIM_CHECKPOINT_STEPS = [0, 450, 900, 1350, 1800, 2250, 2700];
+const SIM_DURATION_STEPS = 5880;
+const SIM_CHECKPOINT_STEPS = [0, 980, 1960, 2940, 3920, 4900, SIM_DURATION_STEPS];
 const ENGINE_NAMES = ['Node', 'Chromium', 'Firefox', 'WebKit'];
 const SHAPE_IDS = ['cube', 'slab', 'beam', 'plank', 'post', 'pillar', 'tri', 'ball'];
 const MATERIAL_IDS = ['glass', 'wood', 'stone', 'iron', 'tnt', 'spring', 'gel', 'sand'];
+const SIM_AMMO_IDS = ['nib', 'chip', 'wedge', 'lob', 'pebble', 'boomer', 'hulk', 'spike', 'zip'];
+const SIM_ABILITY_IDS = ['split', 'accel', 'boom', 'drop', 'reverse', 'inflate', 'harden', 'blink'];
 
 const SIM_SHOT_LOG = [
-  { step: 0, dx: -1.58, dy: 0.18 },
-  { step: 420, dx: -1.56, dy: -0.36 },
-  { step: 840, dx: -1.45, dy: -0.68 },
-  { step: 1260, dx: -0.44, dy: -1.53 },
-  { step: 1680, dx: -1.58, dy: -0.22 },
-  { step: 2100, dx: -1.42, dy: -0.74 }
+  { step: 0, tapStep: 1, ammo: 'nib', dx: -1.58, dy: 0.18 },
+  { step: 420, tapStep: null, ammo: 'nib', dx: -1.56, dy: -0.36 },
+  { step: 840, tapStep: null, ammo: 'nib', dx: -1.45, dy: -0.68 },
+  { step: 1260, tapStep: null, ammo: 'nib', dx: -0.44, dy: -1.53 },
+  { step: 1680, tapStep: null, ammo: 'nib', dx: -1.58, dy: -0.22 },
+  { step: 2100, tapStep: null, ammo: 'nib', dx: -1.42, dy: -0.74 },
+  { step: 2520, tapStep: 2521, ammo: 'chip', dx: 1.5, dy: -0.2 },
+  { step: 2940, tapStep: 2941, ammo: 'wedge', dx: 1.5, dy: -0.2 },
+  { step: 3360, tapStep: 3361, ammo: 'lob', dx: 1.5, dy: -0.2 },
+  { step: 3780, tapStep: 3781, ammo: 'pebble', dx: 1.5, dy: -0.2 },
+  { step: 4200, tapStep: 4201, ammo: 'boomer', dx: 1.5, dy: -0.2 },
+  { step: 4620, tapStep: 4621, ammo: 'hulk', dx: 1.5, dy: -0.2 },
+  { step: 5040, tapStep: 5041, ammo: 'spike', dx: 1.5, dy: -0.2 },
+  { step: 5460, tapStep: 5461, ammo: 'zip', dx: 1.5, dy: -0.2 }
 ];
 
 const SIM_BLUEPRINT = {
@@ -219,15 +230,20 @@ function observeOcclusion(round, events, hpBefore, physics, exercise) {
 function verifySimCoverage(data) {
   const materials = new Set(SIM_BLUEPRINT.blocks.map((block) => block[1]));
   const pigs = new Set(SIM_BLUEPRINT.pigs.map((pig) => pig[0]));
+  const ammo = new Set(SIM_SHOT_LOG.map((shot) => shot.ammo));
   const tntCount = SIM_BLUEPRINT.blocks.filter((block) => block[1] === 'tnt').length;
   const missingMaterials = Object.keys(data.MATERIALS).filter((id) => !materials.has(id));
   const missingPigs = Object.keys(data.PIGS).filter((id) => !pigs.has(id));
+  const missingAmmo = SIM_AMMO_IDS.filter((id) => !ammo.has(id));
   if (SIM_BLUEPRINT.blocks.length < 30 || SIM_BLUEPRINT.blocks.length > 40) {
     throw new Error(`sim blueprint must contain 30 to 40 blocks, found ${SIM_BLUEPRINT.blocks.length}`);
   }
   if (missingMaterials.length || missingPigs.length) {
     throw new Error(`sim blueprint coverage missing materials [${missingMaterials.join(', ')}] ` +
       `and pigs [${missingPigs.join(', ')}]`);
+  }
+  if (missingAmmo.length) {
+    throw new Error(`sim shot log coverage missing ammo [${missingAmmo.join(', ')}]`);
   }
   if (tntCount < 3) throw new Error(`sim blueprint needs at least three TNT crates, found ${tntCount}`);
   const shield = SIM_BLUEPRINT.blocks[SIM_SHIELD_BLOCK];
@@ -247,6 +263,12 @@ function verifySimExercise(exercise) {
     if (exercise[field] === 0) missing.push(field);
   }
   if (exercise.shotsLaunched !== SIM_SHOT_LOG.length) missing.push('fixed shot log');
+  for (const ammoId of SIM_AMMO_IDS) {
+    if (!exercise.tapsAttempted.includes(ammoId)) missing.push(`${ammoId} tap`);
+  }
+  for (const ability of SIM_ABILITY_IDS) {
+    if (!exercise.abilitiesTriggered.includes(ability)) missing.push(`${ability} ability event`);
+  }
   if (!exercise.frontWallHit) missing.push('front-wall contact');
   if (!exercise.arcClearedFront || !exercise.arcHitRear) missing.push('over-wall rear hit');
   if (!exercise.tntSetOffByShot) missing.push('shot-triggered TNT');
@@ -265,7 +287,7 @@ export function runSimScenario(physics, sim, data) {
   verifySimCoverage(data);
   const round = sim.makeRound({
     blueprint: SIM_BLUEPRINT,
-    bag: SIM_SHOT_LOG.map(() => 'nib'),
+    bag: SIM_SHOT_LOG.map((shot) => shot.ammo),
     seed: 0x51a6c0de,
     mode: 'campaign'
   });
@@ -277,6 +299,8 @@ export function runSimScenario(physics, sim, data) {
     explosionsTriggered: 0,
     tntCratesChained: 0,
     shotsLaunched: 0,
+    tapsAttempted: [],
+    abilitiesTriggered: [],
     frontWallHit: false,
     arcClearedFront: false,
     arcHitRear: false,
@@ -293,12 +317,23 @@ export function runSimScenario(physics, sim, data) {
   };
 
   capture();
-  for (let scenarioStep = 0; scenarioStep < 2700; scenarioStep++) {
+  for (let scenarioStep = 0; scenarioStep < SIM_DURATION_STEPS; scenarioStep++) {
     const loggedShot = SIM_SHOT_LOG.find((shot) => shot.step === scenarioStep);
     if (loggedShot) {
       const body = sim.launch(round, loggedShot.dx, loggedShot.dy);
       if (!body) throw new Error(`fixed shot ${exercise.shotsLaunched + 1} rejected at step ${scenarioStep}`);
       exercise.shotsLaunched++;
+    }
+
+    const loggedTap = SIM_SHOT_LOG.find((shot) => shot.tapStep === scenarioStep);
+    if (loggedTap) {
+      const triggered = sim.tap(round);
+      const expected = Boolean(data.AMMO_BY_ID[loggedTap.ammo].ability);
+      if (triggered !== expected) {
+        throw new Error(`${loggedTap.ammo} tap at step ${scenarioStep} returned ${triggered}; ` +
+          `expected ${expected}`);
+      }
+      exercise.tapsAttempted.push(loggedTap.ammo);
     }
 
     const flying = round.flying;
@@ -310,6 +345,9 @@ export function runSimScenario(physics, sim, data) {
     const liveTnt = round.blocks.filter((body) => body.materialId === 'tnt' && !body.dead);
     const phaseBefore = round.phase;
     const events = sim.stepRound(round, data.TUNE.step);
+    for (const event of events) {
+      if (event.kind === 'ability') exercise.abilitiesTriggered.push(event.ability);
+    }
 
     observeArmourHits(round, hpBefore, exercise.armourHits);
     const boomCount = events.filter((event) => event.kind === 'boom').length;

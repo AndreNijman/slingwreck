@@ -14,6 +14,7 @@ import {
   isSettled,
   makeWorld,
   raycast,
+  raycastAll,
   removeBody,
   rng,
   step
@@ -103,6 +104,7 @@ function addGround(world) {
     x: (TUNE.viewMinX + TUNE.viewMaxX) / 2,
     y: -height / 2,
     isStatic: true,
+    filterTag: 'ground',
     tag: 'ground'
   });
   ground.role = 'ground';
@@ -128,6 +130,7 @@ function addPig(world, tuple, index) {
     mat: material,
     x: tuple[PIG_X],
     y: tuple[PIG_Y],
+    filterTag: material.id,
     tag: `pig:${index}`
   });
   body.hp = pig.hp;
@@ -155,6 +158,7 @@ export function instantiate(world, blueprint) {
       y: tuple[BLOCK_Y],
       c: rotation.c,
       s: rotation.s,
+      filterTag: tuple[BLOCK_MATERIAL_ID],
       tag: `block:${index}`
     });
     body.role = 'block';
@@ -170,44 +174,153 @@ export function instantiate(world, blueprint) {
   return { blocks, pigs };
 }
 
-function unimplementedAbility(ammoId, ability) {
-  return () => {
-    throw new Error(`${ammoId} ability '${ability}' is not implemented until P3`);
-  };
+function queueAbilityEvent(round, body, ability, extra = {}) {
+  round.queuedEvents.push({ kind: 'ability', ability, x: body.x, y: body.y, ...extra });
 }
 
-// These entries intentionally throw. A silent no-op tap looks exactly like a replay
-// bug, while an explicit P3 failure makes an accidental early use immediately local.
+function splitAbility(round, body, ammo) {
+  const { count, spreadCos: c, spreadSin: s } = ammo.params;
+  const mass = 1 / body.im / count;
+  const radius = body.r / Math.sqrt(count);
+  const velocities = [
+    { vx: body.vx * c + body.vy * s, vy: -body.vx * s + body.vy * c },
+    { vx: body.vx, vy: body.vy },
+    { vx: body.vx * c - body.vy * s, vy: body.vx * s + body.vy * c }
+  ];
+  const fragments = velocities.map((velocity, index) => addAmmoBody(
+    round,
+    ammo,
+    velocity.vx,
+    velocity.vy,
+    {
+      x: body.x,
+      y: body.y,
+      mass,
+      radius,
+      tag: `${body.tag}:split:${index}`
+    }
+  ));
+  body.dead = true;
+  removeBody(round.world, body);
+  round.flying = fragments[Math.floor(count / 2)];
+  queueAbilityEvent(round, body, ammo.ability, {
+    fragments: fragments.map((fragment) => fragment.id)
+  });
+}
+
+function accelAbility(round, body, ammo) {
+  body.vx *= ammo.params.speedMultiplier;
+  body.vy *= ammo.params.speedMultiplier;
+  queueAbilityEvent(round, body, ammo.ability, { speedMultiplier: ammo.params.speedMultiplier });
+}
+
+function boomAbility(round, body, ammo) {
+  queueExplosion(round, body, ammo.params);
+  queueAbilityEvent(round, body, ammo.ability, { r: ammo.params.blastRadius });
+  body.dead = true;
+  removeBody(round.world, body);
+  round.flying = null;
+}
+
+function dropAbility(round, body, ammo) {
+  const params = ammo.params;
+  const payload = addAmmoBody(round, ammo, body.vx, body.vy - params.payloadSpeed, {
+    x: body.x,
+    y: body.y,
+    mass: params.payloadMass,
+    radius: params.payloadRadius,
+    role: 'payload',
+    shapeId: `${ammo.id}-payload`,
+    tag: `${body.tag}:payload`
+  });
+  body.vy += params.recoilSpeed;
+  queueAbilityEvent(round, body, ammo.ability, { payloadId: payload.id });
+}
+
+function reverseAbility(round, body, ammo) {
+  body.vx = -body.vx;
+  queueAbilityEvent(round, body, ammo.ability);
+}
+
+function inflateAbility(round, body, ammo) {
+  body.inflation = {
+    startRadius: body.r,
+    targetRadius: ammo.params.inflatedRadius,
+    duration: ammo.params.inflateSeconds,
+    elapsed: 0
+  };
+  queueAbilityEvent(round, body, ammo.ability, { radius: ammo.params.inflatedRadius });
+}
+
+function hardenAbility(round, body, ammo) {
+  body.pierces = ammo.params.passThrough;
+  body.stoneDamageMultiplier = ammo.params.stoneDamageMultiplier;
+  queueAbilityEvent(round, body, ammo.ability, { pierces: body.pierces });
+}
+
+function blinkAbility(round, body, ammo) {
+  const speedSq = body.vx * body.vx + body.vy * body.vy;
+  if (speedSq > 0) {
+    const speed = Math.sqrt(speedSq);
+    const nx = body.vx / speed;
+    const ny = body.vy / speed;
+    const endX = body.x + nx * ammo.params.distance;
+    const endY = body.y + ny * ammo.params.distance;
+    const hit = raycast(round.world, body.x, body.y, endX, endY,
+      (candidate) => candidate !== body);
+    // Project the radius onto the travel direction. A plain `-body.r` backoff is only
+    // safe for a head-on hit; at an oblique face it can still leave the circle inside.
+    const alignment = hit ? -(nx * hit.nx + ny * hit.ny) : 0;
+    const clearance = alignment > 0 ? body.r / alignment : body.r;
+    const travel = hit ? Math.max(0, ammo.params.distance * hit.t - clearance)
+      : ammo.params.distance;
+    const fromX = body.x;
+    const fromY = body.y;
+    body.x += nx * travel;
+    body.y += ny * travel;
+    queueAbilityEvent(round, body, ammo.ability, {
+      fromX,
+      fromY,
+      blocked: Boolean(hit)
+    });
+    return;
+  }
+  queueAbilityEvent(round, body, ammo.ability, { blocked: false });
+}
+
 const ABILITY_HANDLERS = {
-  split: unimplementedAbility('chip', 'split'),
-  accel: unimplementedAbility('wedge', 'accel'),
-  boom: unimplementedAbility('lob', 'boom'),
-  drop: unimplementedAbility('pebble', 'drop'),
-  reverse: unimplementedAbility('boomer', 'reverse'),
-  inflate: unimplementedAbility('hulk', 'inflate'),
-  harden: unimplementedAbility('spike', 'harden'),
-  blink: unimplementedAbility('zip', 'blink')
+  split: splitAbility,
+  accel: accelAbility,
+  boom: boomAbility,
+  drop: dropAbility,
+  reverse: reverseAbility,
+  inflate: inflateAbility,
+  harden: hardenAbility,
+  blink: blinkAbility
 };
 
-function addAmmoBody(round, ammo, vx, vy) {
-  const area = circleArea(ammo.radius);
+function addAmmoBody(round, ammo, vx, vy, options = {}) {
+  const radius = options.radius ?? ammo.radius;
+  const mass = options.mass ?? ammo.mass;
+  const area = circleArea(radius);
   // Mass and radius are authored per critter; only neutral surface response is shared.
   const material = {
     ...MATERIALS.wood,
     id: `ammo:${ammo.id}`,
-    density: ammo.mass / area
+    density: mass / area
   };
   const body = addBody(round.world, {
-    shape: { id: ammo.id, kind: 'circle', r: ammo.radius, area },
+    shape: { id: options.shapeId ?? ammo.id, kind: 'circle', r: radius, area },
     mat: material,
-    x: TUNE.slingX,
-    y: TUNE.slingY,
+    x: options.x ?? TUNE.slingX,
+    y: options.y ?? TUNE.slingY,
     vx,
     vy,
-    tag: `ammo:${round.shotIndex}`
+    filterTag: material.id,
+    tag: options.tag ?? `ammo:${round.shotIndex}`
   });
-  body.role = 'ammo';
-  body.ammoId = ammo.id;
+  body.role = options.role ?? 'ammo';
+  if (body.role === 'ammo') body.ammoId = ammo.id;
   return body;
 }
 
@@ -219,15 +332,14 @@ function eventPoint(contact) {
   return { x: (ax + bx) / 2, y: (ay + by) / 2 };
 }
 
-function queueExplosion(round, body) {
-  const mat = body.mat;
+function queueExplosion(round, body, blast = body.mat) {
   round.pendingExplosions.push({
     sourceId: body.id,
     x: body.x,
     y: body.y,
-    r: mat.blastRadius,
-    impulse: mat.blastImpulse,
-    damage: mat.blastDamage
+    r: blast.blastRadius,
+    impulse: blast.blastImpulse,
+    damage: blast.blastDamage
   });
 }
 
@@ -257,7 +369,7 @@ function armourScale(body, towardSourceX, towardSourceY) {
   return armoured ? 1 - traits.armourFraction : 1;
 }
 
-function damageTarget(round, body, contact, towardSourceX, towardSourceY, point) {
+function damageTarget(round, body, source, contact, towardSourceX, towardSourceY, point) {
   if (body.dead || body.role !== 'block' && body.role !== 'pig') return;
   const definition = body.role === 'pig' ? body.pig : body.mat;
   let amount = Math.max(0, contact.pn - definition.thresh) * definition.frailty;
@@ -266,6 +378,10 @@ function damageTarget(round, body, contact, towardSourceX, towardSourceY, point)
       Math.max(0, Math.abs(contact.pt) - definition.thresh);
   }
   amount *= armourScale(body, towardSourceX, towardSourceY);
+  if (body.role === 'block' && body.materialId === 'stone' &&
+      source?.stoneDamageMultiplier !== undefined) {
+    amount *= source.stoneDamageMultiplier;
+  }
   if (!(amount > 0)) return;
 
   body.hp -= amount;
@@ -283,8 +399,35 @@ function applyContactDamage(round, world) {
   for (const contact of world.contacts) {
     const point = eventPoint(contact);
     // The normal points A -> B. For armour, the useful direction is target -> source.
-    damageTarget(round, contact.a, contact, contact.nx, contact.ny, point);
-    damageTarget(round, contact.b, contact, -contact.nx, -contact.ny, point);
+    damageTarget(round, contact.a, contact.b, contact, contact.nx, contact.ny, point);
+    damageTarget(round, contact.b, contact.a, contact, -contact.nx, -contact.ny, point);
+  }
+}
+
+function applyPierceDamage(round, world) {
+  for (const sweep of round.pierceStarts) {
+    const source = sweep.body;
+    if (source.dead || source.x === sweep.x && source.y === sweep.y) continue;
+    const hits = raycastAll(world, sweep.x, sweep.y, source.x, source.y,
+      (candidate) => candidate !== source && candidate.filterTag === source.pierces);
+    for (const hit of hits) {
+      const target = hit.body;
+      // A zero-time hit means the critter started this step inside the same body. The
+      // entrance was charged on the preceding sweep; charging the interior every step
+      // would turn one pass-through into an arbitrary frame-rate-scaled damage source.
+      if (hit.t <= 0 || target.dead) continue;
+      const relativeX = source.vx - target.vx;
+      const relativeY = source.vy - target.vy;
+      const approach = Math.max(0, -(relativeX * hit.nx + relativeY * hit.ny));
+      const inverseMass = source.im + target.im;
+      if (!(approach > 0) || !(inverseMass > 0)) continue;
+      // This is the normal impulse the two centres would exchange at a frictionless
+      // contact, including their existing restitution. It drives the same damage path
+      // as a solver contact without applying the impulse, so Spike keeps its speed.
+      const pn = approach * (1 + Math.max(source.rest, target.rest)) / inverseMass;
+      damageTarget(round, target, source, { pn, pt: 0 }, hit.nx, hit.ny,
+        { x: hit.x, y: hit.y });
+    }
   }
 }
 
@@ -331,12 +474,40 @@ function damageStep(round, world) {
   const readyExplosions = round.pendingExplosions;
   round.pendingExplosions = [];
   applyContactDamage(round, world);
+  applyPierceDamage(round, world);
 
   for (const body of round.blocks) if (!body.dead && body.hp <= 0) killBody(round, body);
   for (const body of round.pigs) if (!body.dead && body.hp <= 0) killBody(round, body);
 
   readyExplosions.sort((a, b) => a.sourceId - b.sourceId);
   for (const explosion of readyExplosions) applyExplosion(round, world, explosion);
+}
+
+function advanceInflations(world, dt) {
+  for (const body of world.bodies) {
+    const inflation = body.inflation;
+    if (!inflation || body.dead) continue;
+    inflation.elapsed = Math.min(inflation.duration, inflation.elapsed + dt);
+    const progress = inflation.elapsed / inflation.duration;
+    const radius = inflation.startRadius +
+      (inflation.targetRadius - inflation.startRadius) * progress;
+    const area = circleArea(radius);
+    const mass = area * body.mat.density;
+    body.r = radius;
+    body.shape.r = radius;
+    body.shape.area = area;
+    body.im = 1 / mass;
+    body.ii = 1 / (mass * radius * radius / 2);
+    if (inflation.elapsed >= inflation.duration) delete body.inflation;
+  }
+}
+
+function capturePierceStarts(round) {
+  round.pierceStarts = [];
+  for (const body of round.world.bodies) {
+    if (body.dead || body.pierces === null || body.stoneDamageMultiplier === undefined) continue;
+    round.pierceStarts.push({ body, x: body.x, y: body.y });
+  }
 }
 
 function removeDeadAtStepEnd(round) {
@@ -416,7 +587,8 @@ export function makeRound(spec) {
     flying: null,
     settleTimer: 0,
     pendingExplosions: [],
-    deadThisStep: []
+    deadThisStep: [],
+    pierceStarts: []
   });
   scoreRound(round);
   return round;
@@ -480,7 +652,10 @@ export function stepRound(round, dt = TUNE.step) {
   round.events = round.queuedEvents;
   round.queuedEvents = [];
   round.deadThisStep = [];
+  advanceInflations(round.world, dt);
+  capturePierceStarts(round);
   step(round.world, dt);
+  round.pierceStarts = [];
   round.time += dt;
   round.stepCount++;
   if (round.phase === 'flying' || round.phase === 'settling') round.settleTimer += dt;
