@@ -192,7 +192,7 @@ Rules, all validated by the relay on lock-in:
   wins points from a tower falling over on its own.
 
 Editor controls: click to place, drag to sweep a row, right-click to remove,
-`R` to rotate in 15° steps (hold `Shift` for free rotation), `G` toggles the 0.5
+`R` to rotate in 15° steps, `G` toggles the 0.5
 grid snap, `T` runs the settle test, `Space` locks in early. Locking in early banks
 `+2 scrap per remaining 10 seconds` into the next round, which is the only reason to
 ever stop fiddling.
@@ -370,6 +370,9 @@ what stops someone "tidying" it later.
 | Mason did not say which block returns | the **earliest destroyed** unrestored block whose original space is clear. Rebuilds bottom-up, which is what a defender wants, and is the only option that is both deterministic and legible to the player watching it |
 | Decoy King had no cost or stats | 6 scrap, King stats, identical in the preview, and it does **not** satisfy the one-King rule. Paying for the decoy competes with paying for walls |
 | Second Slingshot had no second height | same x, 3.6 units higher. A different x would change the range of every shot and rebalance the whole bag; height changes only the angles, which is what the card sells |
+| Free rotation with `Shift` in the editor | **removed.** 24 steps of 15° is ample for a fortress, and an arbitrary angle cannot be represented in the grid-snapped wire codec without a second, much larger format. It was written into the controls without checking it against the blueprint format |
+| Whether the **settled** fortress crosses the wire | it does not. The relay validates and settles a blueprint to confirm it stands, then sends the **authored** blueprint; both sides settle it themselves and get the identical result, because the simulation is bit-identical across engines. Settled poses are arbitrary floats that the codec cannot express |
+| The Decoy King and the Flak Hog both mark a *specific placed pig*, which the `[pigId, x, y]` tuple could not express | the pig tuple gains a fourth element, a flags integer. Bit 0 is decoy, bit 1 is flak. Without it both marks were silently lost on encode, so a decoy would have arrived at the opponent as a real King |
 
 Two things remain deliberately unauthored until there is evidence to author them from:
 the per-level campaign star thresholds, which arrive with the levels in P5, and the 23

@@ -73,7 +73,7 @@ if (present.length && !overBudget) ok('every written module is inside tolerance'
 // ARCHITECTURE.md section 3. These are the identifiers that silently break
 // cross-engine determinism or drag a browser API into a file the relay runs.
 head('simulation purity');
-const PURE = ['physics.js', 'sim.js', 'data.js'];
+const PURE = ['physics.js', 'sim.js', 'data.js', 'build.js'];
 const BANNED = [
   /\bMath\.(sin|cos|tan|asin|acos|atan|atan2|pow|exp|log|log2|log10|hypot|cbrt|random)\b/,
   /\b(document|window|localStorage|WebSocket|fetch|AudioContext|requestAnimationFrame)\b/,

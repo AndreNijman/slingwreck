@@ -123,7 +123,7 @@ You shoot at their fortress in your simulation, they shoot at yours in theirs.
 
 | Phase | Authority | Traffic |
 | --- | --- | --- |
-| Build | **Relay.** It validates the blueprint against budget and legality, settles it under gravity itself, and sends the settled result to the opponent. | one blueprint each, on lock-in |
+| Build | **Relay.** It validates the blueprint against budget and legality and settles it under gravity to check that it stands, then sends the **authored** blueprint to the opponent. | one blueprint each, on lock-in |
 | Siege | **The attacking client**, audited. It runs the opponent's fortress locally and reports shots and score. | shots as they happen; an 8 Hz preview frame |
 | Draft | **Relay.** It rolls the three cards from the match seed and applies the pick. | one pick |
 
@@ -133,6 +133,16 @@ digest at each shot boundary. Divergence past tolerance forfeits the round and i
 logged. Wall-clock plausibility (shots cannot arrive faster than the sim allows) and
 hard bounds (a score above the theoretical maximum for that fortress) are checked
 unconditionally, even in lenient mode.
+
+**The settled state is never transmitted, only the authored blueprint.** Both sides
+then run the same deterministic settle and arrive at the identical result, which is
+exactly what §3 was proven for. The alternative — shipping the settled poses — was
+tried on paper and rejected for two reasons: settled positions are arbitrary floats
+that do not fit the grid-snapped wire codec, so it would need a second, much larger
+format; and it would put a state on the wire that nothing verifies, when the same
+state can be *derived* from data the relay has already validated. An authored
+blueprint is about 350 bytes against roughly 1.8 kB of JSON, and the settled variant
+would be larger than either.
 
 The corner preview is deliberately *not* the audit stream. It is a lossy 8 Hz frame
 of quantised block poses, alive-pig flags, score and ammo remaining, sized to render

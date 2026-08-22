@@ -330,3 +330,5 @@ done, so a broken page could previously have deployed with everything green.
 
 Next: P4, the fortress editor. It comes before the campaign because the campaign is
 authored with it, which is the only way it gets enough use to be good.
+
+- 2026-08-22 `P4.1` **doing** — build.js core — palette, 0.5 grid snap, 15-degree rotation, place, remove, drag-sweep, undo
