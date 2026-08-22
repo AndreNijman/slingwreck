@@ -84,6 +84,24 @@ pose after 1800 steps. It is a phase 1 gate and it stays in CI. If it ever fails
 the audit model in §5 degrades to `VALIDATE=lenient` (bounds and plausibility checks
 only) rather than the whole design collapsing — see `docs/BUILD_PLAN.md` P6.
 
+The digest hashes the **raw IEEE-754 bit patterns** of `x, y, c, s, vx, vy, av` in
+ascending id order. It deliberately does not round or format first: a digest built
+from `toFixed(6)` would report success on precisely the last-bit divergence the test
+exists to find.
+
+**Result, 2026-08-22, integration only (no solver yet):** V8, SpiderMonkey and
+JavaScriptCore agree bit-for-bit at all seven checkpoints over 1800 steps. The
+approach holds. It must be re-run after the solver lands, because `sqrt` is the only
+transcendental-adjacent operation in the integrator and the solver adds far more
+arithmetic — but the representation itself is proven portable.
+
+WebKit cannot launch on this host (APEX-OS lacks the system libraries Playwright's
+WebKit build needs, and the OS is atomic so installing them does not persist).
+`npm run test:determinism:all` runs the identical test inside the official Playwright
+container under podman, which is where the four-engine result above came from. The
+plain `npm run test:determinism` covers three engines and exits non-zero on the
+missing fourth rather than quietly reporting success on a partial run.
+
 ## 4. The world
 
 - **Y is up.** The renderer flips. The sim never thinks about screen space.

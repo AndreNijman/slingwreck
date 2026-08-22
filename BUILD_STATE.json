@@ -72,14 +72,16 @@
     {
       "id": "P1.2",
       "phase": "P1",
-      "status": "todo",
-      "title": "physics.js core — deterministic scalar math, bodies, (c,s) rotation, integration, digest"
+      "status": "done",
+      "title": "physics.js core — deterministic scalar math, bodies, (c,s) rotation, integration, digest",
+      "note": "303 lines. Reviewed: fixed xorshift seed-0 absorbing state, moved the maxSpeed clamp to after solveVelocity (impulses could tunnel), addBody now accepts vx/vy/av. FNV shift-add and triangle inertia verified correct."
     },
     {
       "id": "P1.3",
       "phase": "P1",
-      "status": "todo",
-      "title": "tools/determinism-test.mjs — run against integration-only, across node + 3 browser engines"
+      "status": "done",
+      "title": "tools/determinism-test.mjs — run against integration-only, across node + 3 browser engines",
+      "note": "All four engines bit-identical over 1800 steps, WebKit via podman. npm run test:determinism:all."
     },
     {
       "id": "P1.4",
@@ -124,7 +126,7 @@
   "guardRegistered": false,
   "dnsConfigured": false,
   "openRisks": [
-    "Cross-engine float determinism is unproven. P1 gates on it. If it fails, the relay audit degrades to lenient bounds checking and ARCHITECTURE.md section 5 is rewritten.",
+    "PARTLY RESOLVED 2026-08-22: cross-engine float determinism holds for the integrator. V8, SpiderMonkey and JavaScriptCore produce bit-identical digests over 1800 steps. Must be re-run after the solver lands, since the solver adds far more arithmetic than the integrator has. Re-run with `npm run test:determinism:all` (podman; WebKit cannot launch on this host directly).",
     "The airlift + gale + bedrock card combination may be a defensive lock. Intended fix is mutual exclusion in the draw, not a nerf.",
     "52 authored campaign levels is the largest single time cost in the plan and depends on the editor being pleasant to use, which is why P4 precedes P5.",
     "Simultaneous siege means the loser watches their own fortress fall in a 260x150 window. If that reads as noise rather than tension the mode's core hook fails, and it cannot be evaluated before P6."
