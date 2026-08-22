@@ -21,7 +21,14 @@ function block(shape, material, x, y, rotation = 0) {
 
 // Pig centres use the codec's 1/64-unit grid. Authored pigs here are always seated on
 // flat quarter-grid surfaces, so their quantised radius is the only offset required.
-const PIG_SEAT = { runt: 19 / 64, swine: 26 / 64, hogg: 37 / 64, helm: 27 / 64 };
+const PIG_SEAT = {
+  runt: 19 / 64,
+  swine: 26 / 64,
+  hogg: 37 / 64,
+  helm: 27 / 64,
+  tusk: 28 / 64,
+  zep: 22 / 64
+};
 function pig(id, x, surfaceY = 0) {
   return [id, x, surfaceY + PIG_SEAT[id], 0];
 }
@@ -691,5 +698,325 @@ export const LEVELS = [
       /* level-export:qry-13:start */ null /* level-export:qry-13:end */
     ),
     bag: ['chip', 'spike', 'lob', 'wedge', 'nib'], cards: ['sapper'], stars: null
+  },
+
+  // Idea: Carry Pebble over the tall stone screen and drop its payload onto the glass lid above the sheltered Runt.
+  {
+    id: 'hwd-01', episode: 3, index: 1, name: 'Over the Wall',
+    blueprint: tunedBlueprint(
+      composeMotifs(structure('screened drop box', [
+        block('cube', 'stone', 10.5, 0.5),
+        block('cube', 'stone', 10.5, 1.5),
+        block('cube', 'stone', 10.5, 2.5),
+        block('cube', 'wood', 13, 0.5),
+        block('cube', 'wood', 13, 1.5),
+        block('cube', 'wood', 15, 0.5),
+        block('cube', 'wood', 15, 1.5),
+        block('slab', 'glass', 14, 2.5)
+      ], [pig('runt', 14)])),
+      /* level-export:hwd-01:start */ null /* level-export:hwd-01:end */
+    ),
+    bag: ['pebble'], stars: null
+  },
+
+  // Idea: Drop Pebble behind the four-high face so its payload breaks the glass shelf and releases the stone press onto the Swine.
+  {
+    id: 'hwd-02', episode: 3, index: 2, name: 'Air Mail',
+    blueprint: tunedBlueprint(
+      composeMotifs(structure('wall and loaded drop shaft', [
+        block('cube', 'stone', 9.5, 0.5),
+        block('cube', 'stone', 9.5, 1.5),
+        block('cube', 'stone', 9.5, 2.5),
+        block('cube', 'stone', 9.5, 3.5),
+        block('cube', 'wood', 13, 0.5),
+        block('cube', 'wood', 13, 1.5),
+        block('cube', 'wood', 17, 0.5),
+        block('cube', 'wood', 17, 1.5),
+        block('plank', 'glass', 15, 2.25),
+        block('cube', 'stone', 15, 3)
+      ], [pig('swine', 15)])),
+      /* level-export:hwd-02:start */ null /* level-export:hwd-02:end */
+    ),
+    bag: ['pebble', 'nib'], stars: null
+  },
+
+  // Idea: Change Pebble's arc and drop timing to open the short near shaft and the taller far shaft from above.
+  {
+    id: 'hwd-03', episode: 3, index: 3, name: 'Two Deliveries',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('near screened shaft', [
+          block('cube', 'stone', 3.5, 0.5),
+          block('cube', 'stone', 3.5, 1.5),
+          block('cube', 'stone', 3.5, 2.5),
+          block('cube', 'stone', 3.5, 3.5),
+          block('cube', 'wood', 6, 0.5),
+          block('cube', 'wood', 6, 1.5),
+          block('cube', 'wood', 8, 0.5),
+          block('cube', 'wood', 8, 1.5),
+          block('slab', 'glass', 7, 2.5)
+        ], [pig('runt', 7)]),
+        structure('far screened shaft', [
+          block('cube', 'stone', 14.5, 0.5),
+          block('cube', 'stone', 14.5, 1.5),
+          block('cube', 'stone', 14.5, 2.5),
+          block('cube', 'stone', 14.5, 3.5),
+          block('cube', 'stone', 14.5, 4.5),
+          block('beam', 'stone', 14.5, 5.25),
+          block('cube', 'wood', 18, 0.5),
+          block('cube', 'wood', 18, 1.5),
+          block('cube', 'wood', 20, 0.5),
+          block('cube', 'wood', 20, 1.5),
+          block('slab', 'glass', 19, 2.5),
+          block('cube', 'stone', 19, 3.5)
+        ], [pig('swine', 19)])
+      ),
+      /* level-export:hwd-03:start */ null /* level-export:hwd-03:end */
+    ),
+    bag: ['pebble', 'pebble'], stars: null
+  },
+
+  // Idea: Fly Boomer over the stone-faced keep, then reverse through its glass rear wall into the hidden Runt.
+  {
+    id: 'hwd-04', episode: 3, index: 4, name: 'Turn Around',
+    blueprint: tunedBlueprint(
+      composeMotifs(bunker({
+        x: 10, width: 4, wallHeight: 5,
+        frontMaterial: 'stone', dividerMaterial: 'wood', backMaterial: 'glass',
+        roofMaterial: 'wood',
+        pigs: [{ id: 'runt', bay: 1 }]
+      })),
+      /* level-export:hwd-04:start */ null /* level-export:hwd-04:end */
+    ),
+    bag: ['boomer'], stars: null
+  },
+
+  // Idea: Hold Boomer's reversal until it clears the capped tower, then strike the rear glass seam instead of the stone front.
+  {
+    id: 'hwd-05', episode: 3, index: 5, name: 'Late Turn',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        bunker({
+          x: 11, width: 4, wallHeight: 5,
+          frontMaterial: 'stone', dividerMaterial: 'wood', backMaterial: 'glass',
+          roofMaterial: 'wood',
+          pigs: [{ id: 'swine', bay: 1 }]
+        }),
+        structure('timing mast', [
+          block('pillar', 'wood', 9, 2),
+          block('post', 'wood', 9, 5),
+          block('cube', 'wood', 9, 6.5)
+        ], [])
+      ),
+      /* level-export:hwd-05:start */ null /* level-export:hwd-05:end */
+    ),
+    bag: ['boomer', 'nib'], stars: null
+  },
+
+  // Idea: Reverse one Boomer into each fortress's rear glass wall, changing both launch arc and turn timing between the near and far targets.
+  {
+    id: 'hwd-06', episode: 3, index: 6, name: 'Near Turn, Far Turn',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        bunker({
+          x: 2, width: 2, wallHeight: 3,
+          frontMaterial: 'stone', backMaterial: 'glass', roofMaterial: 'wood',
+          pigs: ['runt']
+        }),
+        bunker({
+          x: 16, width: 4, wallHeight: 5,
+          frontMaterial: 'stone', dividerMaterial: 'wood', backMaterial: 'glass',
+          roofMaterial: 'wood',
+          pigs: [{ id: 'swine', bay: 1 }]
+        }),
+        structure('far timing mast', [
+          block('pillar', 'wood', 22, 2),
+          block('pillar', 'wood', 22, 6)
+        ], [])
+      ),
+      /* level-export:hwd-06:start */ null /* level-export:hwd-06:end */
+    ),
+    bag: ['boomer', 'boomer'], stars: null
+  },
+
+  // Idea: Land Nib on the spring before the wall so the rebound reaches the glass floor beneath the sealed upper chamber.
+  {
+    id: 'hwd-07', episode: 3, index: 7, name: 'Upstairs',
+    blueprint: tunedBlueprint(
+      composeMotifs(structure('spring approach and upper chamber', [
+        block('cube', 'spring', 8.5, 0.5),
+        block('pillar', 'stone', 11.5, 2),
+        block('cube', 'stone', 11.5, 4.5),
+        block('pillar', 'wood', 13, 2),
+        block('post', 'wood', 13, 5),
+        block('pillar', 'wood', 15, 2),
+        block('post', 'wood', 15, 5),
+        block('slab', 'glass', 14, 6.5),
+        block('cube', 'wood', 13, 7.5),
+        block('cube', 'wood', 15, 7.5),
+        block('slab', 'wood', 14, 8.5)
+      ], [pig('runt', 14, 7)])),
+      /* level-export:hwd-07:start */ null /* level-export:hwd-07:end */
+    ),
+    bag: ['nib', 'nib'], cards: ['springloaded'], stars: null
+  },
+
+  // Idea: Bank Nib off the raised rear spring so it rebounds left through the glass back of the stone-faced pen.
+  {
+    id: 'hwd-08', episode: 3, index: 8, name: 'Bank Shot',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('stone pen with rear glass window', [
+          block('cube', 'stone', 11, 0.5),
+          block('cube', 'stone', 11, 1.5),
+          block('cube', 'stone', 11, 2.5),
+          block('cube', 'stone', 11, 3.5),
+          block('cube', 'stone', 11, 4.5),
+          block('cube', 'wood', 13, 0.5),
+          block('cube', 'wood', 13, 1.5),
+          block('cube', 'wood', 13, 2.5),
+          block('cube', 'wood', 13, 3.5),
+          block('cube', 'wood', 13, 4.5),
+          block('cube', 'stone', 15, 0.5),
+          block('cube', 'stone', 15, 1.5),
+          block('cube', 'stone', 15, 2.5),
+          block('cube', 'glass', 15, 3.5),
+          block('cube', 'wood', 15, 4.5),
+          block('slab', 'stone', 12, 5.5),
+          block('slab', 'wood', 14, 5.5)
+        ], [pig('runt', 14)]),
+        structure('raised rear spring bank', [
+          block('pillar', 'spring', 16.25, 2),
+          block('post', 'spring', 16.25, 5),
+          block('post', 'wood', 16.25, 7),
+          block('cube', 'wood', 16.25, 8.5),
+          block('beam', 'wood', 16.25, 9.25)
+        ], [])
+      ),
+      /* level-export:hwd-08:start */ null /* level-export:hwd-08:end */
+    ),
+    bag: ['nib', 'nib'], cards: ['springloaded'], stars: null
+  },
+
+  // Idea: Avoid the spring-clad front door and accelerate Wedge through the glass shoulder so the stone cap falls through the sheltered Swine.
+  {
+    id: 'hwd-09', episode: 3, index: 9, name: 'Do Not Bounce',
+    blueprint: tunedBlueprint(
+      composeMotifs(structure('defensive spring bumper and weak shoulder', [
+        block('pillar', 'spring', 9.5, 2),
+        block('pillar', 'spring', 10, 2),
+        block('pillar', 'stone', 14, 2),
+        block('plank', 'wood', 12, 4.25),
+        block('pillar', 'glass', 10, 6.5),
+        block('pillar', 'stone', 14, 6.5),
+        block('plank', 'wood', 12, 8.75),
+        block('slab', 'wood', 12, 9.5)
+      ], [pig('swine', 12)])),
+      /* level-export:hwd-09:start */ null /* level-export:hwd-09:end */
+    ),
+    bag: ['wedge', 'pebble'], cards: ['springloaded'], stars: null
+  },
+
+  // Idea: Reverse Boomer through the tall keep's glass rear wall so it hits Tusker from behind, where its sling-facing armour does nothing.
+  {
+    id: 'hwd-10', episode: 3, index: 10, name: 'Wrong Way Round',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        bunker({
+          x: 10, width: 4, wallHeight: 5,
+          frontMaterial: 'stone', dividerMaterial: 'wood', backMaterial: 'glass',
+          roofMaterial: 'wood',
+          pigs: [{ id: 'tusk', bay: 1 }]
+        }),
+        structure('armour lesson mast', [
+          block('pillar', 'stone', 8, 2),
+          block('pillar', 'stone', 8, 6),
+          block('post', 'stone', 8, 9),
+          block('beam', 'wood', 8, 10.25)
+        ], [])
+      ),
+      /* level-export:hwd-10:start */ null /* level-export:hwd-10:end */
+    ),
+    bag: ['boomer', 'nib'], stars: null
+  },
+
+  // Idea: Lead Pebble over the tall screen and drop its payload onto the drifting balloon so the fall finishes the Zeppelin Hog.
+  {
+    id: 'hwd-11', episode: 3, index: 11, name: 'Lead the Balloon',
+    blueprint: tunedBlueprint(
+      composeMotifs(structure('zeppelin screen and fall lane', [
+        block('pillar', 'stone', 14.25, 2),
+        block('pillar', 'stone', 14.25, 6),
+        block('pillar', 'stone', 14.25, 10),
+        block('cube', 'stone', 14.25, 12.5),
+        block('slab', 'wood', 16.5, 0.5),
+        block('slab', 'wood', 18.5, 0.5)
+      ], [pig('zep', 16.5, 8.15625)])),
+      /* level-export:hwd-11:start */ null /* level-export:hwd-11:end */
+    ),
+    bag: ['pebble', 'nib'], stars: null
+  },
+
+  // Idea: Reverse Boomer into the near Tusker's rear seam, then change range and lead Pebble into the far Zeppelin's balloon.
+  {
+    id: 'hwd-12', episode: 3, index: 12, name: 'Back and Aloft',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        bunker({
+          x: 3, width: 4, wallHeight: 4,
+          frontMaterial: 'stone', dividerMaterial: 'wood', backMaterial: 'glass',
+          roofMaterial: 'wood',
+          pigs: [{ id: 'tusk', bay: 1 }]
+        }),
+        structure('far zeppelin screen', [
+          block('pillar', 'stone', 15.5, 2),
+          block('pillar', 'stone', 15.5, 6),
+          block('pillar', 'stone', 15.5, 10),
+          block('cube', 'stone', 15.5, 12.5),
+          block('beam', 'stone', 15, 13.25),
+          block('cube', 'wood', 16.5, 0.5),
+          block('cube', 'wood', 17.5, 0.5),
+          block('cube', 'wood', 18.5, 0.5),
+          block('cube', 'wood', 19.5, 0.5)
+        ], [pig('zep', 18, 8.65625)])
+      ),
+      /* level-export:hwd-12:start */ null /* level-export:hwd-12:end */
+    ),
+    bag: ['boomer', 'pebble', 'nib'], stars: null
+  },
+
+  // Idea: Bounce the first Pebble into the tallest mast so it topples onto Tusker, then drop the last Pebble onto the Zeppelin's balloon.
+  {
+    id: 'hwd-13', episode: 3, index: 13, name: 'The Highwind',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('spring, screen and toppling mast', [
+          block('cube', 'spring', 3.5, 0.5),
+          block('pillar', 'stone', 5, 2),
+          block('pillar', 'stone', 5, 6),
+          block('pillar', 'stone', 7, 2),
+          block('pillar', 'stone', 7, 6),
+          block('pillar', 'glass', 7, 10),
+          block('post', 'wood', 7, 13),
+          block('beam', 'wood', 7, 14.25)
+        ], []),
+        bunker({
+          x: 9, width: 4, wallHeight: 4,
+          frontMaterial: 'stone', dividerMaterial: 'wood', backMaterial: 'glass',
+          roofMaterial: 'wood',
+          pigs: [{ id: 'tusk', bay: 1 }]
+        }),
+        structure('drifting lookout', [
+          block('pillar', 'stone', 17.75, 2),
+          block('pillar', 'stone', 17.75, 6),
+          block('pillar', 'stone', 17.75, 10),
+          block('post', 'stone', 17.75, 13),
+          block('slab', 'wood', 20, 0.5),
+          block('slab', 'wood', 22, 0.5)
+        ], [pig('zep', 20, 9.65625)])
+      ),
+      /* level-export:hwd-13:start */ null /* level-export:hwd-13:end */
+    ),
+    bag: ['pebble', 'boomer', 'pebble'], cards: ['springloaded'], stars: null
   }
 ];

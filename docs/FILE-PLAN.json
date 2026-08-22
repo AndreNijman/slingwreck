@@ -210,6 +210,11 @@
       "path": "tools/card-shot.mjs",
       "phase": "P8",
       "job": "Screenshots a real round into card.png (1000x525) and og-image.png (1200x630), so the marketing image cannot drift from the game."
+    },
+    {
+      "path": "tools/level-audit.mjs",
+      "phase": "P5",
+      "job": "Checks every level against docs/LEVEL-STANDARD.md by measurement: directly hittable pigs by raycast, gantry share, settled-height monotonicity, two-range count, and stars not set before P5.8. --strict makes it a gate. Written after Episode 1 shipped 8 unprotected pigs that looked fine by eye."
     }
   ]
 }

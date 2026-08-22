@@ -408,3 +408,7 @@ that cannot survive serialisation should not exist in the editor at all.
 - 2026-08-22 `P5.3` **doing** — Episode 2 'Quarry' — 13 levels, adds lob/spike, hogg/helm, stone and TNT
 
 - 2026-08-22 `P5.3` **done** — Episode 2 'Quarry' — 13 levels, adds lob/spike, hogg/helm, stone and TNT. 13 Quarry levels. Stone as structural trap, Spike through glass to stone cores, TNT chains, directional Helmet Hog armour verified by probe (roof-removal leaves all three at full HP, sideways domino kills). 2 gantries, 5 two-range levels, heights 2.5-12.0 monotonic.
+
+- 2026-08-22 `P5.4` **doing** — Episode 3 'Highwind' — 13 levels, adds pebble/boomer, tusk/zep, spring pads
+
+- 2026-08-22 `P5.4` **done** — Episode 3 'Highwind' — 13 levels, adds pebble/boomer, tusk/zep, spring pads. 13 Highwind levels: pebble over walls, boomer behind fortresses, spring pads both ways, Tusker and Zeppelin. Heights 2.99-14.50 monotonic, 1 gantry, 4 two-range, zero directly hittable pigs. Sol hit its usage limit mid-verification so I verified it: lint 39/39, audit clean except Episode 2's gantry count.

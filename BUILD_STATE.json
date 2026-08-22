@@ -93,8 +93,9 @@
     {
       "id": "P5.4",
       "phase": "P5",
-      "status": "todo",
-      "title": "Episode 3 'Highwind' — 13 levels, adds pebble/boomer, tusk/zep, spring pads"
+      "status": "done",
+      "title": "Episode 3 'Highwind' — 13 levels, adds pebble/boomer, tusk/zep, spring pads",
+      "note": "13 Highwind levels: pebble over walls, boomer behind fortresses, spring pads both ways, Tusker and Zeppelin. Heights 2.99-14.50 monotonic, 1 gantry, 4 two-range, zero directly hittable pigs. Sol hit its usage limit mid-verification so I verified it: lint 39/39, audit clean except Episode 2's gantry count."
     },
     {
       "id": "P5.5",
