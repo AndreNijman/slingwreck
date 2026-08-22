@@ -65,46 +65,46 @@
     {
       "id": "P5.1",
       "phase": "P5",
-      "status": "doing",
-      "title": "Structural motif library \u2014 tower, bunker, bridge, stack, keep; composable and parameterised",
-      "note": "Levels are authored as data composed from motifs, then tuned in the editor. See the P5 correction in docs/BUILD_PLAN.md."
+      "status": "done",
+      "title": "Structural motif library — tower, bunker, bridge, stack, keep; composable and parameterised",
+      "note": "Six parameterised motifs with settle assertions at default and extreme parameters, campaign/siege rule split, three example levels, bidirectional level-export tool. Fixed along the way: gridSnap 0.5 could not express a plank's 0.25 half-height and no pig radius aligned to any grid, so settleTest had been loosened to 0.55 units - grid is now 0.25, pigs seat themselves by raycast, movement is 0.0002-0.011 against a strict 0.05. Then found the tight tolerance rejected every Zeppelin Hog, which would have broken all of Episode 3; exempted by traits.balloon and added drift-extreme bounds checking."
     },
     {
       "id": "P5.1d",
       "phase": "P5",
       "status": "todo",
-      "title": "tools/level-shots.mjs \u2014 a PNG per level plus a contact sheet of the whole campaign",
+      "title": "tools/level-shots.mjs — a PNG per level plus a contact sheet of the whole campaign",
       "note": "Andre asked for a shot of every level as they land. The contact sheet is the point: progression, silhouette variety and outliers are only visible with all levels side by side. Blank-frame detection is required - an all-sky tile looks fine in a grid and means the camera missed the fortress."
     },
     {
       "id": "P5.2",
       "phase": "P5",
       "status": "todo",
-      "title": "Episode 1 'Sty' \u2014 13 levels, teaches nib/chip/wedge, runt/swine, wood and glass"
+      "title": "Episode 1 'Sty' — 13 levels, teaches nib/chip/wedge, runt/swine, wood and glass"
     },
     {
       "id": "P5.3",
       "phase": "P5",
       "status": "todo",
-      "title": "Episode 2 'Quarry' \u2014 13 levels, adds lob/spike, hogg/helm, stone and TNT"
+      "title": "Episode 2 'Quarry' — 13 levels, adds lob/spike, hogg/helm, stone and TNT"
     },
     {
       "id": "P5.4",
       "phase": "P5",
       "status": "todo",
-      "title": "Episode 3 'Highwind' \u2014 13 levels, adds pebble/boomer, tusk/zep, spring pads"
+      "title": "Episode 3 'Highwind' — 13 levels, adds pebble/boomer, tusk/zep, spring pads"
     },
     {
       "id": "P5.5",
       "phase": "P5",
       "status": "todo",
-      "title": "Episode 4 'Ironworks' \u2014 13 levels, adds hulk/zip, sarge, iron and gel"
+      "title": "Episode 4 'Ironworks' — 13 levels, adds hulk/zip, sarge, iron and gel"
     },
     {
       "id": "P5.6",
       "phase": "P5",
       "status": "todo",
-      "title": "tools/level-export.mjs \u2014 load a level into the editor, export back out, and lint all 52 through validate + settleTest"
+      "title": "tools/level-export.mjs — load a level into the editor, export back out, and lint all 52 through validate + settleTest"
     },
     {
       "id": "P5.7",
@@ -116,13 +116,13 @@
       "id": "P5.8",
       "phase": "P5",
       "status": "todo",
-      "title": "tools/balance.mjs --campaign \u2014 a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground"
+      "title": "tools/balance.mjs --campaign — a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground"
     },
     {
       "id": "P5.9",
       "phase": "P5",
       "status": "todo",
-      "title": "P5 gate \u2014 balance --campaign green, all 52 pass validate + settleTest, all prior suites, commit"
+      "title": "P5 gate — balance --campaign green, all 52 pass validate + settleTest, all prior suites, commit"
     }
   ],
   "deployed": false,

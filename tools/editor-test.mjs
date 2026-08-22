@@ -599,6 +599,56 @@ function settleGate() {
   return { guaranteed, total: fixtures.length };
 }
 
+function balloonSettleGate() {
+  const drifting = {
+    v: 1,
+    blocks: [['cube', 'wood', 10, 0.5, 0]],
+    pigs: [['runt', 6, 0.3, 0], ['zep', 14, 3, 0]]
+  };
+  const drifted = settleTest(drifting);
+  const exemptions = drifted.movementExemptions.map((item) =>
+    `${item.bodyId} (${item.reason}, ${item.movement.toFixed(5)})`);
+  const expectedBodies = ['pig:1', 'pig:1:balloon'];
+  report('declared balloon drift is movement-exempt', drifted.ok && drifted.settled &&
+    drifted.maxMovement <= SETTLE_MOVE_TOLERANCE &&
+    same(drifted.movementExemptions.map((item) => item.bodyId), expectedBodies) &&
+    drifted.movementExemptions.every((item) => item.reason === 'traits.balloon'),
+  `max strict move ${drifted.maxMovement.toFixed(5)}; exempt [${exemptions.join(', ')}]`);
+
+  const edge = { v: 1, blocks: [], pigs: [['zep', 1.2, 3, 0]] };
+  const edgeValidation = validate(edge, { mode: 'campaign' });
+  const edgeError = edgeValidation.errors.find((item) => item.code === 'out-of-bounds');
+  report('balloon drift extremes remain inside the plot', !edgeValidation.ok &&
+    same(edgeError?.pieceIds, ['pig:0']),
+  `errors [${onlyCodes(edgeValidation).join(', ')}]; pieces ` +
+    `[${edgeError?.pieceIds.join(', ') ?? ''}]`);
+
+  const embedded = {
+    v: 1,
+    blocks: [['cube', 'wood', 10, 0.5, 0]],
+    pigs: [['zep', 10, 0.5, 0]]
+  };
+  const embeddedValidation = validate(embedded, { mode: 'campaign' });
+  const embeddedSettle = settleTest(embedded);
+  const embeddedRejected = onlyCodes(embeddedValidation).includes('overlap') ||
+    embeddedSettle.deadPigs.length > 0 || embeddedSettle.movedPieces.length > 0;
+  report('balloon movement exemption does not hide broken placement',
+    embeddedRejected && (!embeddedValidation.ok || !embeddedSettle.ok),
+    `validation [${onlyCodes(embeddedValidation).join(', ')}]; settle ok ` +
+    `${embeddedSettle.ok}; dead [${embeddedSettle.deadPigs.join(', ')}]; ` +
+    `moved [${embeddedSettle.movedPieces.join(', ')}]`);
+
+  const ordinary = { v: 1, blocks: [], pigs: [['runt', 6, 0.9, 0]] };
+  const ordinarySettle = settleTest(ordinary);
+  report('undeclared pig movement keeps the strict tolerance', !ordinarySettle.ok &&
+    ordinarySettle.maxMovement > 0.59 && ordinarySettle.maxMovement < 0.61 &&
+    same(ordinarySettle.movedPieces, ['pig:0']) &&
+    ordinarySettle.movementExemptions.length === 0,
+  `max move ${ordinarySettle.maxMovement.toFixed(5)}; moved ` +
+    `[${ordinarySettle.movedPieces.join(', ')}]; exempt ` +
+    `${ordinarySettle.movementExemptions.length}`);
+}
+
 function motifGate() {
   const fixtures = [
     ['tower default', tower({ x: 2 })],
@@ -697,6 +747,7 @@ budgetGate();
 flagsGate();
 const pigResidual = seatingGate();
 const settling = settleGate();
+balloonSettleGate();
 const motifs = motifGate();
 
 console.log('\nMeasurements');

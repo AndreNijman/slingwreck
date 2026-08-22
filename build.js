@@ -1,5 +1,5 @@
 import { BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SHAPES, TUNE } from './data.js';
-import { fromDegrees, isSettled, makeWorld, maxPenetration, raycast, raycastAll } from './physics.js';
+import { fromDegrees, makeWorld, maxPenetration, raycast, raycastAll } from './physics.js';
 import { BLUEPRINT_VERSION, PIG_FLAG_DECOY, PIG_FLAG_FLAK, PIG_FLAGS,
   blueprintFromLevel, instantiate, makeRound, stepRound } from './sim.js';
 const HISTORY_LIMIT = 64;
@@ -415,6 +415,28 @@ function pieceIdForBody(context, body) {
   if (body.role === 'balloon') return context.pigIds[body.pigBody.blueprintIndex];
   return null;
 }
+function declaredMovement(context, body) {
+  const pig = body.role === 'pig' ? body :
+    body.role === 'balloon' ? body.pigBody : null;
+  if (!pig) return null;
+  if (pig.pig.traits.balloon) return {
+    reason: 'traits.balloon',
+    driftRange: pig.balloon?.driftRange ?? pig.pig.traits.driftRange ?? 0
+  };
+  if (!pig.isKing) return null;
+  for (const id of context.cards) {
+    const effect = CARDS_BY_ID[id].effect;
+    if (effect.kind === 'kingBalloon') return {
+      reason: `cards.${id}.effect.kind=kingBalloon`,
+      driftRange: effect.driftRange ?? 0
+    };
+  }
+  return null;
+}
+function reportedBodyId(context, body) {
+  const pieceId = pieceIdForBody(context, body);
+  return body.role === 'balloon' ? `${pieceId}:balloon` : pieceId;
+}
 function pushUnique(ids, id) { if (id !== null && !ids.includes(id)) ids.push(id); }
 function contactDepth(contact) {
   const a = contact.a;
@@ -475,7 +497,9 @@ export function validate(value, opts = {}) {
   const errors = [];
   const outIds = [];
   for (const body of [...bodies.blocks, ...bodies.pigs, ...bodies.balloons]) {
-    if (body.minX < -TUNE.slop || body.maxX > TUNE.plotW + TUNE.slop ||
+    const driftRange = declaredMovement(context, body)?.driftRange ?? 0;
+    if (body.minX - driftRange < -TUNE.slop ||
+        body.maxX + driftRange > TUNE.plotW + TUNE.slop ||
         body.minY < -TUNE.slop || body.maxY > TUNE.plotH + TUNE.slop) {
       pushUnique(outIds, pieceIdForBody(context, body));
     }
@@ -590,34 +614,42 @@ export function settleTest(value, opts = {}) {
   });
   const tested = [
     ...round.blocks,
-    ...round.pigs.slice(0, context.blueprint.pigs.length)
+    ...round.pigs.slice(0, context.blueprint.pigs.length),
+    ...round.balloons
   ];
-  const starts = tested.map((body) => ({
-    x: body.x, y: body.y, c: body.c, s: body.s
+  const records = tested.map((body) => ({
+    body,
+    start: { x: body.x, y: body.y, c: body.c, s: body.s },
+    declaration: declaredMovement(context, body)
   }));
+  const exemptBodies = new Set(records.filter((record) => record.declaration)
+    .map((record) => record.body));
   const steps = Math.ceil(TUNE.blueprintSettleSeconds / TUNE.step);
   for (let index = 0; index < steps; index++) stepRound(round, TUNE.step);
   const tolerance = opts.moveTolerance ?? SETTLE_MOVE_TOLERANCE;
   const movedPieces = [];
+  const movementExemptions = [];
   let maxMovement = 0;
-  for (let index = 0; index < tested.length; index++) {
-    const body = tested[index];
-    const distance = movement(body, starts[index]);
-    maxMovement = Math.max(maxMovement, distance);
-    if (body.dead || distance > tolerance) {
-      const id = index < round.blocks.length
-        ? context.blockIds[index]
-        : context.pigIds[index - round.blocks.length];
-      pushUnique(movedPieces, id);
+  for (const record of records) {
+    const distance = movement(record.body, record.start);
+    if (record.declaration) movementExemptions.push({
+      bodyId: reportedBodyId(context, record.body),
+      reason: record.declaration.reason,
+      movement: distance
+    });
+    else maxMovement = Math.max(maxMovement, distance);
+    if (record.body.dead || !record.declaration && distance > tolerance) {
+      pushUnique(movedPieces, pieceIdForBody(context, record.body));
     }
   }
   const deadPigs = [];
   for (let index = 0; index < context.blueprint.pigs.length; index++) {
     if (round.pigs[index].dead) deadPigs.push(context.pigIds[index]);
   }
-  const settled = isSettled(round.world);
+  const settled = round.world.bodies.every((body) =>
+    body.dead || body.isStatic || body.isAsleep || exemptBodies.has(body));
   const ok = settled && movedPieces.length === 0 && deadPigs.length === 0;
-  return { ok, settled, maxMovement, movedPieces, deadPigs };
+  return { ok, settled, maxMovement, movedPieces, deadPigs, movementExemptions };
 }
 function encodeBase64(bytes) {
   let output = '';
