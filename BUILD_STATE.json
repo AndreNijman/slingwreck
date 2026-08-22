@@ -65,9 +65,9 @@
     {
       "id": "P3.1",
       "phase": "P3",
-      "status": "todo",
+      "status": "done",
       "title": "Extend the determinism test to cover sim.js, not just physics.js",
-      "note": "The four-engine gate replays 40 falling bodies through physics.js only. The relay audit in ARCHITECTURE.md S5 replays sim.js - launches, damage, explosions, TNT chains, pig armour - and none of that is currently proven portable. Add a seeded round with shots to the cross-engine scenario. Do this FIRST in P3, before adding 8 abilities' worth of new sim arithmetic."
+      "note": "Second scenario: 30+ blocks of every material, every pig type, 3 TNT, 6-shot log. Exercise counts 12 blocks destroyed / 5 pigs killed / 3 explosions / 2 TNT chained, so the paths are genuinely hit. All four engines agree on both tables. The relay audit model is now proven for sim.js, not just the solver."
     },
     {
       "id": "P3.2",
@@ -98,19 +98,19 @@
       "id": "P3.6",
       "phase": "P3",
       "status": "todo",
-      "title": "audio.js \u2014 WebAudio synthesis driven by the sim event list"
+      "title": "audio.js — WebAudio synthesis driven by the sim event list"
     },
     {
       "id": "P3.7",
       "phase": "P3",
       "status": "todo",
-      "title": "tools/playtest.mjs --all \u2014 assert every tap ability measurably changes the outcome"
+      "title": "tools/playtest.mjs --all — assert every tap ability measurably changes the outcome"
     },
     {
       "id": "P3.8",
       "phase": "P3",
       "status": "todo",
-      "title": "P3 gate \u2014 playtest --all green, re-run all suites and the four-engine determinism, commit"
+      "title": "P3 gate — playtest --all green, re-run all suites and the four-engine determinism, commit"
     },
     {
       "id": "P5.0",

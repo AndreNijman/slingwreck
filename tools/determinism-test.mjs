@@ -1,8 +1,77 @@
 const BODY_FIELDS = ['x', 'y', 'c', 's', 'vx', 'vy', 'av'];
 const CHECKPOINT_STEPS = [0, 300, 600, 900, 1200, 1500, 1800];
+const SIM_BODY_FIELDS = [...BODY_FIELDS, 'hp', 'maxHp'];
+const SIM_CHECKPOINT_STEPS = [0, 450, 900, 1350, 1800, 2250, 2700];
 const ENGINE_NAMES = ['Node', 'Chromium', 'Firefox', 'WebKit'];
 const SHAPE_IDS = ['cube', 'slab', 'beam', 'plank', 'post', 'pillar', 'tri', 'ball'];
 const MATERIAL_IDS = ['glass', 'wood', 'stone', 'iron', 'tnt', 'spring', 'gel', 'sand'];
+
+const SIM_SHOT_LOG = [
+  { step: 0, dx: -1.58, dy: 0.18 },
+  { step: 420, dx: -1.56, dy: -0.36 },
+  { step: 840, dx: -1.45, dy: -0.68 },
+  { step: 1260, dx: -0.44, dy: -1.53 },
+  { step: 1680, dx: -1.58, dy: -0.22 },
+  { step: 2100, dx: -1.42, dy: -0.74 }
+];
+
+const SIM_BLUEPRINT = {
+  v: 1,
+  blocks: [
+    ['ball', 'gel', 0.45, 1.5, 0],
+    ['post', 'wood', 2.5, 1, 0],
+    ['post', 'wood', 3.2, 1, 0],
+    ['beam', 'glass', 2.85, 2.25, 0],
+    ['cube', 'sand', 2.35, 3, 0],
+    ['cube', 'gel', 3.35, 3, 0],
+    ['beam', 'spring', 2.85, 3.75, 0],
+    ['tri', 'glass', 3.9, 1 / 3, 0],
+    ['post', 'stone', 5, 1, 0],
+    ['post', 'stone', 6, 1, 0],
+    ['slab', 'stone', 5.5, 2.5, 0],
+    ['cube', 'glass', 5.5, 4.7, 0],
+    ['ball', 'spring', 7, 0.5, 0],
+    ['cube', 'tnt', 13, 0.5, 0],
+    ['cube', 'tnt', 11.5, 0.5, 0],
+    ['cube', 'tnt', 12.25, 1.5, 0],
+    ['slab', 'stone', 14.7, 1, 6],
+    ['cube', 'iron', 15.9, 0.5, 0],
+    ['cube', 'sand', 18.5, 0.5, 0],
+    ['cube', 'gel', 19.5, 0.5, 0],
+    ['cube', 'iron', 20.5, 0.5, 0],
+    ['cube', 'spring', 21.5, 0.5, 0],
+    ['post', 'wood', 18.5, 2, 0],
+    ['post', 'wood', 20.5, 2, 0],
+    ['plank', 'stone', 19.5, 3.25, 0],
+    ['cube', 'glass', 18.3, 4, 0],
+    ['cube', 'glass', 20.7, 4, 0],
+    ['beam', 'wood', 19.5, 4.75, 0],
+    ['tri', 'sand', 22.5, 1 / 3, 0],
+    ['slab', 'iron', 22.8, 0.5, 0],
+    ['pillar', 'stone', 24.2, 2, 0],
+    ['plank', 'wood', 23, 4.25, 0],
+    ['cube', 'glass', 22, 5, 0],
+    ['ball', 'spring', 23.2, 5, 0],
+    ['beam', 'sand', 24.2, 5.75, 0],
+    ['ball', 'gel', 17.2, 6, 0],
+    ['tri', 'wood', 8.1, 1 / 3, 0]
+  ],
+  pigs: [
+    ['tusk', 1.1, 0.44],
+    ['helm', 5.5, 3.42],
+    ['runt', 7.6, 0.3],
+    ['swine', 8.7, 0.4],
+    ['hogg', 9.7, 0.58],
+    ['sarge', 17, 0.46],
+    ['zep', 17.1, 6],
+    ['king', 25.5, 0.68]
+  ]
+};
+
+const SIM_FRONT_BLOCKS = [0, 1, 2, 3, 4, 5, 6];
+const SIM_REAR_BLOCK_START = 18;
+const SIM_SHIELD_BLOCK = 16;
+const SIM_SHIELDED_BLOCK = 17;
 
 function bitsOf(value, view) {
   view.setFloat64(0, value);
@@ -58,6 +127,237 @@ export function runScenario(physics) {
   return { steps: CHECKPOINT_STEPS, digests, snapshots };
 }
 
+function simBodySnapshot(round) {
+  const buffer = new ArrayBuffer(8);
+  const view = new DataView(buffer);
+  const byId = new Map();
+  for (const body of round.world.bodies) byId.set(body.id, body);
+  for (const body of round.blocks) byId.set(body.id, body);
+  for (const body of round.pigs) byId.set(body.id, body);
+  return [...byId.values()].sort((a, b) => a.id - b.id).map((body) => ({
+    id: body.id,
+    role: body.role ?? 'body',
+    tag: body.tag,
+    dead: body.dead,
+    values: SIM_BODY_FIELDS.map((field) => body[field]),
+    bits: SIM_BODY_FIELDS.map((field) => bitsOf(body[field], view))
+  }));
+}
+
+function simSnapshot(round) {
+  const buffer = new ArrayBuffer(8);
+  const view = new DataView(buffer);
+  const values = [
+    round.seed,
+    round.shotIndex,
+    round.stepCount,
+    round.time,
+    round.settleTimer,
+    round.score,
+    round.flying?.id ?? -1,
+    round.pendingExplosions.length
+  ];
+  return {
+    phase: round.phase,
+    values,
+    bits: values.map((value) => bitsOf(value, view)),
+    bodies: simBodySnapshot(round)
+  };
+}
+
+function contactSides(contact, pig) {
+  if (contact.a === pig) return { x: contact.nx, y: contact.ny };
+  if (contact.b === pig) return { x: -contact.nx, y: -contact.ny };
+  return null;
+}
+
+function observeArmourHits(round, hpBefore, armourHits) {
+  const remaining = new Map();
+  for (const pigId of ['helm', 'tusk']) {
+    const pig = round.pigs.find((candidate) => candidate.pigId === pigId);
+    remaining.set(pig, hpBefore.get(pig));
+  }
+
+  // Replaying contact order distinguishes a hit the armour code processed from a
+  // later contact skipped because an earlier contact had already killed the pig.
+  for (const contact of round.world.contacts) {
+    for (const pig of [contact.a, contact.b]) {
+      if (!remaining.has(pig) || !(remaining.get(pig) > 0)) continue;
+      const towardSource = contactSides(contact, pig);
+      let amount = Math.max(0, contact.pn - pig.pig.thresh) * pig.pig.frailty;
+      const armoured = pig.pigId === 'helm'
+        ? towardSource.y > 0
+        : towardSource.x < 0;
+      if (armoured) amount *= 1 - pig.pig.traits.armourFraction;
+      if (!(amount > 0)) continue;
+      armourHits[pig.pigId][armoured ? 'armoured' : 'unarmoured'] = true;
+      remaining.set(pig, remaining.get(pig) - amount);
+    }
+  }
+}
+
+function contactHasBody(contact, body) {
+  return contact.a === body || contact.b === body;
+}
+
+function observeOcclusion(round, events, hpBefore, physics, exercise) {
+  const shield = round.blocks[SIM_SHIELD_BLOCK];
+  const target = round.blocks[SIM_SHIELDED_BLOCK];
+  for (const event of events) {
+    if (event.kind !== 'boom' || target.dead) continue;
+    const dx = target.x - event.x;
+    const dy = target.y - event.y;
+    if (dx * dx + dy * dy >= event.r * event.r) continue;
+    const blocker = physics.raycast(round.world, event.x, event.y, target.x, target.y,
+      (candidate) => candidate !== target && candidate.role !== 'ground');
+    if (blocker?.body === shield && target.hp === hpBefore.get(target)) {
+      exercise.occlusion = true;
+    }
+  }
+}
+
+function verifySimCoverage(data) {
+  const materials = new Set(SIM_BLUEPRINT.blocks.map((block) => block[1]));
+  const pigs = new Set(SIM_BLUEPRINT.pigs.map((pig) => pig[0]));
+  const tntCount = SIM_BLUEPRINT.blocks.filter((block) => block[1] === 'tnt').length;
+  const missingMaterials = Object.keys(data.MATERIALS).filter((id) => !materials.has(id));
+  const missingPigs = Object.keys(data.PIGS).filter((id) => !pigs.has(id));
+  if (SIM_BLUEPRINT.blocks.length < 30 || SIM_BLUEPRINT.blocks.length > 40) {
+    throw new Error(`sim blueprint must contain 30 to 40 blocks, found ${SIM_BLUEPRINT.blocks.length}`);
+  }
+  if (missingMaterials.length || missingPigs.length) {
+    throw new Error(`sim blueprint coverage missing materials [${missingMaterials.join(', ')}] ` +
+      `and pigs [${missingPigs.join(', ')}]`);
+  }
+  if (tntCount < 3) throw new Error(`sim blueprint needs at least three TNT crates, found ${tntCount}`);
+  const shield = SIM_BLUEPRINT.blocks[SIM_SHIELD_BLOCK];
+  if (shield[0] !== 'slab' || shield[1] !== 'stone') {
+    throw new Error('sim occlusion shield must be a stone slab');
+  }
+}
+
+function verifySimExercise(exercise) {
+  const missing = [];
+  for (const field of [
+    'blocksDestroyed',
+    'pigsKilled',
+    'explosionsTriggered',
+    'tntCratesChained'
+  ]) {
+    if (exercise[field] === 0) missing.push(field);
+  }
+  if (exercise.shotsLaunched !== SIM_SHOT_LOG.length) missing.push('fixed shot log');
+  if (!exercise.frontWallHit) missing.push('front-wall contact');
+  if (!exercise.arcClearedFront || !exercise.arcHitRear) missing.push('over-wall rear hit');
+  if (!exercise.tntSetOffByShot) missing.push('shot-triggered TNT');
+  if (!exercise.occlusion) missing.push('stone-slab raycast occlusion');
+  for (const pigId of ['helm', 'tusk']) {
+    if (!exercise.armourHits[pigId].armoured) missing.push(`${pigId} armoured-side hit`);
+    if (!exercise.armourHits[pigId].unarmoured) missing.push(`${pigId} unarmoured-side hit`);
+  }
+  if (missing.length) {
+    throw new Error(`sim scenario did not exercise: ${missing.join(', ')}; ` +
+      `observed ${JSON.stringify(exercise)}`);
+  }
+}
+
+export function runSimScenario(physics, sim, data) {
+  verifySimCoverage(data);
+  const round = sim.makeRound({
+    blueprint: SIM_BLUEPRINT,
+    bag: SIM_SHOT_LOG.map(() => 'nib'),
+    seed: 0x51a6c0de,
+    mode: 'campaign'
+  });
+  const digests = [];
+  const snapshots = [];
+  const exercise = {
+    blocksDestroyed: 0,
+    pigsKilled: 0,
+    explosionsTriggered: 0,
+    tntCratesChained: 0,
+    shotsLaunched: 0,
+    frontWallHit: false,
+    arcClearedFront: false,
+    arcHitRear: false,
+    tntSetOffByShot: false,
+    occlusion: false,
+    armourHits: {
+      helm: { armoured: false, unarmoured: false },
+      tusk: { armoured: false, unarmoured: false }
+    }
+  };
+  const capture = () => {
+    digests.push(sim.digestRound(round));
+    snapshots.push(simSnapshot(round));
+  };
+
+  capture();
+  for (let scenarioStep = 0; scenarioStep < 2700; scenarioStep++) {
+    const loggedShot = SIM_SHOT_LOG.find((shot) => shot.step === scenarioStep);
+    if (loggedShot) {
+      const body = sim.launch(round, loggedShot.dx, loggedShot.dy);
+      if (!body) throw new Error(`fixed shot ${exercise.shotsLaunched + 1} rejected at step ${scenarioStep}`);
+      exercise.shotsLaunched++;
+    }
+
+    const flying = round.flying;
+    const shotIndex = round.shots.length - 1;
+    const hpBefore = new Map([
+      ...round.blocks.map((body) => [body, body.hp]),
+      ...round.pigs.map((body) => [body, body.hp])
+    ]);
+    const liveTnt = round.blocks.filter((body) => body.materialId === 'tnt' && !body.dead);
+    const phaseBefore = round.phase;
+    const events = sim.stepRound(round, data.TUNE.step);
+
+    observeArmourHits(round, hpBefore, exercise.armourHits);
+    const boomCount = events.filter((event) => event.kind === 'boom').length;
+    exercise.explosionsTriggered += boomCount;
+    if (boomCount) {
+      exercise.tntCratesChained += liveTnt.filter((body) => body.dead).length;
+    }
+    for (const body of liveTnt) {
+      if (!body.dead) continue;
+      if (phaseBefore === 'flying' || phaseBefore === 'settling') {
+        exercise.tntSetOffByShot = true;
+      }
+    }
+    observeOcclusion(round, events, hpBefore, physics, exercise);
+
+    if (flying) {
+      if (shotIndex === 2 && flying.x >= 4 && flying.y > 4.1) {
+        exercise.arcClearedFront = true;
+      }
+      for (const contact of round.world.contacts) {
+        if (!contactHasBody(contact, flying)) continue;
+        const other = contact.a === flying ? contact.b : contact.a;
+        if (other.role === 'block' && SIM_FRONT_BLOCKS.includes(other.blueprintIndex)) {
+          exercise.frontWallHit = true;
+        }
+        if (shotIndex === 2 && other.role === 'block' &&
+            other.blueprintIndex >= SIM_REAR_BLOCK_START) {
+          exercise.arcHitRear = true;
+        }
+      }
+    }
+
+    if (SIM_CHECKPOINT_STEPS.includes(scenarioStep + 1)) capture();
+  }
+
+  exercise.blocksDestroyed = round.blocks.filter((body) => body.dead).length;
+  exercise.pigsKilled = round.pigs.filter((body) => body.dead).length;
+  verifySimExercise(exercise);
+  return { steps: SIM_CHECKPOINT_STEPS, digests, snapshots, exercise };
+}
+
+export function runScenarios(physics, sim, data) {
+  return {
+    physics: runScenario(physics),
+    sim: runSimScenario(physics, sim, data)
+  };
+}
+
 function formatError(error) {
   const lines = String(error?.message ?? error).split('\n')
     .map((line) => line.replace(/[╔╗╚╝═║]/g, '').trim())
@@ -72,15 +372,16 @@ function formatNumber(value) {
   return value.toPrecision(17);
 }
 
-function printDigestTable(results, skipped, errors) {
-  const headers = ['engine', ...CHECKPOINT_STEPS.map((step, i) =>
-    i === CHECKPOINT_STEPS.length - 1 ? `final ${step}` : `step ${step}`)];
+function printDigestTable(label, steps, results, skipped, errors) {
+  console.log(`\n${label}`);
+  const headers = ['engine', ...steps.map((step, i) =>
+    i === steps.length - 1 ? `final ${step}` : `step ${step}`)];
   const rows = ENGINE_NAMES.map((engine) => {
     const completed = results.find((entry) => entry.engine === engine);
-    if (completed) return [engine, ...completed.result.digests];
+    if (completed) return [engine, ...completed.result[label].digests];
     const state = errors.some((entry) => entry.engine === engine) ? 'ERROR' :
       skipped.some((entry) => entry.engine === engine) ? 'SKIPPED' : 'MISSING';
-    return [engine, ...CHECKPOINT_STEPS.map(() => state)];
+    return [engine, ...steps.map(() => state)];
   });
 
   const widths = headers.map((header, column) => Math.max(
@@ -93,28 +394,50 @@ function printDigestTable(results, skipped, errors) {
   for (const row of rows) console.log(line(row));
 }
 
-function firstMismatch(results) {
+function firstMismatch(label, steps, results) {
   if (results.length < 2) return null;
   const baseline = results[0];
-  for (let checkpoint = 0; checkpoint < CHECKPOINT_STEPS.length; checkpoint++) {
+  for (let checkpoint = 0; checkpoint < steps.length; checkpoint++) {
     for (let i = 1; i < results.length; i++) {
-      if (baseline.result.digests[checkpoint] !== results[i].result.digests[checkpoint]) {
-        return { baseline, other: results[i], checkpoint };
+      if (baseline.result[label].digests[checkpoint] !==
+          results[i].result[label].digests[checkpoint]) {
+        return { baseline, other: results[i], checkpoint, label, steps };
       }
     }
   }
   return null;
 }
 
-function firstBodyDifference(aBodies, bBodies) {
+function firstExerciseDifference(results) {
+  if (results.length < 2) return null;
+  const baseline = results[0];
+  const fields = [
+    'blocksDestroyed',
+    'pigsKilled',
+    'explosionsTriggered',
+    'tntCratesChained'
+  ];
+  for (let i = 1; i < results.length; i++) {
+    for (const field of fields) {
+      const expected = baseline.result.sim.exercise[field];
+      const actual = results[i].result.sim.exercise[field];
+      if (expected !== actual) return { baseline, other: results[i], field, expected, actual };
+    }
+  }
+  return null;
+}
+
+function firstBodyDifference(aBodies, bBodies, fields) {
   const count = Math.max(aBodies.length, bBodies.length);
   for (let i = 0; i < count; i++) {
     const a = aBodies[i];
     const b = bBodies[i];
     if (!a || !b || a.id !== b.id) return { a, b, field: null };
-    for (let field = 0; field < BODY_FIELDS.length; field++) {
+    if (a.role !== b.role) return { a, b, field: 'role' };
+    if (a.dead !== b.dead) return { a, b, field: 'dead' };
+    for (let field = 0; field < fields.length; field++) {
       if (a.bits[field] !== b.bits[field]) {
-        return { a, b, field: BODY_FIELDS[field] };
+        return { a, b, field: fields[field] };
       }
     }
   }
@@ -122,18 +445,38 @@ function firstBodyDifference(aBodies, bBodies) {
 }
 
 function reportMismatch(mismatch) {
-  const { baseline, other, checkpoint } = mismatch;
-  const stepNumber = CHECKPOINT_STEPS[checkpoint];
+  const { baseline, other, checkpoint, label, steps } = mismatch;
+  const stepNumber = steps[checkpoint];
   console.error(
-    `\nFAIL: ${baseline.engine} and ${other.engine} first differ at step ${stepNumber} ` +
+    `\nFAIL: ${label} differs between ${baseline.engine} and ${other.engine} at step ${stepNumber} ` +
     `(checkpoint ${checkpoint + 1}).`
   );
 
-  const aBodies = baseline.result.snapshots[checkpoint];
-  const bBodies = other.result.snapshots[checkpoint];
-  const difference = firstBodyDifference(aBodies, bBodies);
+  const aSnapshot = baseline.result[label].snapshots[checkpoint];
+  const bSnapshot = other.result[label].snapshots[checkpoint];
+  const aBodies = label === 'physics' ? aSnapshot : aSnapshot.bodies;
+  const bBodies = label === 'physics' ? bSnapshot : bSnapshot.bodies;
+  const fields = label === 'physics' ? BODY_FIELDS : SIM_BODY_FIELDS;
+  const difference = firstBodyDifference(aBodies, bBodies, fields);
   if (!difference) {
-    console.error('Body values agree bit-for-bit; the digest implementation itself diverged.');
+    if (label === 'sim') {
+      if (aSnapshot.phase !== bSnapshot.phase) {
+        console.error(`Bodies agree bit-for-bit; round phase is ${aSnapshot.phase} vs ${bSnapshot.phase}.`);
+        return;
+      }
+      const scalar = aSnapshot.bits.findIndex((bits, index) => bits !== bSnapshot.bits[index]);
+      if (scalar !== -1) {
+        const names = [
+          'seed', 'shotIndex', 'stepCount', 'time', 'settleTimer', 'score',
+          'flyingId', 'pendingExplosions'
+        ];
+        console.error(`Bodies agree bit-for-bit; first differing round field is ${names[scalar]}: ` +
+          `${formatNumber(aSnapshot.values[scalar])} [${aSnapshot.bits[scalar]}] vs ` +
+          `${formatNumber(bSnapshot.values[scalar])} [${bSnapshot.bits[scalar]}].`);
+        return;
+      }
+    }
+    console.error('Body and round values agree bit-for-bit; the digest implementation itself diverged.');
     return;
   }
 
@@ -146,12 +489,17 @@ function reportMismatch(mismatch) {
     return;
   }
 
-  console.error(`First divergent body: id ${a.id}; first differing field: ${field}.`);
+  const kind = a.role === 'pig' ? `pig ${a.tag}` : `${a.role ?? 'body'} ${a.tag ?? ''}`.trim();
+  console.error(`First divergent ${kind}: id ${a.id}; first differing field: ${field}.`);
+  if (field === 'dead' || field === 'role') {
+    console.error(`${baseline.engine}: ${String(a[field])}; ${other.engine}: ${String(b[field])}.`);
+    return;
+  }
   console.error(`field | ${baseline.engine} value [bits] | ${other.engine} value [bits]`);
   console.error(`------+--------------------------+--------------------------`);
-  for (let i = 0; i < BODY_FIELDS.length; i++) {
+  for (let i = 0; i < fields.length; i++) {
     console.error(
-      `${BODY_FIELDS[i].padEnd(5)} | ${formatNumber(a.values[i])} [${a.bits[i]}] | ` +
+      `${fields[i].padEnd(5)} | ${formatNumber(a.values[i])} [${a.bits[i]}] | ` +
       `${formatNumber(b.values[i])} [${b.bits[i]}]`
     );
   }
@@ -255,9 +603,13 @@ async function runBrowsers(root, results, skipped, errors) {
         const page = await browser.newPage();
         await page.goto(`${origin}/__determinism__.html`, { waitUntil: 'load' });
         const result = await page.evaluate(async () => {
-          const physics = await import('/physics.js');
-          const { runScenario } = await import('/tools/determinism-test.mjs');
-          return runScenario(physics);
+          const [physics, sim, data, harness] = await Promise.all([
+            import('/physics.js'),
+            import('/sim.js'),
+            import('/data.js'),
+            import('/tools/determinism-test.mjs')
+          ]);
+          return harness.runScenarios(physics, sim, data);
         });
         results.push({ engine, result });
       } catch (error) {
@@ -277,8 +629,12 @@ async function main() {
     import('node:url')
   ]);
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-  const physics = await import('../physics.js');
-  const results = [{ engine: 'Node', result: runScenario(physics) }];
+  const [physics, sim, data] = await Promise.all([
+    import('../physics.js'),
+    import('../sim.js'),
+    import('../data.js')
+  ]);
+  const results = [{ engine: 'Node', result: runScenarios(physics, sim, data) }];
   const skipped = [];
   const errors = [];
 
@@ -290,18 +646,32 @@ async function main() {
     await runBrowsers(root, results, skipped, errors);
   }
 
-  printDigestTable(results, skipped, errors);
+  printDigestTable('physics', CHECKPOINT_STEPS, results, skipped, errors);
+  printDigestTable('sim', SIM_CHECKPOINT_STEPS, results, skipped, errors);
+  const exercise = results[0].result.sim.exercise;
+  console.log('\nsim exercise');
+  console.log(`blocks destroyed: ${exercise.blocksDestroyed}`);
+  console.log(`pigs killed: ${exercise.pigsKilled}`);
+  console.log(`explosions triggered: ${exercise.explosionsTriggered}`);
+  console.log(`TNT crates chained: ${exercise.tntCratesChained}`);
   for (const { engine, reason } of skipped) console.warn(`SKIPPED ${engine}: ${reason}`);
   for (const { engine, reason } of errors) console.error(`FAILED ${engine}: ${reason}`);
 
-  const mismatch = firstMismatch(results);
+  const mismatch = firstMismatch('physics', CHECKPOINT_STEPS, results) ??
+    firstMismatch('sim', SIM_CHECKPOINT_STEPS, results);
   if (mismatch) reportMismatch(mismatch);
+  const exerciseDifference = firstExerciseDifference(results);
+  if (exerciseDifference) {
+    console.error(`\nFAIL: sim exercise count '${exerciseDifference.field}' differs between ` +
+      `${exerciseDifference.baseline.engine} (${exerciseDifference.expected}) and ` +
+      `${exerciseDifference.other.engine} (${exerciseDifference.actual}).`);
+  }
 
   if (process.env.SKIP_BROWSERS === '1') {
     console.warn('\nWARNING: browser comparison skipped by SKIP_BROWSERS=1; Node-only run passed.');
     return;
   }
-  if (mismatch || skipped.length || errors.length) process.exitCode = 1;
+  if (mismatch || exerciseDifference || skipped.length || errors.length) process.exitCode = 1;
   else console.log('\nAll four engines agree at all seven checkpoints.');
 }
 

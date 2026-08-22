@@ -167,3 +167,7 @@ Next: P3, content. **P3.1 first** — the four-engine determinism gate currently
 `physics.js` only, because its scenario is 40 falling bodies and never touches
 `sim.js`. The relay audit replays `sim.js`. Prove that portable before adding eight
 abilities' worth of new arithmetic to it.
+
+- 2026-08-22 `P3.1` **doing** — Extend the determinism test to cover sim.js, not just physics.js
+
+- 2026-08-22 `P3.1` **done** — Extend the determinism test to cover sim.js, not just physics.js. Second scenario: 30+ blocks of every material, every pig type, 3 TNT, 6-shot log. Exercise counts 12 blocks destroyed / 5 pigs killed / 3 explosions / 2 TNT chained, so the paths are genuinely hit. All four engines agree on both tables. The relay audit model is now proven for sim.js, not just the solver.
