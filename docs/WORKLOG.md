@@ -344,3 +344,45 @@ authored with it, which is the only way it gets enough use to be good.
 - 2026-08-22 `P4.5` **done** — Blueprint encode and decode — compact wire format, round-trip exact. Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry.
 
 - 2026-08-22 `P4.7` **done** — tools/editor-test.mjs — 200 generated blueprints round-tripped, every legality rule rejecting exactly what it should, a validated blueprint always settles. Delivered together in build.js + tools/editor-test.mjs; see the P4 worklog entry.
+
+### P4 — the fortress editor
+
+`build.js` is the editor's logic: drafts, snapping, budget, eight legality rules, the
+settle test, and a bit-packed blueprint codec. It produces plain data and never builds a
+world of its own; `sim.js` remains the only thing that turns a blueprint into bodies.
+`tools/editor-test.mjs` covers 200 seeded codec round trips, one crafted case per
+legality code, nine hostile payloads, and the settle guarantee.
+
+Encoding is 368 bytes against 1786 of JSON, a 79% saving on something that crosses the
+wire every round.
+
+Three format seams were reported rather than papered over, and one of them was a netcode
+bug wearing an editor bug's clothes.
+
+**The bug.** `fromBlueprint` set `decoy: false` unconditionally, because the pig tuple
+`[pigId, x, y]` had nowhere to put it. The editor's King rule worked correctly on the
+draft — its test passed — and the flag was then discarded on encode. A **Decoy King
+would have arrived at the opponent as a real King**, and popping it would have ended the
+round: the precise inverse of what the card does. The Flak Hog had the same problem,
+since `chosenBy: 'builder'` marks one specific placed pig. Pig tuples now carry a flags
+bitfield, at a measured cost of 15.3 bytes, and an assertion checks both marks survive a
+round trip. The absence of exactly that assertion is what let it through.
+
+**The architectural one.** `settleTest` returned a `settledBlueprint`, and settled
+coordinates are arbitrary floats the grid-snapped codec cannot express. The design said
+both players attack the settled state, which implied shipping it.
+
+The resolution is that the settled state never crosses the wire at all. The relay
+validates a blueprint and settles it to confirm it stands, then sends the **authored**
+blueprint; both sides settle it themselves and reach the identical state, because the
+simulation is bit-identical across four engines. That is what the determinism work in P1
+and P3.1 was for and it had not yet been cashed in. It is smaller, needs no second
+format, and puts nothing on the wire that is not derived from data the relay already
+validated. The field was deleted rather than left available to be misused in P6, and an
+assertion now pins the property it depends on: the same authored blueprint settled in two
+separate worlds produces identical digests.
+
+**One capability removed.** Free rotation with `Shift` was written into the editor
+controls in P2.5 without checking it against the blueprint format. An arbitrary angle
+needs a second, much larger codec; 24 steps of 15° is ample for a fortress. A capability
+that cannot survive serialisation should not exist in the editor at all.
