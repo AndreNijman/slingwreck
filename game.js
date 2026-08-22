@@ -1,4 +1,4 @@
-import { SCORE, TUNE } from './data.js?v=20260822-1';
+import { AMMO_BY_ID, SCORE, TUNE } from './data.js?v=20260822-1';
 import {
   isRoundOver,
   launch,
@@ -58,6 +58,10 @@ const SLICE_LEVEL = Object.freeze({
   }
 });
 
+// Practice links may pin one critter without changing the authored level or normal play.
+const requestedAmmo = new URLSearchParams(window.location.search).get('ammo');
+const pinnedAmmo = requestedAmmo && AMMO_BY_ID[requestedAmmo] ? requestedAmmo : null;
+
 const GRAB_RADIUS = 2;
 const MAX_CAMERA_ZOOM = 4;
 const MIN_USER_ZOOM = -0.45;
@@ -115,7 +119,7 @@ function createRound() {
   return makeRound({
     mode: 'campaign',
     seed: SLICE_LEVEL.seed,
-    bag: SLICE_LEVEL.bag,
+    bag: pinnedAmmo ? SLICE_LEVEL.bag.map(() => pinnedAmmo) : SLICE_LEVEL.bag,
     blueprint: SLICE_LEVEL.blueprint
   });
 }
@@ -248,10 +252,11 @@ function drawCritterHead(icon) {
 function rebuildAmmoList() {
   const fragment = document.createDocumentFragment();
   for (let index = round.shotIndex; index < round.bag.length; index++) {
+    const ammo = AMMO_BY_ID[round.bag[index]];
     const icon = document.createElement('canvas');
     icon.className = 'ammo-head';
     icon.setAttribute('role', 'listitem');
-    icon.setAttribute('aria-label', `Nib, shot ${index + 1}`);
+    icon.setAttribute('aria-label', `${ammo.name}, shot ${index + 1}`);
     drawCritterHead(icon);
     fragment.append(icon);
   }

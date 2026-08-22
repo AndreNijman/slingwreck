@@ -107,7 +107,7 @@
     {
       "id": "P3.7",
       "phase": "P3",
-      "status": "todo",
+      "status": "doing",
       "title": "tools/playtest.mjs --all — assert every tap ability measurably changes the outcome"
     },
     {
