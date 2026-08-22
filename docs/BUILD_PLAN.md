@@ -158,22 +158,58 @@ accessibility pass, mobile layout, `docs/reference.md` written up.
 
 ---
 
+## What this build has learned
+
+Every one of these came from a real defect that reached a "verified, all gates pass"
+report. They are cheap to apply and expensive to rediscover, so later phases apply them
+without being asked.
+
+1. **A threshold chosen after seeing the measurement is not a gate.** The pyramid test
+   shipped with a 0.75 limit because the structure moved 0.54. The structure was
+   collapsing; the geometry was wrong; correct geometry moves 0.021. Decide the
+   threshold from what the code *should* do, then measure.
+2. **A scene whose bodies start inside each other tests recovery, not the thing named in
+   the assertion.** Call `maxPenetration` and assert it before stepping. This is why
+   `physics.js` exports it.
+3. **Look at the rendering.** Three defects in P2 — a camera that never showed the
+   fortress, illegible pigs, and a slingshot that was never drawn at all — were
+   invisible in every written report and obvious in the first PNG.
+   `tools/frame-shot.mjs` and `tools/state-shots.mjs` exist for this.
+4. **A flaky gate is worse than no gate.** The portrait smoke assertion failed 50% of
+   the time and was shipped with a note calling it "timing-sensitive". The fix is to
+   remove the race — wait for the condition, act in world space — never to loosen the
+   assertion. A deterministic test should print the *same number* every run, not merely
+   pass.
+5. **Prove a check can fail.** `npm test` was verified by injecting a console error and
+   confirming exit code 1. The audio event-coverage check was verified by adding a fake
+   event kind. A check nobody has watched fail is decoration.
+6. **Assert measured values, not verdicts.** `stack drift 0.000075 < 0.02` is
+   debuggable; `PASS` is not.
+7. **An ability, trait or material that does nothing measurable is a bug.** Every one
+   gets an assertion comparing with-behaviour against without-behaviour, printing both.
+8. **When a tuning value moves, fixtures break — fix them as fixtures.** Moving the
+   slingshot broke four tests that had the old geometry baked in. Updating a fixture's
+   *geometry* is correct; relaxing its *threshold* to accommodate the change is how a
+   suite quietly stops meaning anything.
+9. **Delegated work is a claim, not evidence.** Every task so far needed corrections
+   after its report said everything passed.
+
 ## Estimated size
 
 | File | Line budget |
 | --- | --- |
-| `data.js` | 700 |
-| `physics.js` | 900 |
-| `sim.js` | 1100 |
+| `data.js` | 900 |
+| `physics.js` | 1100 |
+| `sim.js` | 1400 |
 | `levels.js` | 800 |
 | `build.js` | 600 |
 | `bots.js` | 450 |
-| `render.js` | 1100 |
+| `render.js` | 1400 |
 | `audio.js` | 200 |
 | `net.js` | 150 |
 | `game.js` | 1300 |
 | `worker.js` | 800 |
-| **total** | **~8100** |
+| **total** | **~9400** |
 
-Comparable to `bop` at roughly 7100. A file that runs 30% over its budget is a
+Comparable to `bop` at roughly 7100. Raised from an initial 8100 across P1 to P3 as content landed; `docs/FILE-PLAN.json` records the reason beside each change. A file that runs 30% over its budget is a
 signal that it is doing two jobs, and gets split rather than excused.
