@@ -27,7 +27,8 @@
     {
       "path": "render.js",
       "phase": "P2",
-      "budget": 1100,
+      "budget": 1300,
+      "budgetNote": "Raised from 1100 for the height-fit camera, complete slingshot presentation, stable ground dressing and gameplay-legible pig variants.",
       "imports": ["data.js"],
       "job": "Canvas 2D renderer. Every pixel drawn in code. Reads world state and the sim event list; never writes to the world. Includes the 260x150 corner preview renderer."
     },
@@ -85,6 +86,7 @@
     { "path": "tools/physics-test.mjs", "phase": "P1", "job": "Seven headless solver assertions: stacking, pyramid, restitution, friction, mass drop, NaN safety, twin-world determinism." },
     { "path": "tools/determinism-test.mjs", "phase": "P1", "job": "Same seeded scenario in node, chromium, firefox and webkit; compares pose digests after 1800 steps." },
     { "path": "tools/sim-test.mjs", "phase": "P2", "job": "Headless rules assertions: launch, damage thresholds, explosion falloff and occlusion, settle detection, scoring." },
+    { "path": "tools/frame-shot.mjs", "phase": "P2", "job": "Renders a deterministic 1280x720 representative fortress frame in headless Chromium." },
     { "path": "tools/smoke.mjs", "phase": "P2", "job": "Playwright solo smoke test through the real UI. Fails on any console error, page error or failed request." },
     { "path": "tools/playtest.mjs", "phase": "P3", "job": "Fires every critter into a standard test fortress, asserts each tap ability measurably changes the outcome, dumps telemetry and screenshots to shots/." },
     { "path": "tools/editor-test.mjs", "phase": "P4", "job": "Blueprint encode/decode round trip, legality rule coverage, settle guarantee." },

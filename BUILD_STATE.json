@@ -86,8 +86,9 @@
     {
       "id": "P2.4",
       "phase": "P2",
-      "status": "todo",
-      "title": "render.js — canvas 2D, three materials and one critter, art direction settled here"
+      "status": "done",
+      "title": "render.js — canvas 2D, three materials and one critter, art direction settled here",
+      "note": "render.js 1300-line budget. Reviewed by rendering real frames to PNG and looking at them, twice. First pass: camera fitted by width so the fortress was 15% of frame with 70% sky, no slingshot drawn at all, pigs illegible, ground a flat slab. Second pass fixed all five. Trajectory dots still unverified - needs real drag input, do it in P2.5."
     },
     {
       "id": "P2.5",
