@@ -1,5 +1,6 @@
 import { EPISODES as DATA_EPISODES } from './data.js';
 import {
+  bunker,
   composeMotifs,
   stack,
   tower
@@ -48,14 +49,14 @@ export const LEVELS = [
     stars: null
   },
 
-  // Idea: Arc Nib onto the exposed Runt perched above the table instead of battering its legs.
+  // Idea: Arc Nib onto the exposed Runt perched above the glass shelf instead of battering its post.
   {
     id: 'sty-02',
     episode: 1,
     index: 2,
-    name: 'Table Manners',
+    name: 'Shelf Service',
     blueprint: tunedBlueprint(
-      composeMotifs(structure('table manners', [
+      composeMotifs(structure('sling-side shelf', [
         block('post', 'wood', 15, 1),
         block('plank', 'glass', 15, 2.25)
       ], [pig('runt', 15, 2.5)])),
@@ -65,25 +66,29 @@ export const LEVELS = [
     stars: null
   },
 
-  // Idea: Arc past the wooden front leg to break the far glass pillar and tip the tall frame right.
+  // Idea: Break the bunker’s lone glass end wall so its roof drops into the Runt’s chamber.
   {
     id: 'sty-03',
     episode: 1,
     index: 3,
-    name: 'Far Side',
+    name: 'Way In',
     blueprint: tunedBlueprint(
-      composeMotifs(structure('far-side frame', [
-        block('pillar', 'wood', 13, 2),
-        block('pillar', 'glass', 17, 2),
-        block('plank', 'wood', 15, 4.25)
-      ], [pig('swine', 15)])),
+      composeMotifs(bunker({
+        x: 12,
+        width: 2,
+        wallHeight: 3,
+        frontMaterial: 'glass',
+        backMaterial: 'wood',
+        roofMaterial: 'wood',
+        pigs: ['runt']
+      })),
       /* level-export:sty-03:start */ null /* level-export:sty-03:end */
     ),
     bag: ['nib', 'nib'],
     stars: null
   },
 
-  // Idea: Split Chip into the stacked glass face so several panes fail before the wooden frame can catch them.
+  // Idea: Split Chip into the stacked glass face to breach the only openable side of the roofed pen.
   {
     id: 'sty-04',
     episode: 1,
@@ -91,11 +96,11 @@ export const LEVELS = [
     name: 'First Split',
     blueprint: tunedBlueprint(
       composeMotifs(
-        stack({ x: 13, height: 4, materials: 'glass' }),
-        structure('wooden back frame', [
-          block('pillar', 'wood', 15, 2),
-          block('slab', 'wood', 14, 4.5)
-        ], [pig('swine', 14)])
+        stack({ x: 9, height: 4, materials: 'glass' }),
+        structure('roofed pen behind the glass face', [
+          block('pillar', 'wood', 13, 2),
+          block('plank', 'wood', 11, 4.25)
+        ], [pig('swine', 11)])
       ),
       /* level-export:sty-04:start */ null /* level-export:sty-04:end */
     ),
@@ -126,26 +131,35 @@ export const LEVELS = [
     stars: null
   },
 
-  // Idea: Split through the centre of the tall window wall so the fan breaks several glass uprights at once.
+  // Idea: Change Chip’s arc between the near and far window bunkers, splitting each sling-side pane rather than repeating one shot.
   {
     id: 'sty-06',
     episode: 1,
     index: 6,
-    name: 'Window Wall',
+    name: 'Near and Far',
     blueprint: tunedBlueprint(
       composeMotifs(
-        structure('three tall glass uprights', [
-          block('pillar', 'glass', 12, 2),
-          block('cube', 'glass', 12, 4.5),
-          block('pillar', 'glass', 14, 2),
-          block('cube', 'glass', 14, 4.5),
-          block('pillar', 'glass', 16, 2),
-          block('cube', 'glass', 16, 4.5)
-        ], []),
-        structure('window wall roof', [
-          block('slab', 'wood', 13, 5.5),
-          block('slab', 'wood', 15, 5.5)
-        ], [pig('runt', 13), pig('swine', 15)])
+        bunker({
+          x: 4,
+          width: 2,
+          wallHeight: 3,
+          frontMaterial: 'glass',
+          backMaterial: 'wood',
+          roofMaterial: 'wood',
+          pigs: ['runt']
+        }),
+        bunker({
+          x: 17,
+          width: 2,
+          wallHeight: 5,
+          frontMaterial: 'glass',
+          backMaterial: 'wood',
+          roofMaterial: 'wood',
+          pigs: ['swine']
+        }),
+        structure('far bunker cap', [
+          block('beam', 'wood', 18, 6.25)
+        ], [])
       ),
       /* level-export:sty-06:start */ null /* level-export:sty-06:end */
     ),
@@ -153,7 +167,7 @@ export const LEVELS = [
     stars: null
   },
 
-  // Idea: Accelerate Wedge through the single wooden spine carrying the entire glass crown.
+  // Idea: Accelerate Wedge through the lower wooden spine so the upper mast and glass crown topple right onto the Runt.
   {
     id: 'sty-07',
     episode: 1,
@@ -162,10 +176,10 @@ export const LEVELS = [
     blueprint: tunedBlueprint(
       composeMotifs(
         structure('wooden spine and glass crown', [
-          block('pillar', 'wood', 15, 2),
-          block('post', 'wood', 15, 5),
-          block('plank', 'glass', 15, 6.25)
-        ], [pig('swine', 15, 6.5)])
+          block('pillar', 'wood', 14, 2),
+          block('pillar', 'wood', 14, 6),
+          block('plank', 'glass', 14, 8.25)
+        ], [pig('runt', 15.5)])
       ),
       /* level-export:sty-07:start */ null /* level-export:sty-07:end */
     ),
@@ -173,28 +187,33 @@ export const LEVELS = [
     stars: null
   },
 
-  // Idea: Accelerate Wedge through the lower shelf's exposed end so the upper scaffold folds down.
+  // Idea: Accelerate Wedge through the bottom tower post so two loaded wooden floors fold into the sheltered Swine.
   {
     id: 'sty-08',
     episode: 1,
     index: 8,
-    name: 'Bottom Shelf',
+    name: 'Bottom Storey',
     blueprint: tunedBlueprint(
-      composeMotifs(structure('two wooden shelves', [
-        block('pillar', 'wood', 13, 2),
-        block('pillar', 'wood', 17, 2),
-        block('plank', 'wood', 15, 4.25),
-        block('post', 'wood', 13, 5.5),
-        block('post', 'wood', 17, 5.5),
-        block('plank', 'wood', 15, 6.75)
-      ], [pig('runt', 15, 7)])),
+      composeMotifs(structure('braced wooden tower', [
+        block('pillar', 'wood', 14, 2),
+        block('pillar', 'wood', 16, 2),
+        block('pillar', 'wood', 18, 2),
+        block('slab', 'wood', 15, 4.5),
+        block('slab', 'wood', 17, 4.5),
+        block('post', 'wood', 14, 6),
+        block('post', 'wood', 16, 6),
+        block('post', 'wood', 18, 6),
+        block('slab', 'wood', 15, 7.5),
+        block('slab', 'wood', 17, 7.5),
+        block('cube', 'wood', 16, 8.5)
+      ], [pig('swine', 15)])),
       /* level-export:sty-08:start */ null /* level-export:sty-08:end */
     ),
     bag: ['wedge', 'nib'],
     stars: null
   },
 
-  // Idea: Hit the wooden mast high with Wedge so it topples right onto the otherwise sheltered Swine.
+  // Idea: Hit the near mast high so it topples through one glass guard, then change range to open the far bunker.
   {
     id: 'sty-09',
     episode: 1,
@@ -202,19 +221,22 @@ export const LEVELS = [
     name: 'Falling Timber',
     blueprint: tunedBlueprint(
       composeMotifs(
-        structure('toppling mast', [
-          block('pillar', 'wood', 11, 2),
-          block('pillar', 'wood', 13, 2),
-          block('plank', 'glass', 12, 4.25),
-          block('post', 'wood', 11, 5.5),
-          block('post', 'wood', 13, 5.5),
-          block('slab', 'wood', 12, 7)
-        ], [pig('runt', 12, 7.5)]),
-        structure('fall target', [
-          block('post', 'glass', 16, 1),
-          block('post', 'glass', 19, 1),
-          block('plank', 'wood', 17.5, 2.25)
-        ], [pig('swine', 17.5)])
+        structure('toppling mast and guarded target', [
+          block('pillar', 'wood', 7, 2),
+          block('pillar', 'wood', 7, 6),
+          block('cube', 'wood', 7, 8.5),
+          block('beam', 'wood', 7, 9.25),
+          block('pillar', 'glass', 10, 2)
+        ], [pig('runt', 11)]),
+        bunker({
+          x: 18,
+          width: 2,
+          wallHeight: 3,
+          frontMaterial: 'glass',
+          backMaterial: 'wood',
+          roofMaterial: 'wood',
+          pigs: ['swine']
+        })
       ),
       /* level-export:sty-09:start */ null /* level-export:sty-09:end */
     ),
@@ -222,30 +244,43 @@ export const LEVELS = [
     stars: null
   },
 
-  // Idea: Use Chip on the glass side and Wedge on the wooden side before Nib cleans up the opened tower.
+  // Idea: Use Chip on the near glass bunker and Wedge on the far tower’s wooden foot so its floors fall before Nib cleans up.
   {
     id: 'sty-10',
     episode: 1,
     index: 10,
     name: 'Pick a Side',
     blueprint: tunedBlueprint(
-      composeMotifs(structure('split-material tower', [
-        block('pillar', 'glass', 13, 2),
-        block('pillar', 'wood', 17, 2),
-        block('plank', 'wood', 15, 4.25),
-        block('post', 'glass', 13, 5.5),
-        block('post', 'wood', 17, 5.5),
-        block('cube', 'glass', 13, 7),
-        block('cube', 'wood', 17, 7),
-        block('plank', 'glass', 15, 7.75)
-      ], [pig('swine', 15), pig('runt', 15, 8)])),
+      composeMotifs(
+        bunker({
+          x: 5,
+          width: 2,
+          wallHeight: 4,
+          frontMaterial: 'glass',
+          backMaterial: 'wood',
+          roofMaterial: 'wood',
+          pigs: ['runt']
+        }),
+        structure('split-material tower', [
+          block('pillar', 'wood', 15, 2),
+          block('pillar', 'wood', 17, 2),
+          block('pillar', 'wood', 19, 2),
+          block('slab', 'wood', 16, 4.5),
+          block('slab', 'wood', 18, 4.5),
+          block('pillar', 'glass', 15, 7),
+          block('pillar', 'glass', 17, 7),
+          block('pillar', 'glass', 19, 7),
+          block('slab', 'wood', 16, 9.5),
+          block('slab', 'wood', 18, 9.5)
+        ], [pig('swine', 16)])
+      ),
       /* level-export:sty-10:start */ null /* level-export:sty-10:end */
     ),
     bag: ['chip', 'wedge', 'nib'],
     stars: null
   },
 
-  // Idea: Open the tall glass tower with Chip but save Wedge's flatter shot for the low wooden annex.
+  // Idea: Open the near glass tower with Chip but change to Wedge’s flatter shot for the distant roofed wooden annex.
   {
     id: 'sty-11',
     episode: 1,
@@ -254,18 +289,28 @@ export const LEVELS = [
     blueprint: tunedBlueprint(
       composeMotifs(
         structure('tall glass tower', [
-          block('pillar', 'wood', 10, 2),
-          block('pillar', 'wood', 12, 2),
-          block('beam', 'glass', 11, 4.25),
-          block('pillar', 'glass', 10, 6.5),
-          block('pillar', 'glass', 12, 6.5),
-          block('beam', 'wood', 11, 8.75)
-        ], [pig('runt', 11), pig('runt', 11, 4.5)]),
-        structure('low wooden annex', [
-          block('post', 'wood', 17, 1),
-          block('post', 'wood', 21, 1),
-          block('plank', 'glass', 19, 2.25)
-        ], [pig('swine', 19)])
+          block('pillar', 'glass', 5, 2),
+          block('pillar', 'glass', 7, 2),
+          block('pillar', 'wood', 9, 2),
+          block('slab', 'glass', 6, 4.5),
+          block('slab', 'glass', 8, 4.5),
+          block('pillar', 'glass', 5, 7),
+          block('pillar', 'glass', 7, 7),
+          block('pillar', 'glass', 9, 7),
+          block('slab', 'wood', 6, 9.5),
+          block('slab', 'wood', 8, 9.5),
+          block('beam', 'wood', 6, 10.25),
+          block('beam', 'wood', 8, 10.25)
+        ], [pig('runt', 6), pig('runt', 8, 5)]),
+        bunker({
+          x: 19,
+          width: 2,
+          wallHeight: 2,
+          frontMaterial: 'wood',
+          backMaterial: 'glass',
+          roofMaterial: 'wood',
+          pigs: ['swine']
+        })
       ),
       /* level-export:sty-11:start */ null /* level-export:sty-11:end */
     ),
@@ -273,35 +318,45 @@ export const LEVELS = [
     stars: null
   },
 
-  // Idea: Break the wooden feet and glass waist with their matching critters, then use Nib to tip the narrow crown.
+  // Idea: Break the keep’s wooden gate and glass waist with their matching critters so the upper floors fall through all three pigs.
   {
     id: 'sty-12',
     episode: 1,
     index: 12,
-    name: 'Cross Section',
+    name: 'Cross-Section Keep',
     blueprint: tunedBlueprint(
-      composeMotifs(structure('three-material stages', [
-        block('pillar', 'wood', 13, 2),
-        block('pillar', 'wood', 17, 2),
-        block('plank', 'wood', 15, 4.25),
-        block('post', 'glass', 13, 5.5),
-        block('post', 'glass', 17, 5.5),
-        block('plank', 'glass', 15, 6.75),
-        block('cube', 'wood', 14, 7.5),
-        block('cube', 'wood', 16, 7.5),
-        block('beam', 'wood', 15, 8.25)
-      ], [
-        pig('runt', 15),
-        pig('swine', 15, 4.5),
-        pig('runt', 15, 8.5)
-      ])),
+      composeMotifs(
+        stack({ x: 5, height: 5, materials: 'wood' }),
+        structure('cross-section keep', [
+          block('pillar', 'wood', 10, 2),
+          block('pillar', 'wood', 12, 2),
+          block('pillar', 'wood', 14, 2),
+          block('slab', 'wood', 11, 4.5),
+          block('slab', 'wood', 13, 4.5),
+          block('pillar', 'glass', 10, 7),
+          block('pillar', 'glass', 12, 7),
+          block('pillar', 'glass', 14, 7),
+          block('slab', 'glass', 11, 9.5),
+          block('slab', 'glass', 13, 9.5),
+          block('cube', 'wood', 10, 10.5),
+          block('cube', 'wood', 12, 10.5),
+          block('cube', 'wood', 14, 10.5),
+          block('beam', 'wood', 11, 11.25),
+          block('beam', 'wood', 13, 11.25)
+        ], [
+          pig('runt', 11),
+          pig('swine', 13, 5),
+          pig('runt', 11, 10)
+        ]),
+        stack({ x: 19, height: 5, materials: 'wood' })
+      ),
       /* level-export:sty-12:start */ null /* level-export:sty-12:end */
     ),
     bag: ['wedge', 'chip', 'nib'],
     stars: null
   },
 
-  // Idea: Chip shatters the glass middle, Nib tips the loosened crown, and Wedge drills the last wooden foot.
+  // Idea: Chip opens the near glass bunker, Wedge breaks the raised tower’s wooden foot so its floors fall through both pigs, and Nib finishes the far bay.
   {
     id: 'sty-13',
     episode: 1,
@@ -309,20 +364,42 @@ export const LEVELS = [
     name: 'The Whole Sty',
     blueprint: tunedBlueprint(
       composeMotifs(structure('full-height staged tower', [
-        block('pillar', 'wood', 11, 2),
-        block('pillar', 'wood', 15, 2),
-        block('pillar', 'wood', 19, 2),
-        block('plank', 'wood', 13, 4.25),
-        block('plank', 'wood', 17, 4.25),
-        block('pillar', 'glass', 13, 6.5),
-        block('pillar', 'glass', 17, 6.5),
-        block('plank', 'wood', 15, 8.75)
+        block('slab', 'wood', 10, 0.5),
+        block('slab', 'wood', 12, 0.5),
+        block('slab', 'wood', 10, 1.5),
+        block('slab', 'wood', 12, 1.5),
+        block('pillar', 'wood', 9, 4),
+        block('pillar', 'wood', 11, 4),
+        block('pillar', 'wood', 13, 4),
+        block('slab', 'wood', 10, 6.5),
+        block('slab', 'wood', 12, 6.5),
+        block('pillar', 'glass', 9, 9),
+        block('pillar', 'glass', 11, 9),
+        block('pillar', 'glass', 13, 9),
+        block('slab', 'wood', 10, 11.5),
+        block('slab', 'wood', 12, 11.5)
       ], [
-        pig('runt', 13),
-        pig('runt', 17),
-        pig('swine', 15, 4.5),
-        pig('runt', 15, 9)
-      ])),
+        pig('swine', 10, 2),
+        pig('runt', 12, 7)
+      ]),
+      bunker({
+        x: 2,
+        width: 2,
+        wallHeight: 3,
+        frontMaterial: 'glass',
+        backMaterial: 'wood',
+        roofMaterial: 'wood',
+        pigs: ['runt']
+      }),
+      bunker({
+        x: 19,
+        width: 2,
+        wallHeight: 4,
+        frontMaterial: 'wood',
+        backMaterial: 'glass',
+        roofMaterial: 'wood',
+        pigs: ['runt']
+      })),
       /* level-export:sty-13:start */ null /* level-export:sty-13:end */
     ),
     bag: ['chip', 'nib', 'wedge'],

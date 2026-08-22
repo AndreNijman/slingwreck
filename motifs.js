@@ -173,16 +173,24 @@ export function bunker(options = {}) {
   if (width % 2) throw new RangeError('bunker width must be an even number of units');
   const wallHeight = integer(options.wallHeight ?? 2, 'bunker wall height', 1, 5);
   const wallMaterial = options.wallMaterial ?? 'wood';
+  const frontMaterial = options.frontMaterial ?? wallMaterial;
+  const backMaterial = options.backMaterial ?? wallMaterial;
+  const dividerMaterial = options.dividerMaterial ?? wallMaterial;
   const roofMaterial = options.roofMaterial ?? wallMaterial;
   materialAt(wallMaterial, 0, 'bunker wall material');
+  materialAt(frontMaterial, 0, 'bunker front material');
+  materialAt(backMaterial, 0, 'bunker back material');
+  materialAt(dividerMaterial, 0, 'bunker divider material');
   materialAt(roofMaterial, 0, 'bunker roof material');
   const blocks = [];
   // Each two-unit roof slab owns a wall at both ends. Wider bunkers are therefore
   // a row of cavities, not a long unsupported roof that only happens to stand at
   // small widths.
   for (let support = 0; support <= width / 2; support++) {
+    const material = support === 0 ? frontMaterial :
+      support === width / 2 ? backMaterial : dividerMaterial;
     for (let row = 0; row < wallHeight; row++) {
-      blocks.push(block('cube', wallMaterial, x + support * 2, y + row + 0.5));
+      blocks.push(block('cube', material, x + support * 2, y + row + 0.5));
     }
   }
   for (let bay = 0; bay < width / 2; bay++) {
