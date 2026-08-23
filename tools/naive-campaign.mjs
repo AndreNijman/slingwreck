@@ -110,6 +110,7 @@ async function playLevel(n, level) {
     let turnsUsed = 0;
     let score = 0;
     let attempts = 1;
+    let introduced = null;
     const confusions = [];
 
     try {
@@ -120,8 +121,20 @@ async function playLevel(n, level) {
       await page.locator('#play-button').click();
       await page.locator(`.episode-choice[data-episode="${level.episode}"]`).click();
       await page.locator(`.level-choice[data-level-id="${level.id}"]`).click();
-      await page.waitForFunction(() => window.__SLINGWRECK_SMOKE__?.()?.phase === 'aiming',
-        null, { timeout: 15000 });
+      // Wait for either the round or the new-critter card. The card deliberately gates
+      // the first level a critter appears in, so demanding `aiming` here blocked forever
+      // and no level ever started. It is also the thing most worth watching the tester
+      // meet, so it is left on screen for the model to read and dismiss itself.
+      await page.waitForFunction(() => {
+        const panel = document.querySelector('#critter-intro');
+        if (panel && !panel.hidden) return true;
+        return window.__SLINGWRECK_SMOKE__?.()?.phase === 'aiming';
+      }, null, { timeout: 20000 });
+      introduced = await page.evaluate(() => {
+        const panel = document.querySelector('#critter-intro');
+        return panel && !panel.hidden
+          ? document.querySelector('#critter-intro-name')?.textContent ?? null : null;
+      });
 
       const history = [];
       for (let turn = 1; turn <= TURNS; turn++) {
@@ -185,10 +198,11 @@ async function playLevel(n, level) {
       }
     }
 
-    results.push({ ...level, outcome, stars, score, attempts, turnsUsed, confusions, issues });
+    results.push({ ...level, outcome, stars, score, attempts, introduced, turnsUsed, confusions, issues });
     finished++;
     console.log(`${String(finished).padStart(2)}/${targets.length}  ${level.id.padEnd(8)} ` +
       `${outcome.padEnd(10)} ${stars}★  ${turnsUsed} turns, ${attempts} try` +
+      (introduced ? `  +${introduced}` : '') +
       (confusions.length ? `  (${confusions.length} confused)` : '') +
       (issues.length ? `  [${issues.length} issue]` : ''));
   }
@@ -226,6 +240,10 @@ const report = [
   '| level | episode | outcome | stars | score | tries | turns | confusions |',
   '| --- | --- | --- | --- | --- | --- | --- | --- |',
   ...results.map((r) => `| \`${r.id}\` | ${r.episode} | ${r.outcome} | ${r.stars} | ${r.score.toLocaleString()} | ${r.attempts} | ${r.turnsUsed} | ${r.confusions.length} |`),
+  '',
+  '## Critters introduced',
+  '',
+  ...results.filter((r) => r.introduced).map((r) => `- \`${r.id}\` met **${r.introduced}**`),
   '',
   '## What it could not work out',
   '',
