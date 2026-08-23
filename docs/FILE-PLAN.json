@@ -52,11 +52,23 @@
         "audio.js",
         "net.js",
         "build.js",
+        "campaign-ui.js",
         "levels.js",
         "bots.js"
       ],
-      "job": "Screens, input, HUD, camera, the fixed-step accumulator, campaign flow, siege match flow. The only file allowed to touch the DOM outside render.js.",
+      "job": "Game-world input, HUD, camera, fixed-step accumulator, editor flow, campaign round flow, and siege match flow. Campaign selection and progress DOM live in campaign-ui.js.",
       "budgetNote": "Raised from 1300 in P4. The fortress editor adds a second complete input and screen flow, continuous validation presentation, settle playback, palette thumbnails and clipboard transfer; at 1800 lines it still remains the one browser controller rather than splitting UI state across modules."
+    },
+    {
+      "path": "campaign-ui.js",
+      "phase": "P5",
+      "budget": 560,
+      "imports": [
+        "data.js",
+        "levels.js",
+        "render.js"
+      ],
+      "job": "Episode and level selection, ink-drawn star and lock UI, per-level local progress, and non-blocking guard profile merge/sync. Split when the P5 shell would otherwise push game.js past its 2,000-line campaign allowance."
     },
     {
       "path": "audio.js",
@@ -185,6 +197,11 @@
       "path": "tools/balance.mjs",
       "phase": "P5",
       "job": "--campaign flags unwinnable or trivially three-starred levels. --siege runs bot matches across card combinations and flags outliers."
+    },
+    {
+      "path": "tools/campaign-shots.mjs",
+      "phase": "P5",
+      "job": "Captures episode select, level grid, and result-star screens at 1280x720 and 390x844, while measuring portrait overflow and rejecting browser runtime issues."
     },
     {
       "path": "tools/mp-smoke.mjs",

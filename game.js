@@ -39,40 +39,12 @@ import {
   undo,
   validate
 } from './build.js?v=20260822-1';
-
-// P5 moves this authored level, including its star thresholds, into levels.js.
-const SLICE_LEVEL = Object.freeze({
-  id: 'first-wreck',
-  name: 'A Delicate Arrangement',
-  seed: 0x51a9,
-  bag: ['nib', 'nib', 'nib', 'nib'],
-  starScores: [15000, 28000, 40000],
-  blueprint: {
-    v: 1,
-    blocks: [
-      ['slab', 'stone', 6, 0.5, 0],
-      ['post', 'wood', 5.25, 2, 0],
-      ['post', 'wood', 6.75, 2, 0],
-      ['beam', 'wood', 6, 3.25, 0],
-      ['post', 'glass', 5.25, 4.5, 0],
-      ['post', 'glass', 6.75, 4.5, 0],
-      ['plank', 'wood', 6, 5.75, 0],
-      ['cube', 'tnt', 8.75, 0.5, 0],
-      ['slab', 'stone', 11.5, 0.5, 0],
-      ['post', 'stone', 10.75, 2, 0],
-      ['post', 'wood', 12.25, 2, 0],
-      ['beam', 'wood', 11.5, 3.25, 0],
-      ['post', 'glass', 10.75, 4.5, 0],
-      ['post', 'glass', 12.25, 4.5, 0],
-      ['plank', 'wood', 11.5, 5.75, 0]
-    ],
-    pigs: [
-      ['runt', 6, 1.3],
-      ['runt', 11.5, 1.3],
-      ['runt', 11.5, 3.8]
-    ]
-  }
-});
+import { LEVELS } from './levels.js?v=20260822-1';
+import {
+  createCampaignUI,
+  starResultText,
+  starsForScore
+} from './campaign-ui.js?v=20260822-1';
 
 // Practice links may pin one critter without changing the authored level or normal play.
 const requestedAmmo = new URLSearchParams(window.location.search).get('ammo');
@@ -112,6 +84,7 @@ const roundTitle = document.querySelector('#round-title');
 const roundAnnouncement = document.querySelector('#round-announcement');
 const finalScore = document.querySelector('#final-score');
 const stars = document.querySelector('#stars');
+const resultStarCopy = document.querySelector('#result-star-copy');
 const statusMessage = document.querySelector('#status-message');
 const scrapLeft = document.querySelector('#scrap-left');
 const hoverCost = document.querySelector('#hover-cost');
@@ -149,6 +122,7 @@ const editorPan = {
   active: false, pointerId: null, startX: 0, startY: 0, cameraX: 0, cameraY: 0
 };
 
+let currentLevel = LEVELS[0];
 let round = createRound();
 let playing = false;
 let muted = false;
@@ -190,9 +164,10 @@ let editorSpacePan = false;
 function createRound() {
   return makeRound({
     mode: 'campaign',
-    seed: SLICE_LEVEL.seed,
-    bag: pinnedAmmo ? SLICE_LEVEL.bag.map(() => pinnedAmmo) : SLICE_LEVEL.bag,
-    blueprint: SLICE_LEVEL.blueprint
+    seed: currentLevel.seed ?? 0x51a9,
+    bag: pinnedAmmo ? currentLevel.bag.map(() => pinnedAmmo) : currentLevel.bag,
+    blueprint: currentLevel.blueprint,
+    cards: currentLevel.cards ?? []
   });
 }
 
@@ -912,6 +887,7 @@ function openEditor() {
   editorSpacePan = false;
   cancelAim();
   cancelPan();
+  campaignUI.hide();
   titleScreen.hidden = true;
   roundHud.hidden = true;
   roundOver.hidden = true;
@@ -992,7 +968,8 @@ function observeCameraEvents(events) {
   }
 }
 
-function startRound() {
+function startRound(level = currentLevel) {
+  currentLevel = level;
   round = createRound();
   playing = true;
   editing = false;
@@ -1005,6 +982,7 @@ function startRound() {
   pointers.clear();
   cancelAim();
   resetCameraState('aiming');
+  campaignUI.hide();
   titleScreen.hidden = true;
   editorScreen.hidden = true;
   roundOver.hidden = true;
@@ -1025,6 +1003,7 @@ function showTitle(focusTarget = playButton) {
   pointers.clear();
   cancelAim();
   resetCameraState('fortress');
+  campaignUI.hide();
   roundHud.hidden = true;
   roundOver.hidden = true;
   editorScreen.hidden = true;
@@ -1123,34 +1102,25 @@ function updateHud(force = false) {
   }
 }
 
-function earnedStars(score) {
-  let count = 0;
-  for (const threshold of SLICE_LEVEL.starScores) if (score >= threshold) count++;
-  return count;
-}
-
 function showRoundOver() {
   if (roundOverShown) return;
   roundOverShown = true;
   const won = round.phase === 'won';
-  const count = won ? earnedStars(round.score) : 0;
+  const count = won ? starsForScore(currentLevel, round.score) : 0;
+  campaignUI.recordResult(currentLevel, round.score, won);
   roundHud.hidden = true;
   roundOver.hidden = false;
   abilityButton.hidden = true;
   roundTitle.textContent = won ? 'Fortress wrecked' : 'Out of critters';
   roundAnnouncement.textContent = won
     ? `You brought the fortress down and earned ${count} star${count === 1 ? '' : 's'}.`
-    : 'The pigs are still standing. Pull farther back and aim for the crate of bang.';
+    : 'The pigs are still standing. Try another angle or save a specialist for the weak seam.';
   finalScore.textContent = scoreFormat.format(Math.round(round.score));
-  stars.replaceChildren();
-  for (let index = 0; index < 3; index++) {
-    const star = document.createElement('span');
-    star.textContent = '★';
-    if (index >= count) star.className = 'empty';
-    star.setAttribute('aria-hidden', 'true');
-    stars.append(star);
-  }
-  stars.setAttribute('aria-label', `${count} of 3 stars earned`);
+  campaignUI.renderStars(stars, count, 48);
+  resultStarCopy.textContent = starResultText(currentLevel, round.score, count);
+  const next = campaignUI.nextLevel(currentLevel);
+  nextButton.disabled = !won;
+  nextButton.textContent = next ? `Next — ${next.index}. ${next.name}` : 'Finish episode';
   roundTitle.tabIndex = -1;
   roundTitle.focus({ preventScroll: true });
 }
@@ -1444,18 +1414,36 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-playButton.addEventListener('click', () => {
-  void unlockAudio(audio);
-  startRound();
+const campaignUI = createCampaignUI({
+  titleScreen,
+  onPlayLevel: (level) => {
+    void unlockAudio(audio);
+    startRound(level);
+  },
+  onOpenTitle: () => showTitle(playButton)
 });
+
+playButton.addEventListener('click', campaignUI.openEpisodes);
 editorButton.addEventListener('click', openEditor);
 editorBackButton.addEventListener('click', closeEditor);
-restartButton.addEventListener('click', startRound);
-retryButton.addEventListener('click', startRound);
-menuButton.addEventListener('click', showTitle);
+restartButton.addEventListener('click', () => startRound());
+retryButton.addEventListener('click', () => startRound());
+menuButton.addEventListener('click', () => {
+  playing = false;
+  roundOver.hidden = true;
+  campaignUI.openLevels(currentLevel.episode);
+});
 muteButton.addEventListener('click', () => setMuted(!muted));
 abilityButton.addEventListener('click', useAbility);
-nextButton.addEventListener('click', () => {});
+nextButton.addEventListener('click', () => {
+  const next = campaignUI.nextLevel(currentLevel);
+  if (next) startRound(next);
+  else {
+    playing = false;
+    roundOver.hidden = true;
+    campaignUI.openEpisodes();
+  }
+});
 materialsTab.addEventListener('click', () => setEditorGroup('materials'));
 pigsTab.addEventListener('click', () => setEditorGroup('pigs'));
 undoButton.addEventListener('click', () => {
@@ -1567,7 +1555,9 @@ document.addEventListener('keydown', (event) => {
   }
   if (event.key === 'Escape' && playing) {
     event.preventDefault();
-    showTitle();
+    playing = false;
+    roundOver.hidden = true;
+    campaignUI.openLevels(currentLevel.episode);
   } else if (event.key === ' ' && playing && round.phase === 'flying') {
     event.preventDefault();
     useAbility();
@@ -1577,6 +1567,21 @@ document.addEventListener('keydown', (event) => {
   } else if (event.key.toLowerCase() === 'm') {
     event.preventDefault();
     setMuted(!muted);
+  }
+});
+
+roundOver.addEventListener('keydown', (event) => {
+  if (event.key !== 'Tab' || roundOver.hidden) return;
+  const controls = [...roundOver.querySelectorAll('button:not(:disabled)')];
+  if (!controls.length) return;
+  const first = controls[0];
+  const lastControl = controls[controls.length - 1];
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === roundTitle)) {
+    event.preventDefault();
+    lastControl.focus();
+  } else if (!event.shiftKey && document.activeElement === lastControl) {
+    event.preventDefault();
+    first.focus();
   }
 });
 
@@ -1594,6 +1599,7 @@ if (new URLSearchParams(window.location.search).has('smoke-test')) {
     configurable: true,
     value: () => ({
       phase: round.phase,
+      score: round.score,
       audioState: audio.context?.state ?? 'locked',
       shotIndex: round.shotIndex,
       bagSize: round.bag.length,
@@ -1622,6 +1628,14 @@ if (new URLSearchParams(window.location.search).has('smoke-test')) {
       },
       pigs: round.pigs.map(({ dead, x, y }) => ({ dead, x, y })),
       blocks: round.blocks.map(({ dead }) => ({ dead })),
+      level: {
+        id: currentLevel.id,
+        episode: currentLevel.episode,
+        index: currentLevel.index,
+        name: currentLevel.name,
+        stars: [...currentLevel.stars]
+      },
+      campaign: campaignUI.snapshot(),
       editor: editing ? {
         group: editorGroup,
         material: editorMaterial,

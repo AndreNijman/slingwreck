@@ -15,6 +15,7 @@ const CAMERA_STABLE_FRAMES = 3;
 let assertion = 0;
 let server;
 let browser;
+let guardProfile = null;
 
 const mime = {
   '.css': 'text/css',
@@ -75,6 +76,24 @@ function createStaticServer() {
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://127.0.0.1');
+      if (url.pathname === '/_guard/profile') {
+        response.setHeader('cache-control', 'no-store');
+        response.setHeader('content-type', 'application/json; charset=utf-8');
+        if (request.method === 'GET') {
+          response.end(JSON.stringify({ profile: guardProfile }));
+          return;
+        }
+        if (request.method === 'POST' || request.method === 'PUT') {
+          let text = '';
+          for await (const chunk of request) text += chunk;
+          guardProfile = JSON.parse(text);
+          response.end(JSON.stringify({ saved: true }));
+          return;
+        }
+        response.writeHead(405);
+        response.end(JSON.stringify({ error: 'method not allowed' }));
+        return;
+      }
       const relative = url.pathname === '/' ? 'index.html' : `.${decodeURIComponent(url.pathname)}`;
       const path = resolve(root, relative);
       if (path !== resolve(root, 'index.html') && !path.startsWith(`${root}/`)) {
@@ -110,6 +129,8 @@ async function domState(page) {
     return {
       titleVisible: visible(document.querySelector('#title-screen')),
       playVisible: visible(document.querySelector('#play-button')),
+      episodesVisible: visible(document.querySelector('#episode-screen')),
+      levelsVisible: visible(document.querySelector('#level-screen')),
       hudVisible: visible(document.querySelector('#round-hud')),
       resultVisible: visible(document.querySelector('#round-over')),
       canvasVisible: visible(document.querySelector('#game')),
@@ -119,6 +140,8 @@ async function domState(page) {
       scoreText,
       heading: document.querySelector('#round-title')?.textContent?.trim() ?? '',
       announcement: document.querySelector('#round-announcement')?.textContent?.trim() ?? '',
+      starLabel: document.querySelector('#stars')?.getAttribute('aria-label') ?? '',
+      starCopy: document.querySelector('#result-star-copy')?.textContent?.trim() ?? '',
       activeId: document.activeElement?.id ?? ''
     };
   });
@@ -332,7 +355,7 @@ function smokeUrl(baseUrl) {
 }
 
 async function loadReady(page, url) {
-  await page.goto(url, { waitUntil: 'networkidle', timeout: 15000 });
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
   return poll(
     () => page.evaluate(() => ({
       ready: document.documentElement.dataset.gameReady,
@@ -517,22 +540,52 @@ async function desktopRun(baseUrl) {
     await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
     await page.keyboard.press('Tab');
     const keyboard = await domState(page);
-    report('Play is keyboard reachable', keyboard.activeId === 'play-button',
+    report('Campaign is keyboard reachable', keyboard.activeId === 'play-button',
       `active element #${keyboard.activeId || '(none)'} after Tab`);
     if (keyboard.activeId === 'play-button') await page.keyboard.press('Enter');
     else await page.locator('#play-button').click();
 
+    const episodes = await poll(() => domState(page), (state) => state.episodesVisible, 3000);
+    const episodeState = await page.evaluate(() => ({
+      count: document.querySelectorAll('.episode-choice').length,
+      locked: [...document.querySelectorAll('.episode-choice')]
+        .filter((button) => button.getAttribute('aria-disabled') === 'true').length,
+      locks: document.querySelectorAll('.episode-choice .drawn-lock').length
+    }));
+    report('Campaign opens four episodes with later chapters ink-locked', episodes.ok &&
+      episodeState.count === 4 && episodeState.locked === 3 && episodeState.locks === 3,
+    pollMeasurement(episodes,
+      `${episodeState.count} episodes; ${episodeState.locked} locked; ${episodeState.locks} drawn locks`));
+
+    await page.locator('.episode-choice[data-episode="1"]').click();
+    const levels = await poll(() => domState(page), (state) => state.levelsVisible, 3000);
+    const levelState = await page.evaluate(() => ({
+      count: document.querySelectorAll('.level-choice').length,
+      unlocked: [...document.querySelectorAll('.level-choice')]
+        .filter((button) => button.getAttribute('aria-disabled') === 'false').length,
+      starCanvases: document.querySelectorAll('.level-choice .drawn-star').length,
+      locks: document.querySelectorAll('.level-choice .drawn-lock').length
+    }));
+    report('Sty opens as thirteen real level buttons with only level one available', levels.ok &&
+      levelState.count === 13 && levelState.unlocked === 1 &&
+      levelState.starCanvases === 3 && levelState.locks === 12,
+    pollMeasurement(levels,
+      `${levelState.count} buttons; ${levelState.unlocked} unlocked; ` +
+      `${levelState.starCanvases} drawn stars; ${levelState.locks} drawn locks`));
+
+    await page.locator('.level-choice[data-level-id="sty-01"]').click();
     const aiming = await poll(() => pageSnapshot(page), (state) => state?.phase === 'aiming', 5000);
     const hud = await domState(page);
-    report('Play opens the HUD', aiming.ok && hud.hudVisible && !hud.titleVisible,
+    report('level one opens the HUD', aiming.ok && hud.hudVisible && !hud.levelsVisible,
       pollMeasurement(aiming,
-        `phase ${aiming.value?.phase ?? 'unknown'}; HUD ${hud.hudVisible}; title ${hud.titleVisible}`));
+        `level ${aiming.value?.level?.id ?? 'unknown'}; phase ${aiming.value?.phase ?? 'unknown'}; HUD ${hud.hudVisible}`));
     report('HUD shows the full critter bag', hud.ammoCount === aiming.value?.bagSize &&
-      aiming.value?.bagSize === 4 && aiming.value?.shotIndex === 0,
+      aiming.value?.bagSize === 2 && aiming.value?.shotIndex === 0,
     `${hud.ammoCount}/${aiming.value?.bagSize ?? '?'} icons; ${hud.ammoLabel}; shot index ${aiming.value?.shotIndex ?? '?'}`);
-    const initialBlockCount = aiming.value?.blocks.length ?? 0;
-
-    const firstDraw = await beginMouseDraw(page, { dx: -0.85, dy: -0.75 });
+    const firstDraw = await beginMouseDraw(page, {
+      dx: -1.5635229303040372,
+      dy: -0.33969993584555885
+    });
     const preview = await poll(
       () => trajectoryPixels(page),
       (measurement) => measurement.active && measurement.expected >= 3 && measurement.inkDots >= 3,
@@ -555,8 +608,8 @@ async function desktopRun(baseUrl) {
       pollMeasurement(flying,
         `phase ${flying.value?.phase ?? 'unknown'} at step ${flying.value?.stepCount ?? '?'}`));
     const afterReleaseHud = await domState(page);
-    report('release consumes one critter', flying.value?.bagSize - flying.value?.shotIndex === 3 &&
-      afterReleaseHud.ammoCount === 3,
+    report('release consumes one critter', flying.value?.bagSize - flying.value?.shotIndex === 1 &&
+      afterReleaseHud.ammoCount === 1,
     `hook ${flying.value ? flying.value.bagSize - flying.value.shotIndex : '?'}; HUD ${afterReleaseHud.ammoCount}`);
 
     const cameraMoved = await poll(
@@ -624,23 +677,61 @@ async function desktopRun(baseUrl) {
     report('result heading receives focus', result.value?.activeId === 'round-title',
       `active element #${result.value?.activeId || '(none)'}`);
 
-    const beforeRetryDeadBlocks = resultState?.blocks.filter((block) => block.dead).length ?? 0;
-    await page.locator('#retry-button').click();
-    const reset = await poll(
-      async () => ({ state: await pageSnapshot(page), dom: await domState(page) }),
-      ({ state, dom }) => state?.phase === 'aiming' && state.shotIndex === 0 &&
-        dom.ammoCount === state.bagSize && dom.score === 0 &&
-        state.blocks.every((block) => !block.dead),
-      5000
-    );
-    const resetState = reset.value?.state;
-    const resetDom = reset.value?.dom;
-    const resetLiveBlocks = resetState?.blocks.filter((block) => !block.dead).length ?? 0;
-    report('Retry resets bag, score, and structure', reset.ok &&
-      resetState?.bagSize === 4 && resetLiveBlocks === initialBlockCount && beforeRetryDeadBlocks > 0,
-    pollMeasurement(reset,
-      `bag ${resetDom?.ammoCount ?? '?'}/${resetState?.bagSize ?? '?'}; score ${resetDom?.score ?? '?'}; ` +
-      `live blocks ${resetLiveBlocks}/${initialBlockCount} after ${beforeRetryDeadBlocks} had been destroyed`));
+    const expectedStars = resultState?.level?.stars
+      .filter((threshold) => resultState.score >= threshold).length ?? 0;
+    const resultStars = await page.evaluate(() => ({
+      filled: document.querySelectorAll('#stars .drawn-star[data-filled="true"]').length,
+      total: document.querySelectorAll('#stars .drawn-star').length,
+      label: document.querySelector('#stars')?.getAttribute('aria-label'),
+      copy: document.querySelector('#result-star-copy')?.textContent?.trim()
+    }));
+    report('result award matches the authored level thresholds', resultStars.total === 3 &&
+      resultStars.filled === expectedStars &&
+      resultStars.label === `${expectedStars} of 3 stars earned` &&
+      resultStars.copy === result.value.starCopy,
+    `score ${resultState?.score ?? '?'} against [${resultState?.level?.stars.join(', ') ?? ''}] -> ` +
+      `${expectedStars} stars; ${resultStars.filled}/${resultStars.total} drawn; "${resultStars.copy}"`);
+
+    await page.locator('#menu-button').click();
+    const returned = await poll(() => domState(page), (state) => state.levelsVisible, 3000);
+    const savedTile = await page.evaluate(() => {
+      const tile = document.querySelector('.level-choice[data-level-id="sty-01"]');
+      const state = window.__SLINGWRECK_SMOKE__?.();
+      return {
+        aria: tile?.getAttribute('aria-label') ?? '',
+        best: tile?.querySelector('.level-best')?.textContent?.trim() ?? '',
+        filled: tile?.querySelectorAll('.drawn-star[data-filled="true"]').length ?? 0,
+        unlocked: [...document.querySelectorAll('.level-choice')]
+          .filter((button) => button.getAttribute('aria-disabled') === 'false').length,
+        record: state?.campaign?.profile?.levels?.['sty-01']
+      };
+    });
+    report('returning to the grid shows the earned stars, best score, and next unlock', returned.ok &&
+      savedTile.filled === expectedStars && savedTile.record?.bestScore === resultState.score &&
+      savedTile.record?.completed && savedTile.unlocked === 2 &&
+      savedTile.best.includes(resultState.score.toLocaleString('en-AU')),
+    pollMeasurement(returned,
+      `${savedTile.filled} stars; ${savedTile.best}; ${savedTile.unlocked} levels unlocked; ` +
+      `stored ${compact(savedTile.record)}`));
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const reloaded = await loadReady(page, smokeUrl(baseUrl));
+    await page.locator('#play-button').click();
+    await page.locator('.episode-choice[data-episode="1"]').click();
+    const reloadedTile = await page.evaluate(() => {
+      const tile = document.querySelector('.level-choice[data-level-id="sty-01"]');
+      const state = window.__SLINGWRECK_SMOKE__?.();
+      return {
+        best: tile?.querySelector('.level-best')?.textContent?.trim() ?? '',
+        filled: tile?.querySelectorAll('.drawn-star[data-filled="true"]').length ?? 0,
+        record: state?.campaign?.profile?.levels?.['sty-01']
+      };
+    });
+    report('reload preserves campaign progress', reloaded.ok &&
+      reloadedTile.filled === expectedStars &&
+      reloadedTile.record?.bestScore === resultState.score && reloadedTile.record?.completed,
+    pollMeasurement(reloaded,
+      `${reloadedTile.filled} stars; ${reloadedTile.best}; stored ${compact(reloadedTile.record)}`));
   } finally {
     await context.close();
   }
@@ -655,21 +746,52 @@ async function mobileRun(baseUrl) {
   });
   const page = await context.newPage();
   attachFailureCollectors(page, 'portrait touch');
+  await page.addInitScript(() => {
+    localStorage.setItem('slingwreck.campaign.progress.v1', JSON.stringify({
+      version: 1,
+      levels: {
+        'sty-01': { bestScore: 15300, stars: 3, completed: true }
+      }
+    }));
+  });
 
   try {
     const loaded = await loadReady(page, smokeUrl(baseUrl));
+    const merged = await poll(
+      () => pageSnapshot(page),
+      (state) => state?.campaign?.guardSession &&
+        state.campaign.profile.levels['sty-01'].bestScore === 15300,
+      3000
+    );
+    report('guard merge keeps the higher per-level score from local progress', loaded.ok && merged.ok,
+      pollMeasurement(merged,
+        `local 15,300 vs guard 15,100 -> ` +
+        `${merged.value?.campaign?.profile?.levels?.['sty-01']?.bestScore?.toLocaleString('en-AU') ?? '?'}`));
     const playBox = await page.locator('#play-button').boundingBox();
     if (playBox) {
       await page.touchscreen.tap(playBox.x + playBox.width / 2, playBox.y + playBox.height / 2);
     }
+    const episodeBox = await page.locator('.episode-choice[data-episode="1"]').boundingBox();
+    if (episodeBox) {
+      await page.touchscreen.tap(episodeBox.x + episodeBox.width / 2,
+        episodeBox.y + episodeBox.height / 2);
+    }
+    const levelBox = await page.locator('.level-choice[data-level-id="sty-01"]').boundingBox();
+    if (levelBox) {
+      await page.touchscreen.tap(levelBox.x + levelBox.width / 2,
+        levelBox.y + levelBox.height / 2);
+    }
     const aiming = await poll(() => pageSnapshot(page), (state) => state?.phase === 'aiming', 5000);
     const hud = await domState(page);
-    report('portrait touch Play opens a full-bag HUD', loaded.ok && aiming.ok &&
-      hud.hudVisible && hud.ammoCount === 4 && aiming.value?.bagSize === 4,
+    report('portrait touch campaign navigation opens a full-bag HUD', loaded.ok && aiming.ok &&
+      hud.hudVisible && hud.ammoCount === 2 && aiming.value?.bagSize === 2,
     pollMeasurement(loaded.ok ? aiming : loaded,
       `viewport 390x844; HUD ${hud.hudVisible}; bag ${hud.ammoCount}/${aiming.value?.bagSize ?? '?'}`));
 
-    const firstDraw = await beginTouchDraw(context, page, { dx: -0.85, dy: -0.75 });
+    const firstDraw = await beginTouchDraw(context, page, {
+      dx: -1.5635229303040372,
+      dy: -0.33969993584555885
+    });
     const preview = await poll(
       () => trajectoryPixels(page),
       (measurement) => measurement.active && measurement.expected >= 3 && measurement.inkDots >= 3,
@@ -690,9 +812,9 @@ async function mobileRun(baseUrl) {
     );
     const portraitHud = await domState(page);
     report('portrait touch release flies and consumes one critter', flying.ok &&
-      portraitHud.ammoCount === 3,
+      portraitHud.ammoCount === 1,
     pollMeasurement(flying,
-      `phase ${flying.value?.phase ?? 'unknown'}; bag ${portraitHud.ammoCount}/4`));
+      `phase ${flying.value?.phase ?? 'unknown'}; bag ${portraitHud.ammoCount}/2`));
 
     const cameraMoved = await poll(
       () => pageSnapshot(page),
@@ -727,7 +849,7 @@ async function mobileRun(baseUrl) {
       (state) => state?.audioState === 'running',
       5000
     );
-    report('AudioContext runs after the Play gesture', runningAudio.ok,
+    report('AudioContext runs after the level-select gesture', runningAudio.ok,
       pollMeasurement(runningAudio, `state ${runningAudio.value?.audioState ?? 'unknown'}`));
   } finally {
     await context.close();

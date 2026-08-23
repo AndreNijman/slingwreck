@@ -475,3 +475,36 @@ Left as-is and now **reported by `tools/level-audit.mjs`** on every run, so it s
 visible rather than becoming folklore.
 
 - 2026-08-23 `P5.8` **done** — tools/balance.mjs --campaign — a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground. Bot completes 52/52. Stars derived from play: 1-star completion, 2-star bot median, 3-star above bot best, formula recorded in levels.js. Corrected my own 'one critter to spare' rule which was impossible for 3 one-shot levels and whose fix would have inflated 19 levels' scores by 10,000 each - corrupting the thresholds being derived. Flagged 10 levels with under 15% star headroom, now reported by the audit.
+
+- 2026-08-23 `P5.6` **done** — tools/level-export.mjs — load a level into the editor, export back out, and lint all 52 through validate + settleTest. Delivered in P5.1 - lint, --export and --import all working and used throughout Episodes 1-4.
+
+- 2026-08-23 `P5.7` **doing** — Episode and level select, three-star thresholds, progress save via /_guard/profile with localStorage fallback
+
+- 2026-08-23 `P5.7` **done** — Campaign now moves title → four episode chapters → 13-level grids with the eight-clear episode catch-up rule and sequential level unlocks. Stars and locks are canvas-drawn in the renderer palette; completed tiles show three star marks plus best score. Results name the current star tier and exact gap to the next threshold. The versioned per-level blob saves locally first, GET-merges guard progress by best score, POSTs it asynchronously (with compatibility fallback for the deployed PUT-only guard), and retries network failures without blocking play. Smoke clears sty-01 at 15,100 for two stars against 5,000/15,100/15,300, verifies the grid, reload, and higher-score merge. `tools/campaign-shots.mjs` captures and measures all six desktop/portrait campaign frames.
+
+### P5 complete — 2026-08-23
+
+The campaign exists: 52 levels across four episodes, star thresholds derived from bot
+play, episode and level select, and progress that saves locally first and syncs to the
+guard without ever blocking the game.
+
+Gates: level lint 52/52, codec round trips 52/52 byte-identical, `balance --campaign`
+completing 52/52, `check`, smoke **37/37**, audio 15/15, four engines bit-identical.
+
+One standing flag, deliberately visible: Episode 2 carries four gantries against a cap of
+three, and ten levels have under 15% star headroom. Both are recorded with their diagnosis
+rather than suppressed.
+
+A note on a thing that was not a bug: the level grid appeared to show a level with one
+star at a score that meets its two-star threshold. Checking it programmatically against
+all eight fixture entries showed `starsForScore` is correct and uses `>=` — the tile in
+question was the highlighted one, and two filled stars against one is easy to misjudge at
+that size. Worth recording that the screenshot review produces false positives as well as
+true ones, and that the cheap follow-up is arithmetic rather than squinting harder.
+
+Also worth keeping: stars are stored **and** recomputed —
+`Math.max(storedStars, starsForScore(level, bestScore))` — so changing a threshold
+re-derives existing progress instead of freezing stale ratings.
+
+Next: P6, the relay and online Siege. This is the phase the determinism work in P1 and
+P3.1 was for.

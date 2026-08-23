@@ -29,10 +29,38 @@
         <h1 id="game-title">SLING<br>WRECK</h1>
         <p class="lede">Fling a brave little critter into a pig-built fortress and bring the whole story tumbling down.</p>
         <div class="title-actions">
-          <button id="play-button" class="button primary" type="button">Play the first wreck</button>
-          <button id="editor-button" class="button secondary" type="button">Build a fortress</button>
+          <button id="play-button" class="button primary" type="button">Campaign</button>
+          <button id="editor-button" class="button secondary" type="button">Fortress Workshop</button>
         </div>
         <p id="controls-hint" class="controls-hint"><b>Drag</b> to aim · <b>release</b> to fire · <b>R</b> restart · <b>M</b> mute</p>
+      </div>
+    </section>
+
+    <section id="episode-screen" class="screen campaign-screen" aria-labelledby="episode-title" hidden>
+      <div class="paper-panel campaign-panel episode-panel">
+        <header class="campaign-heading">
+          <button id="episode-back-button" class="button campaign-back" type="button">← Title</button>
+          <div>
+            <p class="eyebrow">Choose a chapter</p>
+            <h2 id="episode-title">The wrecking tale</h2>
+            <p>Clear eight levels in a chapter to open the next. Every chapter holds 39 stars.</p>
+          </div>
+        </header>
+        <div id="episode-list" class="episode-list" aria-label="Campaign episodes"></div>
+      </div>
+    </section>
+
+    <section id="level-screen" class="screen campaign-screen" aria-labelledby="level-episode-title" hidden>
+      <div class="paper-panel campaign-panel level-panel">
+        <header class="campaign-heading level-heading">
+          <button id="level-back-button" class="button campaign-back" type="button">← Episodes</button>
+          <div>
+            <p id="level-episode-number" class="eyebrow">Episode 1</p>
+            <h2 id="level-episode-title">Sty</h2>
+            <p id="level-episode-copy">Flat ground, wood and glass · 0 of 39 stars</p>
+          </div>
+        </header>
+        <div id="level-grid" class="level-grid" aria-label="Episode levels"></div>
       </div>
     </section>
 
@@ -136,12 +164,13 @@
         <h2 id="round-title">Fortress wrecked</h2>
         <p id="round-announcement" class="result-copy" aria-live="assertive"></p>
         <div id="stars" class="stars" aria-label="No stars"></div>
+        <p id="result-star-copy" class="result-star-copy" role="status" aria-live="polite"></p>
         <p class="result-score"><span>Score</span> <strong id="final-score">0</strong></p>
         <div class="result-actions">
           <button id="retry-button" class="button primary" type="button">Retry</button>
-          <button id="next-button" class="button secondary" type="button" disabled>Next — P5</button>
+          <button id="next-button" class="button secondary" type="button">Next level</button>
         </div>
-        <button id="menu-button" class="text-button" type="button">Back to title</button>
+        <button id="menu-button" class="text-button" type="button">Back to levels</button>
       </div>
     </section>
 
