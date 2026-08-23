@@ -85,11 +85,21 @@ await new Promise((r) => setTimeout(r, 3500));
 const results = [];
 const browser = await chromium.launch();
 
-try {
-  for (const [n, level] of targets.entries()) {
+// A worker pool rather than a loop. Each level costs a dozen sequential model calls, so
+// run serially the full campaign takes about nine hours and nobody ever watches the
+// result. Levels are completely independent — separate contexts, separate localStorage, no
+// shared state — so the only real limit is the model API, and a handful in flight is fine.
+const CONCURRENCY = Number(opt('concurrency', 5));
+let cursor = 0;
+let finished = 0;
+
+async function playLevel(n, level) {
+  {
     const context = await browser.newContext({
       viewport: { width: 960, height: 540 },
-      ...(VIDEO ? { recordVideo: { dir: 'shots/naive-campaign/video-tmp', size: { width: 960, height: 540 } } } : {})
+      // One temp directory per level: with workers in flight, a shared directory means two
+      // contexts writing at once and the rename below picking up the wrong file.
+      ...(VIDEO ? { recordVideo: { dir: `shots/naive-campaign/video-tmp/${level.id}`, size: { width: 960, height: 540 } } } : {})
     });
     const page = await context.newPage();
     const issues = [];
@@ -160,7 +170,7 @@ try {
     if (VIDEO) {
       // Playwright names videos by an internal id; rename to the level so the film can be
       // assembled in campaign order rather than whatever order the files landed in.
-      const tmp = 'shots/naive-campaign/video-tmp';
+      const tmp = `shots/naive-campaign/video-tmp/${level.id}`;
       if (existsSync(tmp)) {
         const files = readFileSync ? (await import('node:fs')).readdirSync(tmp) : [];
         for (const f of files) {
@@ -171,16 +181,30 @@ try {
     }
 
     results.push({ ...level, outcome, stars, score, turnsUsed, confusions, issues });
-    console.log(`${String(n + 1).padStart(2)}/${targets.length}  ${level.id.padEnd(8)} ` +
+    finished++;
+    console.log(`${String(finished).padStart(2)}/${targets.length}  ${level.id.padEnd(8)} ` +
       `${outcome.padEnd(10)} ${stars}★  ${turnsUsed} turns` +
       (confusions.length ? `  (${confusions.length} confused)` : '') +
       (issues.length ? `  [${issues.length} issue]` : ''));
   }
+}
+
+try {
+  await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
+    while (cursor < targets.length) {
+      const index = cursor++;
+      await playLevel(index, targets[index]);
+    }
+  }));
 } finally {
   await browser.close();
   try { process.kill(-server.pid); } catch {}
   rmSync('shots/naive-campaign/video-tmp', { recursive: true, force: true });
 }
+
+// Workers finish out of order, so restore campaign order before the report and the film.
+const order = new Map(targets.map((l, i) => [l.id, i]));
+results.sort((a, b) => order.get(a.id) - order.get(b.id));
 
 const won = results.filter((r) => r.outcome === 'won');
 const lost = results.filter((r) => r.outcome === 'lost');
