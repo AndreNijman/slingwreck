@@ -1243,12 +1243,27 @@ function rebuildAmmoList() {
   const fragment = document.createDocumentFragment();
   for (let index = round.shotIndex; index < round.bag.length; index++) {
     const ammo = AMMO_BY_ID[round.bag[index]];
+    const loaded = index === round.shotIndex;
     const icon = document.createElement('canvas');
-    icon.className = 'ammo-head';
+    // The loaded critter is drawn large and named. At the sling it renders about 20 pixels
+    // across with the bands over it, so its colour is marginal and its silhouette cue is
+    // invisible — art that separates on a reference sheet and collapses in play. Naming
+    // the one you are about to fire is what actually tells the player which bird they hold.
+    icon.className = loaded ? 'ammo-head loaded' : 'ammo-head';
     icon.setAttribute('role', 'listitem');
     icon.setAttribute('aria-label', `${ammo.name}, shot ${index + 1}`);
     drawCritterHead(icon, ammo);
-    fragment.append(icon);
+    if (loaded) {
+      const cell = document.createElement('span');
+      cell.className = 'ammo-loaded';
+      const name = document.createElement('span');
+      name.className = 'ammo-loaded-name';
+      name.textContent = ammo.name;
+      cell.append(icon, name);
+      fragment.append(cell);
+    } else {
+      fragment.append(icon);
+    }
   }
   ammoList.replaceChildren(fragment);
   const remaining = round.bag.length - round.shotIndex;

@@ -1346,7 +1346,12 @@ function drawTrail(r, camera, now) {
 function drawHeldCritter(r, camera, round, x, y, outline) {
   const ammo = AMMO_BY_ID[round.bag?.[round.shotIndex]];
   if (!ammo) return;
-  const body = { id: -1000 - round.shotIndex, role: 'ammo', kind: 'circle', r: ammo.radius, x, y, c: 1, s: 0 };
+  // Rendered larger than its physics radius. The simulation is untouched — this is the
+  // one moment the player is choosing a critter, and at true scale a Zip is 0.22 world
+  // units, roughly twenty pixels, with the sling bands across it.
+  const HELD_ZOOM = 1.6;
+  const body = { id: -1000 - round.shotIndex, role: 'ammo', kind: 'circle',
+    r: ammo.radius * HELD_ZOOM, x, y, c: 1, s: 0 };
   const item = makeStaticItem(r.Path, body, camera);
   item.look = ammo.look;
   drawCritterFeature(r, item, ammo, outline);

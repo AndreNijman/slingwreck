@@ -1237,3 +1237,18 @@ body.editing #game {
 .critter-intro .panel-card { text-align: center; max-width: 22rem; }
 .critter-intro-art { width: 104px; height: 104px; display: block; margin: 0 auto var(--space-2); }
 .critter-intro-tip { margin: 0 0 var(--space-3); color: var(--ink-soft, #5A4C42); }
+
+/* The loaded critter, named. In play a critter renders about 20px across at the sling with
+   the bands across it, so neither its colour nor its silhouette cue reliably reads —
+   naming the one about to be fired is what actually communicates which bird you hold. */
+.ammo-loaded { display: inline-flex; align-items: center; gap: 4px; margin-right: 2px; }
+.ammo-head.loaded { width: 46px; height: 46px; margin-right: 0; }
+.ammo-loaded-name {
+  font: 700 12px var(--mono, ui-monospace, monospace);
+  color: var(--ink, #2B211C);
+  letter-spacing: 0.02em;
+}
+@media (max-width: 390px) {
+  .ammo-head.loaded { width: 38px; height: 38px; }
+  .ammo-loaded-name { font-size: 10px; }
+}
