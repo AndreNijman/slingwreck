@@ -80,9 +80,11 @@ const retryButton = document.querySelector('#retry-button');
 const nextButton = document.querySelector('#next-button');
 const menuButton = document.querySelector('#menu-button');
 const ammoList = document.querySelector('#ammo-list');
-// Not `#pig-list` — the editor palette already owns that id, so querySelector returned
-// the editor's list and rebuildPigList quietly populated the wrong element.
-const pigList = document.querySelector('#objective-pigs');
+const pigList = document.querySelector('#pig-list');
+// A separate binding, and a separate id. The editor palette already owned `pigList` and
+// `#pig-list`; reusing either meant the editor's pig buttons and the HUD's objective row
+// were writing over each other, which broke the palette while looking like a CSS problem.
+const objectivePigs = document.querySelector('#objective-pigs');
 const scoreValue = document.querySelector('#score-value');
 const roundTitle = document.querySelector('#round-title');
 const roundAnnouncement = document.querySelector('#round-announcement');
@@ -1157,7 +1159,7 @@ function rebuildAmmoList() {
 // visible: a playtester asked outright whether it had to hit the pigs or topple the
 // structure, and nothing on screen answered.
 function rebuildPigList() {
-  if (!pigList) return;
+  if (!objectivePigs) return;
   const fragment = document.createDocumentFragment();
   for (const pig of round.pigs) {
     const icon = document.createElement('canvas');
@@ -1167,9 +1169,9 @@ function rebuildPigList() {
     drawPigHead(icon, pig);
     fragment.append(icon);
   }
-  pigList.replaceChildren(fragment);
+  objectivePigs.replaceChildren(fragment);
   const left = round.pigs.filter((pig) => !pig.dead).length;
-  pigList.setAttribute('aria-label', `${left} pig${left === 1 ? '' : 's'} left to pop`);
+  objectivePigs.setAttribute('aria-label', `${left} pig${left === 1 ? '' : 's'} left to pop`);
 }
 
 function updateHud(force = false) {
