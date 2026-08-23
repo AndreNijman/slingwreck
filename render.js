@@ -1255,6 +1255,26 @@ function drawTrajectory(ctx, camera, vector) {
   ctx.globalAlpha = 1; ctx.restore();
 }
 
+// Release needs an unmistakable acknowledgement. A playtester reported three times that it
+// could not tell whether a drag had fired or been ignored — the critter left the pouch and
+// the camera followed it, but no single frame said "that happened".
+function drawReleasePuff(ctx, camera, r, now) {
+  const age = (now - r.releaseAt) / 1000;
+  if (age < 0 || age > .45) return;
+  const t = age / .45;
+  const at = worldToScreen(camera, TUNE.slingX, TUNE.slingY);
+  const radius = camera.scale * (.28 + t * .95);
+  ctx.save();
+  ctx.globalAlpha = (1 - t) * .8;
+  ctx.strokeStyle = PALETTE.cream;
+  ctx.lineWidth = Math.max(2, camera.scale * .11 * (1 - t));
+  ctx.beginPath(); ctx.arc(at.x, at.y, radius, 0, TAU); ctx.stroke();
+  ctx.strokeStyle = PALETTE.ink;
+  ctx.lineWidth = Math.max(1, camera.scale * .05 * (1 - t));
+  ctx.beginPath(); ctx.arc(at.x, at.y, radius, 0, TAU); ctx.stroke();
+  ctx.restore();
+}
+
 // How hard am I pulling — a question the screen previously did not answer at all. A band
 // that fills along the fork and turns from cream through to critter red at full stretch,
 // with the percentage spelled out, because "some fraction of maximum" is exactly the thing
@@ -1348,8 +1368,16 @@ export function drawSlingshot(r, camera, round, aim) {
   ctx.strokeStyle = PALETTE.woodDark; ctx.lineWidth = Math.max(1, camera.scale * .035);
   ctx.beginPath(); ctx.moveTo(base.x - camera.scale * .08, base.y - camera.scale * .25);
   ctx.lineTo(joint.x - camera.scale * .08, joint.y + camera.scale * .10); ctx.stroke();
-  if (vector) drawHeldCritter(r, camera, round, heldWorld.x, heldWorld.y,
-    clamp(2.5 * Math.sqrt(camera.zoom), 1.5, 4));
+  // Draw the loaded critter whenever there is one to fire, not only while dragging. This
+  // was gated on `vector`, so before the player touched anything the pouch sat empty — and
+  // a naive playtester twice reported being unable to tell whether a critter was loaded,
+  // whether its shot had fired, or whether the next one needed a click to load. An empty
+  // sling between shots is the game saying "nothing here".
+  const ammoLoaded = round?.phase === 'aiming' && (round.bag?.length ?? 0) > (round.shotIndex ?? 0);
+  if (vector || ammoLoaded) {
+    drawHeldCritter(r, camera, round, heldWorld.x, heldWorld.y,
+      clamp(2.5 * Math.sqrt(camera.zoom), 1.5, 4));
+  }
   if (showBands) {
     ctx.globalAlpha = round?.phase === 'flying' ? Math.max(0, 1 - slackAge / .3) : 1;
     taperedBand(ctx, right, pouch, vector ? camera.scale * .02 : camera.scale * .20,
@@ -1362,6 +1390,7 @@ export function drawSlingshot(r, camera, round, aim) {
       camera.scale * .25, camera.scale * .13, 0, 0, TAU); ctx.fill(); ctx.stroke();
   }
   ctx.globalAlpha = 1; ctx.restore();
+  drawReleasePuff(ctx, camera, r, now);
 }
 function collectItems(r, round, camera, alpha) {
   const items = [];
