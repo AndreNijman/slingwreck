@@ -433,6 +433,7 @@ h1 {
 }
 
 .ammo-block,
+.objective-block,
 .score-block {
   display: grid;
   gap: var(--space-1);
@@ -451,6 +452,29 @@ h1 {
   width: 38px;
   height: 38px;
   margin-right: -7px;
+}
+
+/* The objective row, deliberately built to mirror .ammo-list above: what you fire at,
+   shown the same way as what you fire with. A naive playtester could not tell whether it
+   had to hit the pigs or topple the structure, and since every level from three onward is
+   built so a pig cannot be hit directly, the obvious guess was the forbidden one. */
+.objective-pigs {
+  display: flex;
+  min-width: 44px;
+  min-height: 38px;
+  align-items: center;
+  gap: 2px;
+}
+
+.objective-pig {
+  display: block;
+  width: 34px;
+  height: 34px;
+  margin-right: -4px;
+}
+
+.objective-pig.popped {
+  filter: saturate(0.3);
 }
 
 .score-block {
@@ -1069,6 +1093,12 @@ body.editing #game {
     width: 34px;
     height: 34px;
     margin-right: -9px;
+  }
+
+  .objective-pig {
+    width: 30px;
+    height: 30px;
+    margin-right: -6px;
   }
 
   .score-block {

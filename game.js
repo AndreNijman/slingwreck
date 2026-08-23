@@ -80,6 +80,9 @@ const retryButton = document.querySelector('#retry-button');
 const nextButton = document.querySelector('#next-button');
 const menuButton = document.querySelector('#menu-button');
 const ammoList = document.querySelector('#ammo-list');
+// Not `#pig-list` — the editor palette already owns that id, so querySelector returned
+// the editor's list and rebuildPigList quietly populated the wrong element.
+const pigList = document.querySelector('#objective-pigs');
 const scoreValue = document.querySelector('#score-value');
 const roundTitle = document.querySelector('#round-title');
 const roundAnnouncement = document.querySelector('#round-announcement');
@@ -100,7 +103,6 @@ const materialsPalette = document.querySelector('#materials-palette');
 const pigsPalette = document.querySelector('#pigs-palette');
 const materialList = document.querySelector('#material-list');
 const shapeList = document.querySelector('#shape-list');
-const pigList = document.querySelector('#pig-list');
 const rotationStatus = document.querySelector('#rotation-status');
 const validationCount = document.querySelector('#validation-count');
 const validationList = document.querySelector('#validation-list');
@@ -135,6 +137,7 @@ let aimPointerId = null;
 let lastPinchDistance = 0;
 let shownScore = -1;
 let shownShotIndex = -1;
+let shownPigsAlive = -1;
 let shownPhase = '';
 let cameraMode = 'aiming';
 let cameraPhase = round.phase;
@@ -1027,6 +1030,71 @@ function setMuted(nextMuted) {
   statusMessage.textContent = muted ? 'Sound muted.' : 'Sound on.';
 }
 
+// Deliberately the same construction as drawCritterHead so the two read as a matched
+// pair — the thing you fire, and the thing you fire at — while the palette keeps them
+// unmistakably apart. A popped pig stays in the row, greyed and crossed, so progress is
+// legible rather than a shrinking count.
+function drawPigHead(icon, pig) {
+  const size = 44;
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  icon.width = Math.round(size * dpr);
+  icon.height = Math.round(size * dpr);
+  const ctx = icon.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = pig.dead ? 0.32 : 1;
+  ctx.strokeStyle = PALETTE.ink;
+  ctx.lineWidth = 2.5;
+  const king = Boolean(pig.king);
+  ctx.fillStyle = king ? PALETTE.king : PALETTE.pig;
+  ctx.beginPath();
+  ctx.arc(22, 23, king ? 16 : 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = PALETTE.pigDark;
+  ctx.beginPath();
+  ctx.ellipse(22, 28, 7, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = PALETTE.ink;
+  for (const dx of [-2.5, 2.5]) {
+    ctx.beginPath();
+    ctx.arc(22 + dx, 28, 1.1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#fff';
+  for (const dx of [-6, 6]) {
+    ctx.beginPath();
+    ctx.arc(22 + dx, 18, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.fillStyle = PALETTE.ink;
+  for (const dx of [-6, 6]) {
+    ctx.beginPath();
+    ctx.arc(22 + dx, 18.5, 1.7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (king) {
+    ctx.fillStyle = PALETTE.crown;
+    ctx.beginPath();
+    ctx.moveTo(14, 8); ctx.lineTo(17, 3); ctx.lineTo(22, 7);
+    ctx.lineTo(27, 3); ctx.lineTo(30, 8); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  }
+  if (pig.dead) {
+    ctx.globalAlpha = 0.8;
+    ctx.strokeStyle = PALETTE.ink;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(11, 12); ctx.lineTo(33, 34);
+    ctx.moveTo(33, 12); ctx.lineTo(11, 34);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawCritterHead(icon) {
   const size = 44;
   const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -1085,6 +1153,25 @@ function rebuildAmmoList() {
   ammoList.setAttribute('aria-label', `${remaining} critter${remaining === 1 ? '' : 's'} remaining`);
 }
 
+// Pig heads that empty as they pop. This is the level's win condition made continuously
+// visible: a playtester asked outright whether it had to hit the pigs or topple the
+// structure, and nothing on screen answered.
+function rebuildPigList() {
+  if (!pigList) return;
+  const fragment = document.createDocumentFragment();
+  for (const pig of round.pigs) {
+    const icon = document.createElement('canvas');
+    icon.className = pig.dead ? 'objective-pig popped' : 'objective-pig';
+    icon.setAttribute('role', 'listitem');
+    icon.setAttribute('aria-label', pig.dead ? 'popped' : 'still standing');
+    drawPigHead(icon, pig);
+    fragment.append(icon);
+  }
+  pigList.replaceChildren(fragment);
+  const left = round.pigs.filter((pig) => !pig.dead).length;
+  pigList.setAttribute('aria-label', `${left} pig${left === 1 ? '' : 's'} left to pop`);
+}
+
 function updateHud(force = false) {
   if (force || round.score !== shownScore) {
     const unusedBonus = (round.bag.length - round.shotIndex) * SCORE.campaign.unusedAmmo;
@@ -1095,6 +1182,13 @@ function updateHud(force = false) {
   if (force || round.shotIndex !== shownShotIndex) {
     rebuildAmmoList();
     shownShotIndex = round.shotIndex;
+  }
+  // Keyed on the live pig count rather than a step counter, so the row updates the moment
+  // one pops without redrawing every frame.
+  const pigsAlive = round.pigs.reduce((n, pig) => n + (pig.dead ? 0 : 1), 0);
+  if (force || pigsAlive !== shownPigsAlive) {
+    rebuildPigList();
+    shownPigsAlive = pigsAlive;
   }
   if (force || round.phase !== shownPhase) {
     abilityButton.hidden = round.phase !== 'flying';

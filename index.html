@@ -139,6 +139,15 @@
 
     <section id="round-hud" class="round-hud" aria-label="Round controls and status" hidden>
       <div class="hud-card">
+        <!-- The objective, stated. A naive playtester could not tell whether it had to hit
+             the pigs directly or topple the structure — and since every level from three
+             onward is built so a pig cannot be hit directly, the obvious guess is the one
+             the game forbids. Saying "pop the pigs" costs one line and removes the
+             ambiguity without a tutorial. -->
+        <div class="objective-block">
+          <span class="hud-label">Pop the pigs</span>
+          <div id="objective-pigs" class="objective-pigs" role="list"></div>
+        </div>
         <div class="ammo-block">
           <span class="hud-label">Critters left</span>
           <div id="ammo-list" class="ammo-list" role="list"></div>
