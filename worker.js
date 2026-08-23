@@ -3,7 +3,8 @@
 // The two players' worlds never interact: you attack their fortress and they
 // attack yours. There is therefore no authoritative 60 Hz dual-world sim. The
 // relay is authority for build, then a cheap auditor of each independent siege.
-// This phase implements that authoritative build only.
+// The relay persists the reconstructible input record, audits it incrementally,
+// and never treats the lossy corner preview as authority.
 //
 //   GET /health   - liveness
 //   GET /lobbies  - public lobby directory
@@ -11,6 +12,21 @@
 
 import { PIGS, TUNE } from './data.js';
 import { PIG_FLAG_DECOY } from './sim.js';
+import {
+  AUDIT_STEP_BUDGET,
+  SETTLE_STEPS,
+  advanceAudit,
+  auditSnapshot,
+  auditTarget,
+  bagForRound,
+  checkScore,
+  checkShot,
+  checkTap,
+  createAudit,
+  previewAllowed,
+  scoreCeiling,
+  validationMode
+} from './relay-audit.js';
 import {
   budgetFor,
   decode,
@@ -30,8 +46,19 @@ const MAX_PLAYERS = 2;
 const PASSWORD_MAX = 128;
 const PASSWORD_ATTEMPTS = 5;
 const PASSWORD_WINDOW = 60_000;
+const ROOM_STATE_KEY = 'room-state';
 const PRODUCTION_ORIGIN = 'https://slingwreck.andrenijman.com';
 const encoder = new TextEncoder();
+
+export {
+  bagForRound,
+  checkScore,
+  checkShot,
+  checkTap,
+  previewAllowed,
+  scoreCeiling,
+  validationMode
+};
 
 export function cleanName(value, fallback = 'Wrecker', max = 16) {
   const limit = Math.max(0, Math.min(64, Math.floor(Number(max) || 0)));
@@ -102,6 +129,11 @@ export function partitionLobbies(entries, now = Date.now()) {
   lobbies.sort((a, b) => (Number(b.joinable) - Number(a.joinable)) ||
     (b.players - a.players) || (b.updated - a.updated));
   return { lobbies: lobbies.slice(0, 40), staleKeys, freshEntries };
+}
+
+export function disconnectExpired(record, now = Date.now()) {
+  return Boolean(record && !record.connected && record.graceDeadline &&
+    now >= record.graceDeadline);
 }
 
 function wireError(code, message, pieceIds = [], reason) {
@@ -230,14 +262,6 @@ export function autoCompleteBlueprint(source, options = {}) {
   };
 }
 
-export function p61NotImplemented(feature) {
-  return {
-    t: 'err',
-    code: 'not-implemented',
-    m: `${feature} not implemented in P6.1`
-  };
-}
-
 function json(data, status = 200) {
   return Response.json(data, {
     status,
@@ -257,6 +281,12 @@ function randomSeed() {
   const words = new Uint32Array(1);
   crypto.getRandomValues(words);
   return words[0] | 0;
+}
+
+function randomToken() {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export default {
@@ -377,6 +407,77 @@ export class SiegeRoom {
     this.lastClockSecond = -1;
     this.registryQueue = Promise.resolve();
     this.passwordAttempts = new Map();
+    this.audits = new Map();
+    this.result = null;
+    this.validateMode = validationMode(env);
+    this.ctx.blockConcurrencyWhile(async () => {
+      await this.restore();
+      if (this.key) this.ensureTimer();
+    });
+  }
+
+  roomState() {
+    return {
+      room: this.room,
+      key: this.key,
+      host: this.host,
+      passwordHash: this.passwordHash,
+      locked: this.locked,
+      phase: this.phase,
+      round: this.round,
+      seed: this.seed,
+      nextPid: this.nextPid,
+      deadline: this.deadline,
+      touched: this.touched,
+      result: this.result,
+      players: [...this.players.values()]
+    };
+  }
+
+  async persist() {
+    if (!this.key) return;
+    await this.ctx.storage.put(ROOM_STATE_KEY, this.roomState());
+  }
+
+  async restore() {
+    const saved = await this.ctx.storage.get(ROOM_STATE_KEY);
+    if (!saved?.key || !Array.isArray(saved.players)) return;
+    this.room = saved.room;
+    this.key = saved.key;
+    this.host = saved.host;
+    this.passwordHash = saved.passwordHash;
+    this.locked = saved.locked;
+    this.phase = saved.phase;
+    this.round = saved.round;
+    this.seed = saved.seed;
+    this.nextPid = saved.nextPid;
+    this.deadline = saved.deadline;
+    this.touched = saved.touched;
+    this.result = saved.result ?? null;
+    const now = Date.now();
+    for (const record of saved.players) {
+      record.connected = false;
+      if (this.phase === 'siege') {
+        record.disconnectedAt = now;
+        record.graceDeadline = now + TUNE.disconnectGraceSeconds * 1000;
+      }
+      this.players.set(record.pid, record);
+    }
+  }
+
+  auditFor(record) {
+    if (this.validateMode === 'lenient' || !record.siege) return null;
+    let audit = this.audits.get(record.pid);
+    if (audit) return audit;
+    const blueprint = decode(record.siege.blueprint);
+    if (blueprint?.ok === false) return null;
+    audit = createAudit({
+      blueprint,
+      seed: record.siege.seed,
+      bag: record.siege.bag
+    });
+    this.audits.set(record.pid, audit);
+    return audit;
   }
 
   // -- plumbing ----------------------------------------------------------
@@ -396,7 +497,8 @@ export class SiegeRoom {
       ip: cleanName(request.headers.get('X-Slingwreck-IP'), 'unknown', 64),
       routeKey: roomKey(new URL(request.url).searchParams.get('room')),
       queue: Promise.resolve(),
-      handshakeTimer: 0
+      handshakeTimer: 0,
+      lastPreviewAt: -Infinity
     };
     this.sessions.set(server, session);
     this.touched = Date.now();
@@ -413,8 +515,8 @@ export class SiegeRoom {
           this.sendError(session, 'relay-error', 'relay error');
         });
     });
-    server.addEventListener('close', () => this.drop(session));
-    server.addEventListener('error', () => this.drop(session));
+    server.addEventListener('close', () => { void this.drop(session); });
+    server.addEventListener('error', () => { void this.drop(session); });
     this.ensureTimer();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -484,7 +586,7 @@ export class SiegeRoom {
     return this.registryRequest('remove', { key: this.key });
   }
 
-  reset() {
+  async reset() {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -500,8 +602,10 @@ export class SiegeRoom {
     this.round = 0;
     this.seed = 0;
     this.deadline = 0;
+    this.result = null;
+    this.audits.clear();
     this.passwordAttempts.clear();
-    return registryWork;
+    await Promise.all([registryWork, this.ctx.storage.delete(ROOM_STATE_KEY)]);
   }
 
   // -- membership --------------------------------------------------------
@@ -556,15 +660,15 @@ export class SiegeRoom {
       return;
     }
     if (message.t === 'draft') {
-      this.saveDraft(session, record, message);
+      await this.saveDraft(session, record, message);
       return;
     }
     if (message.t === 'lock') {
       await this.lockBlueprint(session, record, message);
       return;
     }
-    if (['shot', 'shot-end', 'score', 'round-over'].includes(message.t)) {
-      this.handleSiegePhaseMessage(session, message);
+    if (['shot', 'tap', 'shot-end', 'score', 'round-over'].includes(message.t)) {
+      await this.handleSiegePhaseMessage(session, message);
       return;
     }
     if (message.t === 'preview') {
@@ -572,11 +676,11 @@ export class SiegeRoom {
       return;
     }
     if (['audit', 'digest'].includes(message.t)) {
-      this.handleAuditMessage(session, message);
+      await this.handleAuditMessage(session, message);
       return;
     }
     if (['reconnect', 'resume'].includes(message.t)) {
-      this.handleReconnectMessage(session, message);
+      await this.handleReconnectMessage(session, message);
       return;
     }
     this.sendError(session, 'unknown-message', `unknown message type: ${message.t}`);
@@ -595,8 +699,12 @@ export class SiegeRoom {
   }
 
   async handshake(session, message) {
+    if (message.t === 'reconnect') {
+      await this.reconnectHandshake(session, message);
+      return;
+    }
     if (message.t !== 'create' && message.t !== 'join') {
-      this.sendError(session, 'handshake-required', 'send create or join first');
+      this.sendError(session, 'handshake-required', 'send create, join, or reconnect first');
       session.socket.close(1008, 'handshake required');
       return;
     }
@@ -658,6 +766,12 @@ export class SiegeRoom {
       }
     }
 
+    const resumeToken = randomToken();
+    const resumeTokenHash = await hashPassword(resumeToken);
+    if (message.t === 'join' && this.players.size >= MAX_PLAYERS) {
+      this.reject(session, 'room-full', 'that lobby is full');
+      return;
+    }
     const pid = this.nextPid++;
     const record = {
       pid,
@@ -669,7 +783,12 @@ export class SiegeRoom {
       draft: '',
       blueprint: '',
       locked: false,
-      autoCompleted: false
+      autoCompleted: false,
+      connected: true,
+      disconnectedAt: 0,
+      graceDeadline: 0,
+      resumeTokenHash,
+      siege: null
     };
     this.players.set(pid, record);
     session.pid = pid;
@@ -682,6 +801,7 @@ export class SiegeRoom {
       room: this.room,
       host: this.host === pid,
       max: MAX_PLAYERS,
+      resumeToken,
       tune: {
         buildSeconds: TUNE.buildSeconds,
         winsNeeded: TUNE.winsNeeded,
@@ -689,7 +809,55 @@ export class SiegeRoom {
       }
     });
     this.sendLobby();
+    await this.persist();
     await this.syncRegistry();
+  }
+
+  async reconnectHandshake(session, message) {
+    const key = roomKey(message.room);
+    const pid = Number(message.pid);
+    const record = this.players.get(pid);
+    if (key !== this.key || key !== session.routeKey || !record ||
+        this.phase !== 'siege' && this.phase !== 'round-over') {
+      this.reject(session, 'resume-missing', 'that resumable round no longer exists');
+      return;
+    }
+    const resumeToken = randomToken();
+    const [supplied, resumeTokenHash] = await Promise.all([
+      hashPassword(message.token ?? ''),
+      hashPassword(resumeToken)
+    ]);
+    if (!constantTimeEqual(record.resumeTokenHash, supplied)) {
+      this.reject(session, 'resume-denied', 'resume identity could not be verified');
+      return;
+    }
+    if (record.connected) {
+      this.reject(session, 'already-connected', 'that player is already connected');
+      return;
+    }
+    record.resumeTokenHash = resumeTokenHash;
+    record.connected = true;
+    record.disconnectedAt = 0;
+    record.graceDeadline = 0;
+    session.pid = pid;
+    session.ready = true;
+    clearTimeout(session.handshakeTimer);
+    this.send(session.socket, {
+      t: 'welcome',
+      you: pid,
+      room: this.room,
+      host: this.host === pid,
+      max: MAX_PLAYERS,
+      reconnected: true,
+      resumeToken
+    });
+    await this.sendResume(session, record);
+    this.broadcast({
+      t: 'opponent-reconnected',
+      pid,
+      m: `${record.name} reconnected.`
+    });
+    await this.persist();
   }
 
   reject(session, code, reason) {
@@ -697,19 +865,38 @@ export class SiegeRoom {
     setTimeout(() => session.socket.close(1008, reason.slice(0, 123)), 25);
   }
 
-  drop(session) {
+  async drop(session) {
     if (session.dropped) return;
     session.dropped = true;
     clearTimeout(session.handshakeTimer);
     this.sessions.delete(session.socket);
     if (session.pid < 0) return;
+    const record = this.players.get(session.pid);
+    if (!record) return;
+    if (this.phase === 'siege' || this.phase === 'round-over') {
+      const now = Date.now();
+      record.connected = false;
+      record.disconnectedAt = now;
+      record.graceDeadline = now + TUNE.disconnectGraceSeconds * 1000;
+      this.broadcast({
+        t: 'opponent-disconnected',
+        pid: record.pid,
+        grace: TUNE.disconnectGraceSeconds,
+        m: `${record.name} disconnected; ${TUNE.disconnectGraceSeconds} seconds to reconnect.`
+      });
+      await this.persist();
+      if (!this.sessions.size) {
+        await this.ctx.storage.setAlarm(record.graceDeadline);
+      }
+      return;
+    }
     const wasHost = session.pid === this.host;
     this.players.delete(session.pid);
     if (!this.players.size) {
       if (!this.sessions.size) {
-        void this.reset();
+        await this.reset();
       } else {
-        void this.removeRegistry();
+        await this.removeRegistry();
         this.room = '';
         this.key = '';
         this.host = -1;
@@ -720,6 +907,7 @@ export class SiegeRoom {
         this.seed = 0;
         this.deadline = 0;
         this.passwordAttempts.clear();
+        await this.ctx.storage.delete(ROOM_STATE_KEY);
       }
       return;
     }
@@ -734,13 +922,10 @@ export class SiegeRoom {
         player.locked = false;
       }
       this.broadcast({ t: 'build-cancelled', m: 'opponent left during build' });
-    } else if (this.phase === 'siege') {
-      this.broadcast(p61NotImplemented('siege disconnect and reconnect'));
-      this.phase = 'lobby';
-      this.round = 0;
     }
     this.sendLobby();
-    void this.syncRegistry();
+    await this.persist();
+    await this.syncRegistry();
   }
 
   sendLobby() {
@@ -776,6 +961,8 @@ export class SiegeRoom {
     this.phase = 'build';
     this.round = 1;
     this.seed = randomSeed();
+    this.result = null;
+    this.audits.clear();
     this.deadline = Date.now() + TUNE.buildSeconds * 1000;
     this.lastClockSecond = TUNE.buildSeconds;
     for (const player of this.players.values()) {
@@ -789,6 +976,7 @@ export class SiegeRoom {
       player.blueprint = '';
       player.locked = false;
       player.autoCompleted = false;
+      player.siege = null;
       const target = [...this.sessions.values()].find((entry) => entry.pid === player.pid);
       if (target) this.send(target.socket, {
         t: 'build',
@@ -798,6 +986,7 @@ export class SiegeRoom {
         left: TUNE.buildSeconds
       });
     }
+    await this.persist();
     await this.syncRegistry();
   }
 
@@ -812,7 +1001,7 @@ export class SiegeRoom {
     };
   }
 
-  saveDraft(session, record, message) {
+  async saveDraft(session, record, message) {
     if (this.phase !== 'build') {
       this.sendError(session, 'wrong-phase', 'drafts are accepted only during build');
       return;
@@ -837,6 +1026,7 @@ export class SiegeRoom {
     }
     record.draft = message.blueprint;
     this.send(session.socket, { t: 'draft-saved' });
+    await this.persist();
   }
 
   async lockBlueprint(session, record, message) {
@@ -879,6 +1069,8 @@ export class SiegeRoom {
     });
     if ([...this.players.values()].every((player) => player.locked)) {
       await this.finishBuild();
+    } else {
+      await this.persist();
     }
   }
 
@@ -901,8 +1093,34 @@ export class SiegeRoom {
       record.autoCompleted = true;
     }
     this.phase = 'siege';
-    this.deadline = 0;
+    const startedAt = Date.now();
+    this.deadline = startedAt + TUNE.roundSeconds * 1000;
+    this.lastClockSecond = TUNE.roundSeconds;
     const roster = [...this.players.values()];
+    for (const player of roster) {
+      const opponent = roster.find((record) => record.pid !== player.pid);
+      const blueprint = decode(opponent.blueprint);
+      const bag = bagForRound(this.seed, this.round, player.cards);
+      player.siege = {
+        startedAt,
+        seed: this.seed,
+        blueprint: opponent.blueprint,
+        bag,
+        log: [],
+        boundaries: [],
+        shotCount: 0,
+        tappedShot: -1,
+        lastShotStep: null,
+        lastShotAt: startedAt,
+        scoreCeiling: scoreCeiling(blueprint, bag.length),
+        verifiedScore: 0,
+        verifiedStep: SETTLE_STEPS,
+        verifiedDigest: null,
+        spent: false,
+        settled: false,
+        forfeited: false
+      };
+    }
     for (const session of this.sessions.values()) {
       if (!session.ready) continue;
       const player = this.players.get(session.pid);
@@ -912,31 +1130,253 @@ export class SiegeRoom {
         t: 'siege',
         round: this.round,
         seed: this.seed,
+        bag: player.siege.bag,
+        left: TUNE.roundSeconds,
+        validate: this.validateMode,
         opponent: { pid: opponent.pid, name: opponent.name },
         blueprint: opponent.blueprint,
         autoCompleted: opponent.autoCompleted,
         yourAutoCompleted: player.autoCompleted
       });
     }
+    await this.persist();
     await this.syncRegistry();
   }
 
-  // -- P6.2 flow, deliberately empty and loud ----------------------------
+  // -- simultaneous Siege and incremental audit -------------------------
 
-  handleSiegePhaseMessage(session, unusedMessage) {
-    this.send(session.socket, p61NotImplemented('siege phase'));
+  playerSession(pid) {
+    return [...this.sessions.values()].find((entry) =>
+      entry.ready && entry.pid === pid && entry.socket.readyState === 1);
   }
 
-  handlePreviewMessage(session, unusedMessage) {
-    this.send(session.socket, p61NotImplemented('preview relay'));
+  async handleSiegePhaseMessage(session, message) {
+    if (this.phase !== 'siege') {
+      this.sendError(session, 'wrong-phase', 'Siege inputs are accepted only during Siege');
+      return;
+    }
+    const record = this.players.get(session.pid);
+    const siege = record?.siege;
+    if (!record || !siege || siege.forfeited) return;
+    if (message.t === 'score' || message.t === 'shot-end' ||
+        message.t === 'round-over') {
+      await this.handleAuditMessage(session, message);
+      return;
+    }
+    const now = Date.now();
+    const check = message.t === 'shot'
+      ? checkShot(siege, message, now)
+      : checkTap(siege, message, now);
+    if (!check.ok) {
+      await this.forfeit(record, check.code, check.message);
+      return;
+    }
+    if (message.t === 'shot') {
+      siege.log.push({
+        t: 'shot',
+        step: message.step,
+        ammoIndex: message.ammoIndex,
+        dx: message.dx,
+        dy: message.dy
+      });
+      siege.shotCount++;
+      siege.lastShotStep = message.step;
+      siege.lastShotAt = now;
+      this.send(session.socket, {
+        t: 'shot-accepted', step: message.step, ammoIndex: message.ammoIndex
+      });
+    } else {
+      siege.log.push({ t: 'tap', step: message.step });
+      siege.tappedShot = siege.shotCount - 1;
+      this.send(session.socket, { t: 'tap-accepted', step: message.step });
+    }
+    await this.persist();
+    if (this.validateMode === 'strict') await this.runAudits(AUDIT_STEP_BUDGET);
   }
 
-  handleAuditMessage(session, unusedMessage) {
-    this.send(session.socket, p61NotImplemented('siege audit'));
+  handlePreviewMessage(session, message) {
+    if (this.phase !== 'siege') return;
+    const now = Date.now();
+    if (!previewAllowed(session.lastPreviewAt, now)) return;
+    session.lastPreviewAt = now;
+    const opponent = [...this.players.values()].find((record) =>
+      record.pid !== session.pid);
+    const target = opponent && this.playerSession(opponent.pid);
+    if (target) this.send(target.socket, message);
   }
 
-  handleReconnectMessage(session, unusedMessage) {
-    this.send(session.socket, p61NotImplemented('reconnect'));
+  async handleAuditMessage(session, message) {
+    if (this.phase !== 'siege') {
+      this.sendError(session, 'wrong-phase', 'audit reports are accepted only during Siege');
+      return;
+    }
+    const record = this.players.get(session.pid);
+    const siege = record?.siege;
+    if (!record || !siege || siege.forfeited) return;
+    const boundary = {
+      step: message.step,
+      ammoIndex: message.ammoIndex,
+      score: message.score,
+      digest: String(message.digest ?? ''),
+      kingPop: Boolean(message.kingPop || message.kingPopped),
+      settled: Boolean(message.settled || message.phase === 'aiming' ||
+        message.phase === 'lost')
+    };
+    const check = checkScore(siege, boundary, Date.now(),
+      this.validateMode === 'strict');
+    if (!check.ok) {
+      await this.forfeit(record, check.code, check.message);
+      return;
+    }
+    siege.boundaries.push(boundary);
+    await this.persist();
+    if (this.validateMode === 'strict') {
+      await this.runAudits(AUDIT_STEP_BUDGET);
+      return;
+    }
+    siege.verifiedScore = boundary.score;
+    siege.verifiedStep = boundary.step;
+    siege.settled = boundary.settled;
+    siege.spent = siege.shotCount >= siege.bag.length && boundary.settled;
+    this.send(session.socket, {
+      t: 'audit-ok', validate: 'lenient', step: boundary.step,
+      ammoIndex: boundary.ammoIndex, score: boundary.score
+    });
+    if (boundary.kingPop) this.send(session.socket, {
+      t: 'king-unverified',
+      m: 'Lenient validation cannot award an instant King claim; the round continues on score.'
+    });
+    await this.persist();
+    await this.finishIfSpent();
+  }
+
+  async handleReconnectMessage(session) {
+    const record = this.players.get(session.pid);
+    if (!record || this.phase !== 'siege' && this.phase !== 'round-over') {
+      this.sendError(session, 'resume-missing', 'there is no resumable round');
+      return;
+    }
+    await this.sendResume(session, record);
+  }
+
+  async sendResume(session, record) {
+    const siege = record.siege;
+    if (!siege) return;
+    const audit = this.auditFor(record);
+    const snapshot = audit ? auditSnapshot(audit) : {
+      step: siege.verifiedStep,
+      digest: siege.verifiedDigest,
+      score: siege.verifiedScore
+    };
+    const opponent = [...this.players.values()].find((candidate) =>
+      candidate.pid !== record.pid);
+    this.send(session.socket, {
+      t: 'resume',
+      round: this.round,
+      phase: this.phase,
+      blueprint: siege.blueprint,
+      seed: siege.seed,
+      bag: siege.bag,
+      shotLog: siege.log,
+      step: snapshot.step,
+      digest: snapshot.digest,
+      score: snapshot.score,
+      left: Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000)),
+      opponent: opponent ? { pid: opponent.pid, name: opponent.name } : null,
+      result: this.result
+    });
+  }
+
+  async runAudits(budget) {
+    if (this.phase !== 'siege' || this.validateMode !== 'strict') return;
+    const records = [...this.players.values()].filter((record) => record.siege);
+    let remaining = budget;
+    let verifiedAny = false;
+    for (let index = 0; index < records.length && remaining > 0; index++) {
+      const record = records[index];
+      const audit = this.auditFor(record);
+      if (!audit) {
+        await this.forfeit(record, 'audit-blueprint', 'the audit blueprint could not be rebuilt');
+        return;
+      }
+      const slice = Math.ceil(remaining / (records.length - index));
+      const result = advanceAudit(audit, record.siege, slice,
+        auditTarget(audit, record.siege, Date.now()));
+      remaining -= result.steps;
+      if (!result.ok) {
+        await this.forfeit(record, result.code, result.message);
+        return;
+      }
+      for (const verified of result.checks) {
+        verifiedAny = true;
+        const siege = record.siege;
+        siege.verifiedScore = verified.score;
+        siege.verifiedStep = verified.step;
+        siege.verifiedDigest = verified.digest;
+        siege.settled = verified.settled;
+        siege.spent = verified.spent;
+        const target = this.playerSession(record.pid);
+        if (target) this.send(target.socket, {
+          t: 'audit-ok',
+          validate: 'strict',
+          step: verified.step,
+          ammoIndex: verified.boundary.ammoIndex,
+          score: verified.score,
+          digest: verified.digest
+        });
+        if (verified.kingPopped) {
+          await this.finishRound(record.pid, 'king-pop');
+          return;
+        }
+      }
+    }
+    if (verifiedAny) await this.persist();
+    await this.finishIfSpent();
+  }
+
+  async finishIfSpent() {
+    if (this.phase !== 'siege') return;
+    const records = [...this.players.values()];
+    if (!records.length || !records.every((record) =>
+      record.siege?.spent && record.siege?.settled)) return;
+    const [first, second] = records;
+    const winner = first.siege.verifiedScore === second.siege.verifiedScore
+      ? null
+      : first.siege.verifiedScore > second.siege.verifiedScore ? first.pid : second.pid;
+    await this.finishRound(winner, winner === null ? 'tie' : 'score');
+  }
+
+  async forfeit(record, code, message) {
+    if (this.phase !== 'siege' || record.siege?.forfeited) return;
+    record.siege.forfeited = true;
+    const opponent = [...this.players.values()].find((candidate) =>
+      candidate.pid !== record.pid);
+    console.error(JSON.stringify({
+      message: 'Siege audit forfeit', room: this.key, pid: record.pid, code, detail: message
+    }));
+    await this.finishRound(opponent?.pid ?? null, 'forfeit', {
+      loser: record.pid,
+      code,
+      m: `${record.name} forfeited: ${message}`
+    });
+  }
+
+  async finishRound(winner, reason, extra = {}) {
+    if (this.phase !== 'siege') return;
+    this.phase = 'round-over';
+    this.deadline = 0;
+    const winningRecord = this.players.get(winner);
+    if (winningRecord) winningRecord.wins++;
+    this.result = { winner, reason, round: this.round, at: Date.now(), ...extra };
+    this.broadcast({
+      t: 'round-over',
+      ...this.result,
+      standings: [...this.players.values()].map((record) => ({
+        pid: record.pid, name: record.name, wins: record.wins
+      }))
+    });
+    await this.persist();
+    await this.syncRegistry();
   }
 
   // -- the cheap room clock ----------------------------------------------
@@ -961,12 +1401,45 @@ export class SiegeRoom {
       await this.reset();
       return;
     }
-    if (!this.sessions.size) {
+    if (!this.sessions.size && this.phase !== 'siege') {
       await this.reset();
       return;
     }
     if (this.key && now - this.lastRegistrySync >= REGISTRY_HEARTBEAT) {
       await this.syncRegistry();
+    }
+    if (this.phase === 'siege') {
+      const records = [...this.players.values()];
+      const expired = records.filter((record) => disconnectExpired(record, now));
+      const connected = records.filter((record) => record.connected);
+      if (expired.length && connected.length === 1) {
+        await this.finishRound(connected[0].pid, 'disconnect', {
+          loser: expired[0].pid,
+          m: `${expired[0].name} did not reconnect within ${TUNE.disconnectGraceSeconds} seconds.`
+        });
+        return;
+      }
+      if (expired.length && !connected.length) {
+        await this.reset();
+        return;
+      }
+      await this.runAudits(AUDIT_STEP_BUDGET);
+      if (this.phase !== 'siege') return;
+      if (now >= this.deadline) {
+        const [first, second] = records;
+        const winner = first.siege.verifiedScore === second.siege.verifiedScore
+          ? null
+          : first.siege.verifiedScore > second.siege.verifiedScore
+            ? first.pid : second.pid;
+        await this.finishRound(winner, winner === null ? 'clock-tie' : 'clock');
+        return;
+      }
+      const left = Math.max(0, Math.ceil((this.deadline - now) / 1000));
+      if (left !== this.lastClockSecond) {
+        this.lastClockSecond = left;
+        this.broadcast({ t: 'siege-clock', left });
+      }
+      return;
     }
     if (this.phase !== 'build') return;
     if (now >= this.deadline) {
@@ -977,6 +1450,16 @@ export class SiegeRoom {
     if (left !== this.lastClockSecond) {
       this.lastClockSecond = left;
       this.broadcast({ t: 'build-clock', left });
+    }
+  }
+
+  async alarm() {
+    await this.tick();
+    if (this.phase === 'siege' && !this.sessions.size) {
+      const next = [...this.players.values()]
+        .filter((record) => !record.connected && record.graceDeadline > Date.now())
+        .reduce((soonest, record) => Math.min(soonest, record.graceDeadline), Infinity);
+      if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next);
     }
   }
 }

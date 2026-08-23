@@ -3,16 +3,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { encode } from '../build.js';
+import { TUNE } from '../data.js';
+import {
+  advanceAudit,
+  createAudit,
+  SETTLE_STEPS
+} from '../relay-audit.js';
+import { digestRound, launch, makeRound, stepRound } from '../sim.js';
 import {
   autoCompleteBlueprint,
+  bagForRound,
+  checkScore,
+  checkShot,
+  checkTap,
   cleanName,
   constantTimeEqual,
+  disconnectExpired,
   hashPassword,
   lobbyIsStale,
   originAllowed,
-  p61NotImplemented,
   partitionLobbies,
+  previewAllowed,
   roomKey,
+  scoreCeiling,
+  validationMode,
   validateBlueprintSubmission
 } from '../worker.js';
 
@@ -157,12 +171,111 @@ test('lobby staleness is expired on reads with joinable rooms first', () => {
   assert.equal(result.freshEntries, 3);
 });
 
-test('every deferred P6.2 handler has a loud rejection payload', () => {
-  for (const feature of ['siege phase', 'preview relay', 'siege audit', 'reconnect']) {
-    assert.deepEqual(p61NotImplemented(feature), {
-      t: 'err',
-      code: 'not-implemented',
-      m: `${feature} not implemented in P6.1`
-    });
+test('Siege bag and unconditional plausibility checks are deterministic', () => {
+  const first = bagForRound(123, 1);
+  assert.deepEqual(first, bagForRound(123, 1));
+  assert.equal(first.length, 7);
+  assert.notDeepEqual(first, bagForRound(124, 1));
+
+  const startedAt = 10_000;
+  const siege = {
+    startedAt,
+    bag: first,
+    shotCount: 0,
+    boundaries: [],
+    lastShotStep: null,
+    lastShotAt: startedAt,
+    tappedShot: -1,
+    scoreCeiling: scoreCeiling(VALID, first.length)
+  };
+  assert.deepEqual(checkShot(siege, {
+    step: SETTLE_STEPS, ammoIndex: 0, dx: -1, dy: 0
+  }, startedAt), { ok: true });
+  siege.shotCount = 1;
+  siege.lastShotStep = SETTLE_STEPS;
+  assert.equal(checkShot(siege, {
+    step: SETTLE_STEPS + 1, ammoIndex: 1, dx: -1, dy: 0
+  }, startedAt + 20).code, 'shot-timing');
+  assert.deepEqual(checkTap(siege, { step: SETTLE_STEPS + 1 }, startedAt + 20),
+    { ok: true });
+  assert.equal(checkScore(siege, {
+    step: SETTLE_STEPS + 1,
+    ammoIndex: 0,
+    score: siege.scoreCeiling + 1,
+    digest: '00000000'
+  }, startedAt + 20, true).code, 'score-bounds');
+});
+
+test('strict and lenient validation switches retain preview throttling bounds', () => {
+  assert.equal(validationMode({}), 'strict');
+  assert.equal(validationMode({ VALIDATE: 'strict' }), 'strict');
+  assert.equal(validationMode({ VALIDATE: 'LENIENT' }), 'lenient');
+  assert.equal(previewAllowed(-Infinity, 1000), true);
+  assert.equal(previewAllowed(1000, 1000 + 1000 / TUNE.previewHz - 0.01), false);
+  assert.equal(previewAllowed(1000, 1000 + 1000 / TUNE.previewHz), true);
+  assert.equal(scoreCeiling(VALID, 7), 4600);
+  const dropped = { connected: false, graceDeadline: 21_000 };
+  assert.equal(disconnectExpired(dropped, 20_999), false);
+  assert.equal(disconnectExpired(dropped, 21_000), true);
+});
+
+function completedMiss() {
+  const bag = ['nib'];
+  const round = makeRound({ mode: 'siege', blueprint: VALID, seed: 77, bag });
+  for (let step = 0; step < SETTLE_STEPS; step++) stepRound(round, TUNE.step);
+  assert.ok(launch(round, 0, 0));
+  while (round.phase !== 'lost' && round.stepCount < SETTLE_STEPS + 600) {
+    stepRound(round, TUNE.step);
   }
+  assert.equal(round.phase, 'lost');
+  return { bag, round };
+}
+
+test('incremental replay respects its step budget and verifies full digests', () => {
+  const { bag, round } = completedMiss();
+  const siege = {
+    log: [{ t: 'shot', step: SETTLE_STEPS, ammoIndex: 0, dx: 0, dy: 0 }],
+    boundaries: [{
+      step: round.stepCount,
+      ammoIndex: 0,
+      score: round.score,
+      digest: digestRound(round),
+      kingPop: false,
+      settled: true
+    }]
+  };
+  const audit = createAudit({ blueprint: VALID, seed: 77, bag });
+  const first = advanceAudit(audit, siege, 8, round.stepCount);
+  assert.equal(first.ok, true);
+  assert.equal(first.steps, 8);
+  assert.equal(first.checks.length, 0);
+  let result = first;
+  while (!result.checks.length) {
+    result = advanceAudit(audit, siege, 17, round.stepCount);
+    assert.equal(result.ok, true);
+  }
+  assert.equal(result.checks[0].digest, digestRound(round));
+  assert.equal(result.checks[0].spent, true);
+});
+
+test('a matching digest cannot turn a surviving King into a pop claim', () => {
+  const { bag, round } = completedMiss();
+  const siege = {
+    log: [{ t: 'shot', step: SETTLE_STEPS, ammoIndex: 0, dx: 0, dy: 0 }],
+    boundaries: [{
+      step: round.stepCount,
+      ammoIndex: 0,
+      score: round.score,
+      digest: digestRound(round),
+      kingPop: true,
+      settled: true
+    }]
+  };
+  const audit = createAudit({ blueprint: VALID, seed: 77, bag });
+  let result;
+  do {
+    result = advanceAudit(audit, siege, 31, round.stepCount);
+  } while (result.ok && !result.checks.length && audit.round.stepCount < round.stepCount);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'false-king-pop');
 });

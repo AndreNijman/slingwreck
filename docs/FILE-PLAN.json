@@ -133,13 +133,25 @@
     {
       "path": "worker.js",
       "phase": "P6",
-      "budget": 800,
+      "budget": 1200,
+      "imports": [
+        "data.js",
+        "physics.js",
+        "sim.js",
+        "relay-audit.js"
+      ],
+      "job": "The relay. SiegeRoom and LobbyRegistry Durable Objects, blueprint validation and authoritative settle, shot log, incremental audit replay, preview relaying, reconnect, room passwords, origin allowlist, rate limits."
+    },
+    {
+      "path": "relay-audit.js",
+      "phase": "P6",
+      "budget": 420,
       "imports": [
         "data.js",
         "physics.js",
         "sim.js"
       ],
-      "job": "The relay. SiegeRoom and LobbyRegistry Durable Objects, blueprint validation and authoritative settle, shot log, incremental audit replay, preview relaying, reconnect, room passwords, origin allowlist, rate limits."
+      "job": "Pure Siege audit engine: deterministic bag generation, unconditional score and shot-timing bounds, incremental sim replay, shot-boundary digest verification, and reconnect snapshots."
     }
   ],
   "tools": [

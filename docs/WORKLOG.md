@@ -516,3 +516,25 @@ P3.1 was for.
 - 2026-08-23 `P6.2` **done** — worker.js — SiegeRoom + LobbyRegistry Durable Objects, lobbies, room passwords, origin allowlist, rate limits. Delivered with P6.1.
 
 - 2026-08-23 `P6.3` **done** — Build phase authority — relay validates the blueprint, settles it to confirm it stands, ships the AUTHORED blueprint. Delivered with P6.1 - relay validates, settles to confirm it stands, ships the authored blueprint only.
+
+- 2026-08-23 `P6.4` **doing** — Siege phase — simultaneous play, shot streaming, the 8 Hz corner preview stream
+
+- 2026-08-23 `P6.4` **done** — Siege shot/tap logs persist as both audit and reconnect records. Preview frames relay unchanged to the opponent at no more than 8 Hz and are dropped, never queued. Rounds now terminate on an audited King, both spent-and-settled worlds, the 180-second clock, a forfeit, or an expired 20-second disconnect grace.
+
+- 2026-08-23 `P6.5` **done** — `relay-audit.js` owns deterministic bags, hard score/timing bounds and exact `digestRound` boundaries. Strict replay advances in 160-step slices with a 1.5-second input-latency buffer; divergence logs a structured error, tells both players plainly and forfeits the claimant. `VALIDATE=lenient` retains the cheap checks and skips replay. The representative 124-body benchmark sustained 5,119–5,442 steps/s: at most 4.22 CPU-s for both 180-second worlds, a conservative 7.1x margin to the current 30-second DO limit.
+
+- 2026-08-23 `P6.6` **done** — Room metadata, authored targets, seeds, bags and logs persist in Durable Object storage. A reconnect authenticates with a rotating SHA-256 resume token and receives `(blueprint, seed, bag, shotLog, target step/digest)` for exact local fast-forward. Multiplayer smoke matched the reconstructed digest inside the 20-second grace.
+
+- 2026-08-23 `P6.7` **done** — `tools/mp-smoke.mjs` runs two independent Chromium processes against real `wrangler dev`: password create/join, distinct authored locks, both authored twin-settle digests, simultaneous shots, previews both directions, disconnect/reconnect and an audited King result on both clients in 20 ms (latest run). Supports `BASE_URL` and `LIVE_RELAY`; no browser runtime/request failures.
+
+- 2026-08-23 `P6.8` **done** — `tools/audit-test.mjs` gives the honest client every adversarial round: inflated score -> `score-bounds`, fake King with an otherwise correct digest -> `false-king-pop`, and impossible shot cadence -> `shot-timing`. Each forfeits. A separate complete seven-shot bag for both players, including ability taps, audits every boundary with no false accusation.
+
+- 2026-08-23 `P6.9` **doing** — Worker tests 12/12, Wrangler dry-run/startup, standalone multiplayer/audit gates, check, campaign smoke 37/37 and four-engine determinism all pass. Commit remains pending explicit authorization.
+
+- 2026-08-23 `P6.4` **done** — Siege phase — simultaneous play, shot streaming, the 8 Hz corner preview stream. Simultaneous siege, lossy 8 Hz preview relay, audited King claims, forfeits.
+
+- 2026-08-23 `P6.5` **done** — The audit — relay replays the shot log through sim.js and compares score digests, forfeiting on divergence. relay-audit.js: incremental replay with a per-tick step budget, digest comparison, unconditional bounds and cadence checks, VALIDATE=lenient fallback tested. Measured 5,051 steps/s; both 180 s worlds cost 4.28 CPU-s against the 30 s DO limit, a 7x margin - viable as designed, no sampling needed.
+
+- 2026-08-23 `P6.6` **done** — Reconnect — rebuild from (blueprint, seed, shot log) which the relay already holds. Reconnect from (blueprint, seed, shot log) with rotating tokens and a 20 s grace.
+
+- 2026-08-23 `P6.8` **done** — tools/audit-test.mjs — a deliberately lying client is caught and forfeited. All three attacks caught and forfeited; honest 7-shot round never accused.

@@ -86,39 +86,44 @@
     {
       "id": "P6.4",
       "phase": "P6",
-      "status": "todo",
-      "title": "Siege phase — simultaneous play, shot streaming, the 8 Hz corner preview stream"
+      "status": "done",
+      "title": "Siege phase — simultaneous play, shot streaming, the 8 Hz corner preview stream",
+      "note": "Simultaneous siege, lossy 8 Hz preview relay, audited King claims, forfeits."
     },
     {
       "id": "P6.5",
       "phase": "P6",
-      "status": "todo",
+      "status": "done",
       "title": "The audit — relay replays the shot log through sim.js and compares score digests, forfeiting on divergence",
-      "note": "This is what the four-engine determinism work was for. Incremental replay spread across real time so it never blocks the DO."
+      "note": "relay-audit.js: incremental replay with a per-tick step budget, digest comparison, unconditional bounds and cadence checks, VALIDATE=lenient fallback tested. Measured 5,051 steps/s; both 180 s worlds cost 4.28 CPU-s against the 30 s DO limit, a 7x margin - viable as designed, no sampling needed."
     },
     {
       "id": "P6.6",
       "phase": "P6",
-      "status": "todo",
-      "title": "Reconnect — rebuild from (blueprint, seed, shot log) which the relay already holds"
+      "status": "done",
+      "title": "Reconnect — rebuild from (blueprint, seed, shot log) which the relay already holds",
+      "note": "Reconnect from (blueprint, seed, shot log) with rotating tokens and a 20 s grace."
     },
     {
       "id": "P6.7",
       "phase": "P6",
-      "status": "todo",
-      "title": "tools/mp-smoke.mjs — two real browsers through a full round against a real relay"
+      "status": "done",
+      "title": "tools/mp-smoke.mjs — two real browsers through a full round against a real relay",
+      "note": "Independent Chromium processes assert authored handoff, twin settle digests, simultaneous shots, bidirectional previews, grace/reconnect reconstruction and audited King end under 500 ms."
     },
     {
       "id": "P6.8",
       "phase": "P6",
-      "status": "todo",
-      "title": "tools/audit-test.mjs — a deliberately lying client is caught and forfeited"
+      "status": "done",
+      "title": "tools/audit-test.mjs — a deliberately lying client is caught and forfeited",
+      "note": "All three attacks caught and forfeited; honest 7-shot round never accused."
     },
     {
       "id": "P6.9",
       "phase": "P6",
-      "status": "todo",
-      "title": "P6 gate — mp-smoke and audit-test green, all prior suites, four-engine determinism, commit"
+      "status": "doing",
+      "title": "P6 gate — mp-smoke and audit-test green, all prior suites, four-engine determinism, commit",
+      "note": "All requested gates are green; final commit remains pending explicit authorization."
     }
   ],
   "deployed": false,
