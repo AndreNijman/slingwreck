@@ -62,8 +62,30 @@ async function ask(b64, history) {
       max_tokens: 700
     })
   });
-  if (!res.ok) throw new Error(`openrouter ${res.status}`);
+  if (!res.ok) {
+    const detail = (await res.text()).slice(0, 120);
+    const err = new Error(`openrouter ${res.status}: ${detail}`);
+    err.status = res.status;
+    throw err;
+  }
   return (await res.json()).choices?.[0]?.message?.content ?? '';
+}
+
+// Retry with backoff. Six workers against a free endpoint gets rate limited, and without
+// this a single 429 aborted the whole level after one turn — which read as "the tester
+// could not finish", i.e. the harness reporting its own throttling as a game result.
+async function askWithRetry(b64, history) {
+  let wait = 4000;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try { return await ask(b64, history); }
+    catch (e) {
+      const retryable = e.status === 429 || e.status === 502 || e.status === 503 || !e.status;
+      if (!retryable || attempt === 5) throw e;
+      await new Promise((r) => setTimeout(r, wait));
+      wait = Math.min(wait * 2, 30000);
+    }
+  }
+  throw new Error('unreachable');
 }
 
 const field = (t, n) => (t.match(new RegExp(`^${n}:\\s*(.+)$`, 'im'))?.[1] ?? '').trim();
@@ -141,7 +163,7 @@ async function playLevel(n, level) {
         turnsUsed = turn;
         const buf = await page.screenshot();
         let reply;
-        try { reply = await ask(buf.toString('base64'), history.slice(-3)); }
+        try { reply = await askWithRetry(buf.toString('base64'), history.slice(-3)); }
         catch (e) { issues.push(`model: ${e.message}`); break; }
 
         const confused = field(reply, 'CONFUSED');
