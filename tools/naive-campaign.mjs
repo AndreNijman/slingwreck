@@ -136,9 +136,17 @@ async function playLevel(n, level) {
     const confusions = [];
 
     try {
-      await page.addInitScript((profile) => {
+      // Each level runs in a fresh context, so without this the seen-critters list is empty
+      // every time and the tester meets the same introduction card on all 52 levels —
+      // wasting turns and reporting "+Nib" for every level. Seed it with everything the
+      // earlier levels would already have taught, so a card appears only for a critter
+      // that is genuinely new at this point in the campaign.
+      const alreadyMet = [...new Set(LEVELS.slice(0, LEVELS.findIndex((l) => l.id === level.id))
+        .flatMap((l) => l.bag))];
+      await page.addInitScript(({ profile, met }) => {
         localStorage.setItem('slingwreck.campaign.progress.v1', JSON.stringify(profile));
-      }, seededProgress());
+        localStorage.setItem('slingwreck.critters.seen.v1', JSON.stringify(met));
+      }, { profile: seededProgress(), met: alreadyMet });
       await page.goto('http://127.0.0.1:4173/?smoke-test', { waitUntil: 'networkidle' });
       await page.locator('#play-button').click();
       await page.locator(`.episode-choice[data-episode="${level.episode}"]`).click();
