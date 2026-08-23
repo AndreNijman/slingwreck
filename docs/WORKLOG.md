@@ -508,3 +508,11 @@ re-derives existing progress instead of freezing stale ratings.
 
 Next: P6, the relay and online Siege. This is the phase the determinism work in P1 and
 P3.1 was for.
+
+- 2026-08-23 `P6.1` **doing** — net.js — one websocket, relay resolution order, no auto-reconnect mid-round
+
+- 2026-08-23 `P6.1` **done** — net.js — one websocket, relay resolution order, no auto-reconnect mid-round. net.js + worker.js: LobbyRegistry with read-time and alarm expiry, strict 1v1 SiegeRoom, origin allowlist, SHA-256 room passwords in constant time, cleanName, message caps, handshake timeout, per-IP password rate limit. Build phase is relay-authoritative: decode, validate in siege mode, settleTest, then ship the AUTHORED blueprint plus seed - verified no settled poses reach the wire. 9 worker tests, wrangler dry-run reports both DOs, and a real wrangler-dev smoke covered create/join/lobby/lock-in/handoff.
+
+- 2026-08-23 `P6.2` **done** — worker.js — SiegeRoom + LobbyRegistry Durable Objects, lobbies, room passwords, origin allowlist, rate limits. Delivered with P6.1.
+
+- 2026-08-23 `P6.3` **done** — Build phase authority — relay validates the blueprint, settles it to confirm it stands, ships the AUTHORED blueprint. Delivered with P6.1 - relay validates, settles to confirm it stands, ships the authored blueprint only.

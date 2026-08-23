@@ -65,58 +65,60 @@
     {
       "id": "P6.1",
       "phase": "P6",
-      "status": "todo",
-      "title": "net.js \u2014 one websocket, relay resolution order, no auto-reconnect mid-round"
+      "status": "done",
+      "title": "net.js — one websocket, relay resolution order, no auto-reconnect mid-round",
+      "note": "net.js + worker.js: LobbyRegistry with read-time and alarm expiry, strict 1v1 SiegeRoom, origin allowlist, SHA-256 room passwords in constant time, cleanName, message caps, handshake timeout, per-IP password rate limit. Build phase is relay-authoritative: decode, validate in siege mode, settleTest, then ship the AUTHORED blueprint plus seed - verified no settled poses reach the wire. 9 worker tests, wrangler dry-run reports both DOs, and a real wrangler-dev smoke covered create/join/lobby/lock-in/handoff."
     },
     {
       "id": "P6.2",
       "phase": "P6",
-      "status": "todo",
-      "title": "worker.js \u2014 SiegeRoom + LobbyRegistry Durable Objects, lobbies, room passwords, origin allowlist, rate limits"
+      "status": "done",
+      "title": "worker.js — SiegeRoom + LobbyRegistry Durable Objects, lobbies, room passwords, origin allowlist, rate limits",
+      "note": "Delivered with P6.1."
     },
     {
       "id": "P6.3",
       "phase": "P6",
-      "status": "todo",
-      "title": "Build phase authority \u2014 relay validates the blueprint, settles it to confirm it stands, ships the AUTHORED blueprint",
-      "note": "ARCHITECTURE.md S5: the settled state never crosses the wire. Both sides settle the authored blueprint and reach the identical state because the sim is bit-identical across engines."
+      "status": "done",
+      "title": "Build phase authority — relay validates the blueprint, settles it to confirm it stands, ships the AUTHORED blueprint",
+      "note": "Delivered with P6.1 - relay validates, settles to confirm it stands, ships the authored blueprint only."
     },
     {
       "id": "P6.4",
       "phase": "P6",
       "status": "todo",
-      "title": "Siege phase \u2014 simultaneous play, shot streaming, the 8 Hz corner preview stream"
+      "title": "Siege phase — simultaneous play, shot streaming, the 8 Hz corner preview stream"
     },
     {
       "id": "P6.5",
       "phase": "P6",
       "status": "todo",
-      "title": "The audit \u2014 relay replays the shot log through sim.js and compares score digests, forfeiting on divergence",
+      "title": "The audit — relay replays the shot log through sim.js and compares score digests, forfeiting on divergence",
       "note": "This is what the four-engine determinism work was for. Incremental replay spread across real time so it never blocks the DO."
     },
     {
       "id": "P6.6",
       "phase": "P6",
       "status": "todo",
-      "title": "Reconnect \u2014 rebuild from (blueprint, seed, shot log) which the relay already holds"
+      "title": "Reconnect — rebuild from (blueprint, seed, shot log) which the relay already holds"
     },
     {
       "id": "P6.7",
       "phase": "P6",
       "status": "todo",
-      "title": "tools/mp-smoke.mjs \u2014 two real browsers through a full round against a real relay"
+      "title": "tools/mp-smoke.mjs — two real browsers through a full round against a real relay"
     },
     {
       "id": "P6.8",
       "phase": "P6",
       "status": "todo",
-      "title": "tools/audit-test.mjs \u2014 a deliberately lying client is caught and forfeited"
+      "title": "tools/audit-test.mjs — a deliberately lying client is caught and forfeited"
     },
     {
       "id": "P6.9",
       "phase": "P6",
       "status": "todo",
-      "title": "P6 gate \u2014 mp-smoke and audit-test green, all prior suites, four-engine determinism, commit"
+      "title": "P6 gate — mp-smoke and audit-test green, all prior suites, four-engine determinism, commit"
     }
   ],
   "deployed": false,

@@ -217,7 +217,13 @@ if (!stateIds.includes(state.phase)) fail(`BUILD_STATE.json phase "${state.phase
 
 // --------------------------------------------------------- headless tests
 head('headless tests');
-const suites = ['physics-test.mjs', 'sim-test.mjs', 'settle-probe.mjs', 'editor-test.mjs']
+const suites = [
+  'physics-test.mjs',
+  'sim-test.mjs',
+  'settle-probe.mjs',
+  'editor-test.mjs',
+  'worker-test.mjs'
+]
   .filter((f) => here(join('tools', f)));
 for (const f of suites) {
   try {
