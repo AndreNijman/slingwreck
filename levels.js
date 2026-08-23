@@ -1277,5 +1277,40 @@ export const LEVELS = [
     ),
     bag: ['zip', 'zip', 'wedge'],
     cards: ['gelworks', 'iron-ration', 'sapper'], stars: null
+  },
+
+  // Idea: Use all nine specialists on the glass veil, blink gate, TNT fuse, stone footing, wood crown, Hulk pocket, rear seam, spring lane and balloon to bring the iron core through Sarge.
+  {
+    id: 'iro-13', episode: 4, index: 13, name: 'The Whole Works',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        bunker({
+          x: 1, width: 4, wallHeight: 3,
+          frontMaterial: 'gel', dividerMaterial: 'wood', backMaterial: 'glass',
+          roofMaterial: 'wood',
+          pigs: [{ id: 'tusk', bay: 1 }]
+        }),
+        stack({ x: 6.5, height: 5, materials: 'glass' }),
+        structure('spring lane, blink gate and fuse pocket', [
+          block('cube', 'spring', 7.5, 0.5),
+          block('pillar', 'iron', 8.25, 2),
+          block('cube', 'tnt', 9, 0.5)
+        ], []),
+        tower({
+          x: 10, width: 4, storeys: 3,
+          materials: ['stone', 'iron', 'wood'],
+          pigs: []
+        }),
+        structure('Sarge inside the iron core', [], [pig('sarge', 13)]),
+        structure('stone lock, smokestack and balloon lane', [
+          block('pillar', 'stone', 17.5, 2), block('pillar', 'stone', 17.5, 6),
+          block('pillar', 'glass', 17.5, 10), block('post', 'wood', 17.5, 13),
+          block('cube', 'wood', 17.5, 14.5), block('beam', 'wood', 17.5, 15.25)
+        ], [pig('zep', 22, 9.65625)])
+      ),
+      /* level-export:iro-13:start */ null /* level-export:iro-13:end */
+    ),
+    bag: ['chip', 'zip', 'lob', 'spike', 'wedge', 'hulk', 'boomer', 'nib', 'pebble'],
+    cards: ['gelworks', 'iron-ration', 'sapper', 'springloaded'], stars: null
   }
 ];

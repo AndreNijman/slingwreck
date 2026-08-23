@@ -100,8 +100,9 @@
     {
       "id": "P5.5",
       "phase": "P5",
-      "status": "doing",
-      "title": "Episode 4 'Ironworks' — 13 levels, adds hulk/zip, sarge, iron and gel"
+      "status": "done",
+      "title": "Episode 4 'Ironworks' — 13 levels, adds hulk/zip, sarge, iron and gel",
+      "note": "13 Ironworks levels: iron as go-around, Hulk wedge-and-inflate incl. rest tap, gel absorption, Zip past screens, Sarge. 52/52 lint, zero audit flags, heights 2.99-15.50 monotonic, 1 gantry, 5 range-split, zero directly hittable pigs. 43-piece 9-critter finale."
     },
     {
       "id": "P5.6",
