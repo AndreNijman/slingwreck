@@ -11,8 +11,12 @@ export const PALETTE = Object.freeze({
   spring: '#D4A32C', springDark: '#9E7818',
   gel: '#7FB89E', gelDark: '#588273',
   sand: '#C9B183', sandDark: '#9A8560',
-  pig: '#C98A93', pigDark: '#B06E7B',
-  king: '#9A5F73', crown: '#D9A441',
+  // Pigs were dusty rose and critters are warm red: a naive playtester could not tell the
+  // ammo from the target, and said so on the title screen before play even started. Now
+  // cool and desaturated against the critter's warm saturated red — still deliberately not
+  // the genre-standard green.
+  pig: '#9E90A8', pigDark: '#7C6F88',
+  king: '#5F5470', crown: '#D9A441',
   critter: '#D9563F', belly: '#F3E2C7'
 });
 const VIEW_W = TUNE.viewMaxX - TUNE.viewMinX;
@@ -1199,21 +1203,87 @@ function taperedBand(ctx, from, to, sag, width, colour) {
     from.x - nx * width * .55, from.y - ny * width * .55);
   ctx.closePath(); ctx.fillStyle = colour; ctx.fill();
 }
+// A naive playtester complained six times in fourteen turns that it could not tell how
+// far it was pulling or where the shot would go, and never once mentioned seeing this
+// preview at all. The old version faded to alpha 0.10 by its last dot, drew flat ink with
+// nothing to separate it from the sage hills behind it, and stopped after 0.85 seconds of
+// flight — well short of the fortress. Aiming is the only verb in this game, so its one
+// feedback channel has to survive any background and reach the target.
+// Exported so `tools/smoke.mjs` samples the same points the renderer draws. The probe
+// previously hardcoded its own step and silently stopped matching the moment this changed.
+export const TRAJECTORY_STEP = .06;
+
 function drawTrajectory(ctx, camera, vector) {
   const length = Math.sqrt(vector.dx * vector.dx + vector.dy * vector.dy);
   if (length < .08) return;
   const launchScale = TUNE.launchSpeedMax / TUNE.slingRadius;
   const vx = -vector.dx * launchScale; const vy = -vector.dy * launchScale;
-  for (let index = 1; index <= 10; index++) {
-    const time = index * .085;
-    const x = TUNE.slingX + vx * time; const y = TUNE.slingY + vy * time - TUNE.gravity * time * time / 2;
-    if (y < 0 || x < TUNE.viewMinX || x > TUNE.viewMaxX) continue;
+  const step = TRAJECTORY_STEP;
+  const core = Math.max(2.2, camera.scale * .062);
+  let landing = null;
+
+  ctx.save();
+  // Walk the whole arc to the ground rather than a fixed dot count, so a hard pull shows
+  // a shot that reaches the fortress and a soft one visibly falls short.
+  for (let index = 1; index <= 90; index++) {
+    const time = index * step;
+    const x = TUNE.slingX + vx * time;
+    const y = TUNE.slingY + vy * time - TUNE.gravity * time * time / 2;
+    if (y <= 0) { landing = { x, y: 0 }; break; }
+    if (x > TUNE.viewMaxX + 2) break;
+    if (x < TUNE.viewMinX) continue;
     const point = worldToScreen(camera, x, y);
-    ctx.globalAlpha = .62 * (1 - index / 12);
+    // Cream halo under an ink core: the pair reads against both the sage hills and the
+    // parchment sky, so legibility never depends on what happens to be behind it.
+    ctx.globalAlpha = Math.max(.45, .92 - index * .012);
+    ctx.fillStyle = PALETTE.cream;
+    ctx.beginPath(); ctx.arc(point.x, point.y, core * 1.75, 0, TAU); ctx.fill();
     ctx.fillStyle = PALETTE.ink;
-    ctx.beginPath(); ctx.arc(point.x, point.y, Math.max(2, camera.scale * .055), 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(point.x, point.y, core, 0, TAU); ctx.fill();
   }
-  ctx.globalAlpha = 1;
+
+  // Where it lands, stated outright. This is the question the player is actually asking.
+  if (landing) {
+    const mark = worldToScreen(camera, landing.x, 0);
+    const ring = Math.max(5, camera.scale * .3);
+    ctx.globalAlpha = .95;
+    ctx.strokeStyle = PALETTE.cream; ctx.lineWidth = Math.max(3, camera.scale * .1);
+    ctx.beginPath(); ctx.ellipse(mark.x, mark.y, ring, ring * .42, 0, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = PALETTE.critter; ctx.lineWidth = Math.max(1.5, camera.scale * .055);
+    ctx.beginPath(); ctx.ellipse(mark.x, mark.y, ring, ring * .42, 0, 0, TAU); ctx.stroke();
+  }
+  ctx.globalAlpha = 1; ctx.restore();
+}
+
+// How hard am I pulling — a question the screen previously did not answer at all. A band
+// that fills along the fork and turns from cream through to critter red at full stretch,
+// with the percentage spelled out, because "some fraction of maximum" is exactly the thing
+// the playtester was guessing at.
+function drawPowerGauge(ctx, camera, vector) {
+  const draw = Math.min(1, Math.sqrt(vector.dx * vector.dx + vector.dy * vector.dy) / TUNE.slingRadius);
+  if (draw < .04) return;
+  const anchor = worldToScreen(camera, TUNE.slingX, 3.5);
+  const width = Math.max(46, camera.scale * 2.1);
+  const height = Math.max(9, camera.scale * .34);
+  const x = anchor.x - width / 2;
+  const y = anchor.y;
+
+  ctx.save();
+  ctx.fillStyle = PALETTE.cream; ctx.strokeStyle = PALETTE.ink;
+  ctx.lineWidth = Math.max(1.5, camera.scale * .05);
+  ctx.beginPath(); ctx.roundRect(x, y, width, height, height / 2); ctx.fill(); ctx.stroke();
+  // Cream to red across the draw, so full power is unmistakable at a glance.
+  ctx.fillStyle = draw > .88 ? PALETTE.critter : draw > .55 ? PALETTE.spring : PALETTE.gel;
+  ctx.beginPath();
+  ctx.roundRect(x + ctx.lineWidth, y + ctx.lineWidth,
+    Math.max(0, (width - ctx.lineWidth * 2) * draw), height - ctx.lineWidth * 2,
+    (height - ctx.lineWidth * 2) / 2);
+  ctx.fill();
+  ctx.fillStyle = PALETTE.ink;
+  ctx.font = `600 ${Math.max(10, Math.round(height * .95))}px ui-monospace, monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText(`${Math.round(draw * 100)}% power`, anchor.x, y - height * .35);
+  ctx.restore();
 }
 function updateTrail(r, round, now) {
   const body = round?.phase === 'flying' ? round.flying : null;
@@ -1251,7 +1321,7 @@ export function drawSlingshot(r, camera, round, aim) {
   const ctx = r.ctx; const now = nowMs(r);
   updateTrail(r, round, now); drawTrail(r, camera, now);
   const vector = round?.phase === 'aiming' && (aim?.dragging ?? aim?.active) ? aimVector(aim) : null;
-  if (vector) drawTrajectory(ctx, camera, vector);
+  if (vector) { drawTrajectory(ctx, camera, vector); drawPowerGauge(ctx, camera, vector); }
   const base = worldToScreen(camera, TUNE.slingX, 0); const joint = worldToScreen(camera, TUNE.slingX, 1.35);
   const left = worldToScreen(camera, TUNE.slingX - .58, 2.55); const right = worldToScreen(camera, TUNE.slingX + .58, 2.55);
   const heldWorld = vector ? { x: TUNE.slingX + vector.dx, y: TUNE.slingY + vector.dy } :

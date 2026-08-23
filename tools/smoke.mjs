@@ -180,7 +180,7 @@ async function trajectoryPixels(page) {
     };
 
     for (let index = 1; index <= 10; index++) {
-      const time = index * 0.085;
+      const time = index * sling.trajectoryStep;
       const x = sling.x + vx * time;
       const y = sling.y + vy * time - sling.gravity * time * time / 2;
       if (y < 0 || x < sling.viewMinX || x > sling.viewMaxX) continue;
@@ -201,7 +201,12 @@ async function trajectoryPixels(page) {
       active: aim.active,
       length,
       expected: contrasts.length,
-      inkDots: contrasts.filter((contrast) => contrast > 12).length,
+      // Absolute contrast, not signed. The dots are an ink core inside a cream halo
+      // precisely so they read against both the sage hills and the parchment sky, which
+      // means a sample can legitimately land lighter *or* darker than its surroundings.
+      // The old signed test only accepted darker and would fail the very fix that made
+      // the preview visible. Threshold raised from 12 as the dots are now bolder.
+      inkDots: contrasts.filter((contrast) => Math.abs(contrast) > 18).length,
       contrasts: contrasts.map((contrast) => Number(contrast.toFixed(1)))
     };
   });

@@ -594,3 +594,5 @@ since P2.1 and is the first task.
 - 2026-08-23 `P7.4` **done** — The draft — 3 cards from the deficit-derived tier, 25 s, loser picks, relay rolls from the match seed. Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch.
 
 - 2026-08-23 `P7.5` **done** — Card effects — all 25 applied from their declarative effect data, no per-card switch. Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch.
+
+- 2026-08-23 `P7.6` **doing** — Siege UI — build phase HUD, corner preview window, draft screen, match standings, results

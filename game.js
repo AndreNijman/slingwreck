@@ -8,6 +8,7 @@ import {
 } from './sim.js?v=20260822-1';
 import {
   PALETTE,
+  TRAJECTORY_STEP,
   capturePose,
   draw,
   drawThumbnail,
@@ -1624,7 +1625,11 @@ if (new URLSearchParams(window.location.search).has('smoke-test')) {
         launchSpeedMax: TUNE.launchSpeedMax,
         gravity: TUNE.gravity,
         viewMinX: TUNE.viewMinX,
-        viewMaxX: TUNE.viewMaxX
+        viewMaxX: TUNE.viewMaxX,
+        // Read from the renderer rather than restated, so the smoke probe samples exactly
+        // the points that get drawn. It used to hardcode its own step and stopped matching
+        // silently the first time the preview changed.
+        trajectoryStep: TRAJECTORY_STEP
       },
       pigs: round.pigs.map(({ dead, x, y }) => ({ dead, x, y })),
       blocks: round.blocks.map(({ dead }) => ({ dead })),
