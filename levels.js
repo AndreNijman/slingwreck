@@ -38,6 +38,14 @@ function structure(label, blocks, pigs) {
   return { label, blocks, pigs };
 }
 
+// balance-stars:start
+// P5.8 provenance: tools/balance.mjs --campaign, seeds 20905, 40503, 49374, 2823, 24301, 659918, 61453.
+// Formula: 1★ = pig count × 5,000 (the completion floor); 2★ = the median bot
+// clear rounded down to 100; normally 3★ = the first 100-point step above its best.
+// If best is within 3% of median, 3★ = best + the cheaper of 500 or the least
+// valuable block left by a best run. If none remains, 3★ = best (and 2★ steps down).
+// balance-stars:end
+
 export const LEVELS = [
   // Idea: Break the lone glass leg and let the heavy roof fall on the Runt.
   {
@@ -54,7 +62,7 @@ export const LEVELS = [
       /* level-export:sty-01:start */ null /* level-export:sty-01:end */
     ),
     bag: ['nib', 'nib'],
-    stars: null
+    stars: [5000, 15100, 15300]
   },
 
   // Idea: Arc Nib onto the exposed Runt perched above the glass shelf instead of battering its post.
@@ -71,7 +79,7 @@ export const LEVELS = [
       /* level-export:sty-02:start */ null /* level-export:sty-02:end */
     ),
     bag: ['nib', 'nib'],
-    stars: null
+    stars: [5000, 15200, 15400]
   },
 
   // Idea: Break the bunker’s lone glass end wall so its roof drops into the Runt’s chamber.
@@ -93,7 +101,7 @@ export const LEVELS = [
       /* level-export:sty-03:start */ null /* level-export:sty-03:end */
     ),
     bag: ['nib', 'nib'],
-    stars: null
+    stars: [5000, 15100, 15200]
   },
 
   // Idea: Split Chip into the stacked glass face to breach the only openable side of the roofed pen.
@@ -113,7 +121,7 @@ export const LEVELS = [
       /* level-export:sty-04:start */ null /* level-export:sty-04:end */
     ),
     bag: ['chip', 'nib', 'nib'],
-    stars: null
+    stars: [5000, 25400, 25800]
   },
 
   // Idea: Split at the middle floor so Chip's fan opens both storeys of the narrow glass tower.
@@ -136,7 +144,7 @@ export const LEVELS = [
       /* level-export:sty-05:start */ null /* level-export:sty-05:end */
     ),
     bag: ['chip', 'nib'],
-    stars: null
+    stars: [10000, 20100, 20200]
   },
 
   // Idea: Change Chip’s arc between the near and far window bunkers, splitting each sling-side pane rather than repeating one shot.
@@ -172,7 +180,7 @@ export const LEVELS = [
       /* level-export:sty-06:start */ null /* level-export:sty-06:end */
     ),
     bag: ['chip', 'nib'],
-    stars: null
+    stars: [10000, 10400, 10600]
   },
 
   // Idea: Accelerate Wedge through the lower wooden spine so the upper mast and glass crown topple right onto the Runt.
@@ -192,7 +200,7 @@ export const LEVELS = [
       /* level-export:sty-07:start */ null /* level-export:sty-07:end */
     ),
     bag: ['wedge', 'nib'],
-    stars: null
+    stars: [5000, 15000, 15200]
   },
 
   // Idea: Accelerate Wedge through the bottom tower post so two loaded wooden floors fold into the sheltered Swine.
@@ -218,7 +226,7 @@ export const LEVELS = [
       /* level-export:sty-08:start */ null /* level-export:sty-08:end */
     ),
     bag: ['wedge', 'nib'],
-    stars: null
+    stars: [5000, 16200, 16800]
   },
 
   // Idea: Hit the near mast high so it topples through one glass guard, then change range to open the far bunker.
@@ -249,7 +257,7 @@ export const LEVELS = [
       /* level-export:sty-09:start */ null /* level-export:sty-09:end */
     ),
     bag: ['wedge', 'nib', 'nib'],
-    stars: null
+    stars: [10000, 20700, 20800]
   },
 
   // Idea: Use Chip on the near glass bunker and Wedge on the far tower’s wooden foot so its floors fall before Nib cleans up.
@@ -285,7 +293,7 @@ export const LEVELS = [
       /* level-export:sty-10:start */ null /* level-export:sty-10:end */
     ),
     bag: ['chip', 'wedge', 'nib'],
-    stars: null
+    stars: [10000, 22600, 22800]
   },
 
   // Idea: Open the near glass tower with Chip but change to Wedge’s flatter shot for the distant roofed wooden annex.
@@ -323,7 +331,7 @@ export const LEVELS = [
       /* level-export:sty-11:start */ null /* level-export:sty-11:end */
     ),
     bag: ['chip', 'nib', 'wedge'],
-    stars: null
+    stars: [15000, 26900, 27400]
   },
 
   // Idea: Break the keep’s wooden gate and glass waist with their matching critters so the upper floors fall through all three pigs.
@@ -361,7 +369,7 @@ export const LEVELS = [
       /* level-export:sty-12:start */ null /* level-export:sty-12:end */
     ),
     bag: ['wedge', 'chip', 'nib'],
-    stars: null
+    stars: [15000, 37800, 38200]
   },
 
   // Idea: Chip opens the near glass bunker, Wedge breaks the raised tower’s wooden foot so its floors fall through both pigs, and Nib finishes the far bay.
@@ -411,7 +419,7 @@ export const LEVELS = [
       /* level-export:sty-13:start */ null /* level-export:sty-13:end */
     ),
     bag: ['chip', 'nib', 'wedge'],
-    stars: null
+    stars: [20000, 24600, 25500]
   },
 
   // Idea: Break the glass foot and let the stone beam fall onto the sheltered Runt instead of wasting a shot on the beam.
@@ -425,7 +433,7 @@ export const LEVELS = [
       ], [pig('runt', 13)])),
       /* level-export:qry-01:start */ null /* level-export:qry-01:end */
     ),
-    bag: ['nib', 'nib'], stars: null
+    bag: ['nib', 'nib'], stars: [5000, 15100, 15300]
   },
 
   // Idea: Shatter the glass shelf so its stone weight drops through the roofed pen onto the Runt below.
@@ -440,7 +448,7 @@ export const LEVELS = [
       ], [pig('runt', 13)])),
       /* level-export:qry-02:start */ null /* level-export:qry-02:end */
     ),
-    bag: ['nib', 'nib'], stars: null
+    bag: ['nib', 'nib'], stars: [5000, 15100, 15300]
   },
 
   // Idea: Split Chip at each range to break both glass roofs and drop the paired stone weights into their enclosed pens.
@@ -463,7 +471,7 @@ export const LEVELS = [
       ),
       /* level-export:qry-03:start */ null /* level-export:qry-03:end */
     ),
-    bag: ['chip', 'chip'], stars: null
+    bag: ['chip', 'chip'], stars: [10000, 10600, 10800]
   },
 
   // Idea: Harden Spike into the stone face to open the tall core; every ordinary direct hit is absorbed by the masonry.
@@ -477,7 +485,7 @@ export const LEVELS = [
       })),
       /* level-export:qry-04:start */ null /* level-export:qry-04:end */
     ),
-    bag: ['spike', 'nib'], stars: null
+    bag: ['spike', 'nib'], stars: [5000, 15000, 15200]
   },
 
   // Idea: Harden Spike before the glass veil so it passes through untouched and spends its force on the stone core behind it.
@@ -494,7 +502,7 @@ export const LEVELS = [
       ),
       /* level-export:qry-05:start */ null /* level-export:qry-05:end */
     ),
-    bag: ['spike', 'spike'], stars: null
+    bag: ['spike', 'spike'], stars: [5000, 15100, 15200]
   },
 
   // Idea: Change Spike's arc between the short near core and the glass-veiled far core, hardening before each stone impact.
@@ -517,7 +525,7 @@ export const LEVELS = [
       ),
       /* level-export:qry-06:start */ null /* level-export:qry-06:end */
     ),
-    bag: ['spike', 'spike'], stars: null
+    bag: ['spike', 'spike'], stars: [10000, 10300, 10400]
   },
 
   // Idea: Detonate the exposed end of the fuse so the TNT chain removes the glass wall and drops the capped stone roof into the Runt.
@@ -538,7 +546,7 @@ export const LEVELS = [
       ),
       /* level-export:qry-07:start */ null /* level-export:qry-07:end */
     ),
-    bag: ['lob', 'nib'], cards: ['sapper'], stars: null
+    bag: ['lob', 'nib'], cards: ['sapper'], stars: [5000, 17200, 17400]
   },
 
   // Idea: Change range to light both exposed fuses, letting each chain break a glass face and drop a different stone load.
@@ -570,7 +578,7 @@ export const LEVELS = [
       ),
       /* level-export:qry-08:start */ null /* level-export:qry-08:end */
     ),
-    bag: ['lob', 'nib'], cards: ['sapper'], stars: null
+    bag: ['lob', 'nib'], cards: ['sapper'], stars: [10000, 14300, 14500]
   },
 
   // Idea: Arc Lob over the stone blast wall before detonating, because a boom on the approach leaves the shielded TNT chain out of reach.
@@ -594,7 +602,7 @@ export const LEVELS = [
       ),
       /* level-export:qry-09:start */ null /* level-export:qry-09:end */
     ),
-    bag: ['lob', 'spike'], cards: ['sapper'], stars: null
+    bag: ['lob', 'spike'], cards: ['sapper'], stars: [5000, 16400, 16600]
   },
 
   // Idea: Split Chip through the tall glass keel so the stone roof drops vertically through the pen and crushes the Hogg.
@@ -610,7 +618,7 @@ export const LEVELS = [
       ], [pig('hogg', 15)])),
       /* level-export:qry-10:start */ null /* level-export:qry-10:end */
     ),
-    bag: ['chip', 'lob'], stars: null
+    bag: ['chip', 'lob'], stars: [5000, 15800, 16000]
   },
 
   // Idea: Accelerate Wedge into the tall first mast so the stepped dominoes drive sideways through Helmet Hog while the tempting roof-drop is blunted.
@@ -632,7 +640,7 @@ export const LEVELS = [
       ),
       /* level-export:qry-11:start */ null /* level-export:qry-11:end */
     ),
-    bag: ['wedge', 'nib'], stars: null
+    bag: ['wedge', 'nib'], stars: [5000, 6700, 16000]
   },
 
   // Idea: Drop the near stone press onto Hogg, then change range and topple the far mast sideways into Helmet Hog instead of dropping its roof.
@@ -657,7 +665,7 @@ export const LEVELS = [
       ),
       /* level-export:qry-12:start */ null /* level-export:qry-12:end */
     ),
-    bag: ['chip', 'wedge', 'nib'], stars: null
+    bag: ['chip', 'wedge', 'nib'], stars: [10000, 11400, 11900]
   },
 
   // Idea: Use every specialist on its matching seam so glass, stone and TNT crush Hogg and send the final mast sideways through Helmet Hog.
@@ -698,7 +706,7 @@ export const LEVELS = [
       ),
       /* level-export:qry-13:start */ null /* level-export:qry-13:end */
     ),
-    bag: ['chip', 'spike', 'lob', 'wedge', 'nib'], cards: ['sapper'], stars: null
+    bag: ['chip', 'spike', 'lob', 'wedge', 'nib'], cards: ['sapper'], stars: [20000, 33700, 44000]
   },
 
   // Idea: Carry Pebble over the tall stone screen and drop its payload onto the glass lid above the sheltered Runt.
@@ -717,7 +725,7 @@ export const LEVELS = [
       ], [pig('runt', 14)])),
       /* level-export:hwd-01:start */ null /* level-export:hwd-01:end */
     ),
-    bag: ['pebble'], stars: null
+    bag: ['pebble'], stars: [5000, 5400, 5600]
   },
 
   // Idea: Drop Pebble behind the four-high face so its payload breaks the glass shelf and releases the stone press onto the Swine.
@@ -738,7 +746,7 @@ export const LEVELS = [
       ], [pig('swine', 15)])),
       /* level-export:hwd-02:start */ null /* level-export:hwd-02:end */
     ),
-    bag: ['pebble', 'nib'], stars: null
+    bag: ['pebble', 'nib'], stars: [5000, 15200, 15400]
   },
 
   // Idea: Change Pebble's arc and drop timing to open the short near shaft and the taller far shaft from above.
@@ -774,7 +782,7 @@ export const LEVELS = [
       ),
       /* level-export:hwd-03:start */ null /* level-export:hwd-03:end */
     ),
-    bag: ['pebble', 'pebble'], stars: null
+    bag: ['pebble', 'pebble'], stars: [10000, 11200, 11700]
   },
 
   // Idea: Fly Boomer over the stone-faced keep, then reverse through its glass rear wall into the hidden Runt.
@@ -789,7 +797,7 @@ export const LEVELS = [
       })),
       /* level-export:hwd-04:start */ null /* level-export:hwd-04:end */
     ),
-    bag: ['boomer'], stars: null
+    bag: ['boomer'], stars: [5000, 5300, 5400]
   },
 
   // Idea: Hold Boomer's reversal until it clears the capped tower, then strike the rear glass seam instead of the stone front.
@@ -811,7 +819,7 @@ export const LEVELS = [
       ),
       /* level-export:hwd-05:start */ null /* level-export:hwd-05:end */
     ),
-    bag: ['boomer', 'nib'], stars: null
+    bag: ['boomer', 'nib'], stars: [5000, 5300, 15500]
   },
 
   // Idea: Reverse one Boomer into each fortress's rear glass wall, changing both launch arc and turn timing between the near and far targets.
@@ -837,7 +845,7 @@ export const LEVELS = [
       ),
       /* level-export:hwd-06:start */ null /* level-export:hwd-06:end */
     ),
-    bag: ['boomer', 'boomer'], stars: null
+    bag: ['boomer', 'boomer'], stars: [10000, 10800, 11200]
   },
 
   // Idea: Land Nib on the spring before the wall so the rebound reaches the glass floor beneath the sealed upper chamber.
@@ -859,7 +867,7 @@ export const LEVELS = [
       ], [pig('runt', 14, 7)])),
       /* level-export:hwd-07:start */ null /* level-export:hwd-07:end */
     ),
-    bag: ['nib', 'nib'], cards: ['springloaded'], stars: null
+    bag: ['nib', 'nib'], cards: ['springloaded'], stars: [5000, 5600, 5900]
   },
 
   // Idea: Bank Nib off the raised rear spring so it rebounds left through the glass back of the stone-faced pen.
@@ -896,7 +904,7 @@ export const LEVELS = [
       ),
       /* level-export:hwd-08:start */ null /* level-export:hwd-08:end */
     ),
-    bag: ['nib', 'nib'], cards: ['springloaded'], stars: null
+    bag: ['nib', 'nib'], cards: ['springloaded'], stars: [5000, 15400, 15700]
   },
 
   // Idea: Avoid the spring-clad front door and accelerate Wedge through the glass shoulder so the stone cap falls through the sheltered Swine.
@@ -915,7 +923,7 @@ export const LEVELS = [
       ], [pig('swine', 12)])),
       /* level-export:hwd-09:start */ null /* level-export:hwd-09:end */
     ),
-    bag: ['wedge', 'pebble'], cards: ['springloaded'], stars: null
+    bag: ['wedge', 'pebble'], cards: ['springloaded'], stars: [5000, 15200, 16500]
   },
 
   // Idea: Reverse Boomer through the tall keep's glass rear wall so it hits Tusker from behind, where its sling-facing armour does nothing.
@@ -938,7 +946,7 @@ export const LEVELS = [
       ),
       /* level-export:hwd-10:start */ null /* level-export:hwd-10:end */
     ),
-    bag: ['boomer', 'nib'], stars: null
+    bag: ['boomer', 'nib'], stars: [5000, 16200, 16300]
   },
 
   // Idea: Lead Pebble over the tall screen and drop its payload onto the drifting balloon so the fall finishes the Zeppelin Hog.
@@ -955,7 +963,7 @@ export const LEVELS = [
       ], [pig('zep', 16.5, 8.15625)])),
       /* level-export:hwd-11:start */ null /* level-export:hwd-11:end */
     ),
-    bag: ['pebble', 'nib'], stars: null
+    bag: ['pebble', 'nib'], stars: [5000, 15000, 15400]
   },
 
   // Idea: Reverse Boomer into the near Tusker's rear seam, then change range and lead Pebble into the far Zeppelin's balloon.
@@ -983,7 +991,7 @@ export const LEVELS = [
       ),
       /* level-export:hwd-12:start */ null /* level-export:hwd-12:end */
     ),
-    bag: ['boomer', 'pebble', 'nib'], stars: null
+    bag: ['boomer', 'pebble', 'nib'], stars: [10000, 20700, 21200]
   },
 
   // Idea: Bounce the first Pebble into the tallest mast so it topples onto Tusker, then drop the last Pebble onto the Zeppelin's balloon.
@@ -1018,7 +1026,7 @@ export const LEVELS = [
       ),
       /* level-export:hwd-13:start */ null /* level-export:hwd-13:end */
     ),
-    bag: ['pebble', 'boomer', 'pebble'], cards: ['springloaded'], stars: null
+    bag: ['pebble', 'boomer', 'pebble'], cards: ['springloaded'], stars: [10000, 11200, 11600]
   },
 
   // Idea: Break the glass end wall and let the iron roof drop into the Runt instead of wasting shots on the metal.
@@ -1032,7 +1040,7 @@ export const LEVELS = [
       })),
       /* level-export:iro-01:start */ null /* level-export:iro-01:end */
     ),
-    bag: ['nib', 'nib'], cards: ['iron-ration'], stars: null
+    bag: ['nib', 'nib'], cards: ['iron-ration'], stars: [5000, 15100, 15200]
   },
 
   // Idea: Carry Pebble over the iron screen and drop its payload onto the glass lid that holds the iron weight above the Swine.
@@ -1048,7 +1056,7 @@ export const LEVELS = [
       ], [pig('swine', 14)])),
       /* level-export:iro-02:start */ null /* level-export:iro-02:end */
     ),
-    bag: ['pebble', 'nib'], cards: ['iron-ration'], stars: null
+    bag: ['pebble', 'nib'], cards: ['iron-ration'], stars: [5000, 15600, 15800]
   },
 
   // Idea: Drop through the near glass lid from above, then change range and break the far glass wall so its iron cap falls into the second pen.
@@ -1071,7 +1079,7 @@ export const LEVELS = [
       ),
       /* level-export:iro-03:start */ null /* level-export:iro-03:end */
     ),
-    bag: ['pebble', 'chip'], cards: ['iron-ration'], stars: null
+    bag: ['pebble', 'chip'], cards: ['iron-ration'], stars: [10000, 11200, 11600]
   },
 
   // Idea: Wedge Hulk between the iron buttress and the glass wall, then inflate so the loaded roof folds into the Runt.
@@ -1093,7 +1101,7 @@ export const LEVELS = [
       ),
       /* level-export:iro-04:start */ null /* level-export:iro-04:end */
     ),
-    bag: ['hulk'], cards: ['iron-ration'], stars: null
+    bag: ['hulk'], cards: ['iron-ration'], stars: [5000, 5200, 5300]
   },
 
   // Idea: Let Hulk settle into the floor pocket before inflating so it shoves the full glass wall and roof into the Swine.
@@ -1112,7 +1120,7 @@ export const LEVELS = [
       ),
       /* level-export:iro-05:start */ null /* level-export:iro-05:end */
     ),
-    bag: ['hulk', 'nib'], cards: ['iron-ration'], stars: null
+    bag: ['hulk', 'nib'], cards: ['iron-ration'], stars: [5000, 15200, 15400]
   },
 
   // Idea: Change range and rest each Hulk in its own iron-backed pocket before inflating the near and far glass walls.
@@ -1139,7 +1147,7 @@ export const LEVELS = [
       ),
       /* level-export:iro-06:start */ null /* level-export:iro-06:end */
     ),
-    bag: ['hulk', 'hulk'], cards: ['iron-ration'], stars: null
+    bag: ['hulk', 'hulk'], cards: ['iron-ration'], stars: [10000, 10900, 11200]
   },
 
   // Idea: Fly Boomer past the gel face and timing mast, then reverse into the unshielded glass wall at the rear of the keep.
@@ -1160,7 +1168,7 @@ export const LEVELS = [
       ),
       /* level-export:iro-07:start */ null /* level-export:iro-07:end */
     ),
-    bag: ['boomer', 'nib'], cards: ['gelworks'], stars: null
+    bag: ['boomer', 'nib'], cards: ['gelworks'], stars: [5000, 5100, 5500]
   },
 
   // Idea: Carry Pebble over the gel-shielded face and drop its payload onto the tall glass roof above the Swine.
@@ -1177,7 +1185,7 @@ export const LEVELS = [
       ),
       /* level-export:iro-08:start */ null /* level-export:iro-08:end */
     ),
-    bag: ['pebble', 'nib'], cards: ['gelworks'], stars: null
+    bag: ['pebble', 'nib'], cards: ['gelworks'], stars: [5000, 15200, 15600]
   },
 
   // Idea: Reverse Boomer into the near bunker’s glass back, then change range and drop Pebble over the far gel-shielded wall onto its glass lid.
@@ -1203,7 +1211,7 @@ export const LEVELS = [
       ),
       /* level-export:iro-09:start */ null /* level-export:iro-09:end */
     ),
-    bag: ['boomer', 'pebble'], cards: ['gelworks'], stars: null
+    bag: ['boomer', 'pebble'], cards: ['gelworks'], stars: [10000, 11200, 11600]
   },
 
   // Idea: Blink Zip over the iron screen into the glass support so the heavy roof drops with enough force to crush Sarge.
@@ -1220,7 +1228,7 @@ export const LEVELS = [
       ], [pig('sarge', 15)])),
       /* level-export:iro-10:start */ null /* level-export:iro-10:end */
     ),
-    bag: ['zip', 'nib'], cards: ['iron-ration'], stars: null
+    bag: ['zip', 'nib'], cards: ['iron-ration'], stars: [5000, 5200, 5600]
   },
 
   // Idea: Blink Zip over the gel wall into the raised TNT pocket so the blast releases the iron press above Sarge.
@@ -1244,7 +1252,7 @@ export const LEVELS = [
       ),
       /* level-export:iro-11:start */ null /* level-export:iro-11:end */
     ),
-    bag: ['zip', 'nib'], cards: ['gelworks', 'iron-ration', 'sapper'], stars: null
+    bag: ['zip', 'nib'], cards: ['gelworks', 'iron-ration', 'sapper'], stars: [5000, 16200, 16600]
   },
 
   // Idea: Change range and blink timing to trip the near glass press and the far TNT press, dropping a heavy roof onto each Sarge.
@@ -1276,7 +1284,7 @@ export const LEVELS = [
       /* level-export:iro-12:start */ null /* level-export:iro-12:end */
     ),
     bag: ['zip', 'zip', 'wedge'],
-    cards: ['gelworks', 'iron-ration', 'sapper'], stars: null
+    cards: ['gelworks', 'iron-ration', 'sapper'], stars: [10000, 13100, 14100]
   },
 
   // Idea: Use all nine specialists on the glass veil, blink gate, TNT fuse, stone footing, wood crown, Hulk pocket, rear seam, spring lane and balloon to bring the iron core through Sarge.
@@ -1311,6 +1319,6 @@ export const LEVELS = [
       /* level-export:iro-13:start */ null /* level-export:iro-13:end */
     ),
     bag: ['chip', 'zip', 'lob', 'spike', 'wedge', 'hulk', 'boomer', 'nib', 'pebble'],
-    cards: ['gelworks', 'iron-ration', 'sapper', 'springloaded'], stars: null
+    cards: ['gelworks', 'iron-ration', 'sapper', 'springloaded'], stars: [15000, 25500, 62600]
   }
 ];

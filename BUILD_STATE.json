@@ -119,8 +119,9 @@
     {
       "id": "P5.8",
       "phase": "P5",
-      "status": "doing",
-      "title": "tools/balance.mjs --campaign — a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground"
+      "status": "done",
+      "title": "tools/balance.mjs --campaign — a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground",
+      "note": "Bot completes 52/52. Stars derived from play: 1-star completion, 2-star bot median, 3-star above bot best, formula recorded in levels.js. Corrected my own 'one critter to spare' rule which was impossible for 3 one-shot levels and whose fix would have inflated 19 levels' scores by 10,000 each - corrupting the thresholds being derived. Flagged 10 levels with under 15% star headroom, now reported by the audit."
     },
     {
       "id": "P5.9",

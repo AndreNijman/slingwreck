@@ -117,6 +117,20 @@ for (const [episode, levels] of [...byEpisode].sort((a, b) => a[0] - b[0])) {
     if (!starsValid) flag(`${level.id}: missing or invalid P5.8-derived star thresholds`);
   }
 
+  // Star headroom. A level whose three-star threshold sits a few percent above its
+  // one-star threshold has stars that carry no information: completing it awards three.
+  // Reported rather than failed, because the cause is the scoring formula's dynamic
+  // range on small levels, not a bad threshold — an unused critter is worth 10,000 and
+  // a whole small fortress is worth a few thousand, so on a level whose bag is fully
+  // consumed there is almost nothing left to vary. Fixing it means more destructible
+  // material in those levels or a smaller unused-ammo weight, both of which move every
+  // threshold in the campaign.
+  const tight = levels.filter((l) => Array.isArray(l.stars) && (l.stars[2] - l.stars[0]) / l.stars[0] < 0.15);
+  if (tight.length) {
+    console.log(`  note  ${tight.length} level(s) with under 15% star headroom: ` +
+      tight.map((l) => l.id).join(', '));
+  }
+
   const gantryCap = Math.floor(levels.length * MAX_GANTRY_FRACTION);
   console.log(`  gantries ${gantries}/${levels.length} (cap ${gantryCap}) · ` +
     `two-range ${twoRange} (min ${MIN_TWO_RANGE_LEVELS}) · ` +

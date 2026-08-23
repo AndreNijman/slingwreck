@@ -420,3 +420,58 @@ that cannot survive serialisation should not exist in the editor at all.
 - 2026-08-23 `P5.5` **done** — Episode 4 'Ironworks' — 13 levels, adds hulk/zip, sarge, iron and gel. 13 Ironworks levels: iron as go-around, Hulk wedge-and-inflate incl. rest tap, gel absorption, Zip past screens, Sarge. 52/52 lint, zero audit flags, heights 2.99-15.50 monotonic, 1 gantry, 5 range-split, zero directly hittable pigs. 43-piece 9-critter finale.
 
 - 2026-08-23 `P5.8` **doing** — tools/balance.mjs --campaign — a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground
+
+- 2026-08-23 `P5.8` **done** — tools/balance.mjs --campaign — a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground. Bot completes 52/52 across seven seeds; completion-only gate reports 19 zero-remaining levels; imported ascending stars with a 3% close-spread exception using the cheapest standing-block score capped at 500; no three-star threshold sits at bot best. Balance, level audit, lint, check and smoke all pass.
+
+### P5.8 — stars derived from bot play, and two measurements not to trust
+
+`bots.js` (deterministic ballistic aimer, seeded noise, structural weak-point ranking) and
+`tools/balance.mjs`. The bot completes **all 52 levels**, and the star thresholds that had
+been deliberately `null` since P5.1 are now derived from that play rather than invented:
+one star for completing, two around the bot's median, three above the bot's best.
+
+Two things surfaced that are worth writing down because both look like findings and only
+one is.
+
+#### The "one critter to spare" rule was wrong, and would have poisoned the data
+
+`docs/BUILD_PLAN.md` required every level to be clearable with a critter left over. Three
+levels ship a bag of exactly one, so that is arithmetically impossible, and 19 use their
+whole bag.
+
+The proposed fix was appending a `nib` to those 19. Declining it mattered: an unused
+critter is worth **10,000 points**, so padding the bags would have inflated 19 levels'
+scores — in the very task that derives thresholds from those scores. The rule would have
+corrupted the measurement it existed to protect. A one-shot level is also a legitimate
+design, not a defect.
+
+The requirement is now that the bot completes every level, with critters remaining
+*reported* so tightness is visible without being forbidden.
+
+#### The "single-solution" flag measures the bot, not the levels
+
+The harness flagged roughly 40 of 52 levels as single-solution, on the basis that the
+bot's best and median scores nearly coincide.
+
+That is almost certainly not a fact about the levels. The bot is deterministic with seeded
+noise, and across seven seeds it converges on the same approach — so best ≈ median is a
+property of the *instrument*. It is the same error as the saturated glass column and the
+truncated tap sweep: a number that appears to describe the subject and actually describes
+the measurement. Do not act on that list.
+
+#### Star headroom is a real finding
+
+Ten levels have a three-star threshold under 15% above their one-star threshold —
+`qry-06` is 10,000 / 10,300 / 10,400. On those, completing the level awards three stars
+and the rating means nothing.
+
+The cause is dynamic range, not bad thresholds. An unused critter is worth 10,000; a whole
+small fortress is worth a few thousand. On a level whose bag is fully consumed there is
+almost nothing left to vary. Fixing it properly means either more destructible material in
+those ten levels or a smaller unused-ammo weight, and the second moves every threshold in
+the campaign.
+
+Left as-is and now **reported by `tools/level-audit.mjs`** on every run, so it stays
+visible rather than becoming folklore.
+
+- 2026-08-23 `P5.8` **done** — tools/balance.mjs --campaign — a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground. Bot completes 52/52. Stars derived from play: 1-star completion, 2-star bot median, 3-star above bot best, formula recorded in levels.js. Corrected my own 'one critter to spare' rule which was impossible for 3 one-shot levels and whose fix would have inflated 19 levels' scores by 10,000 each - corrupting the thresholds being derived. Flagged 10 levels with under 15% star headroom, now reported by the audit.

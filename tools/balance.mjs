@@ -20,8 +20,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LEVELS_FILE = join(ROOT, 'levels.js');
 const SEEDS = Object.freeze([0x51a9, 0x9e37, 0xc0de, 0xb07, 0x5eed, 0xa11ce, 0xf00d]);
 const BOT_DIFFICULTY = 0.98;
-const SINGLE_SOLUTION_FRACTION = 0.01;
-const SINGLE_SOLUTION_POINTS = 500;
+const SINGLE_SOLUTION_FRACTION = 0.03;
+const SINGLE_SOLUTION_MARGIN_CAP = 500;
 const STAR_COMMENT_START = '// balance-stars:start';
 const STAR_COMMENT_END = '// balance-stars:end';
 
@@ -78,12 +78,15 @@ export function playLevel(level, seed, difficulty = BOT_DIFFICULTY) {
 
   const survivors = round.pigs.filter((pig) => !pig.dead).map((pig) =>
     `${pig.pigId}#${pig.blueprintIndex}`);
+  const standingBlockScores = round.blocks.filter((block) => !block.dead).map((block) =>
+    block.shape.area * block.mat.cost * SCORE.campaign.destroyedBlockCostMultiplier);
   return {
     seed,
     completed: round.phase === 'won',
     crittersLeft: round.bag.length - round.shotIndex,
     score: round.score,
     shots: round.shots.length,
+    standingBlockScores,
     survivors,
     stalled
   };
@@ -113,37 +116,53 @@ function deriveStars(level, trials) {
   const competent = median(clearScores);
   const best = Math.max(...clearScores);
   const one = level.blueprint.pigs.length * SCORE.campaign.pig;
-  const two = Math.max(one + 100, Math.floor(competent / 100) * 100);
-  const three = Math.max(two + 100, (Math.floor(best / 100) + 1) * 100);
+  let two = Math.max(one + 100, Math.floor(competent / 100) * 100);
+  const singleSolution = best - competent <= competent * SINGLE_SOLUTION_FRACTION;
+  let three;
+  let structureMargin = null;
+  let atBest = false;
+  if (singleSolution) {
+    const bestTrials = clears.filter((trial) => trial.score === best);
+    const cheapestStanding = Math.min(...bestTrials.flatMap((trial) =>
+      trial.standingBlockScores));
+    if (Number.isFinite(cheapestStanding)) {
+      structureMargin = Math.min(SINGLE_SOLUTION_MARGIN_CAP, cheapestStanding);
+      three = best + structureMargin;
+    } else {
+      three = best;
+      atBest = true;
+      // Preserve three ascending thresholds when the median and best coincide.
+      two = Math.min(two, best - 100);
+    }
+  } else {
+    three = Math.max(two + 100, (Math.floor(best / 100) + 1) * 100);
+  }
+  if (!(one < two && two < three)) {
+    throw new Error(`${level.id}: cannot derive ascending stars from ${one}/${two}/${three}`);
+  }
   return { stars: [one, two, three], median: competent, best,
-    maximum: maximumCampaignScore(level) };
+    maximum: maximumCampaignScore(level), singleSolution, structureMargin, atBest };
 }
 
 function analyseLevel(level) {
   const trials = SEEDS.map((seed) => playLevel(level, seed));
   const clears = trials.filter((trial) => trial.completed);
-  const spareClears = clears.filter((trial) => trial.crittersLeft >= 1);
   const scores = clears.map((trial) => trial.score);
   const shots = trials.map((trial) => trial.shots);
   const stars = deriveStars(level, trials);
-  const firstSpareClear = trials.findIndex((trial) =>
-    trial.completed && trial.crittersLeft >= 1);
-  const nearIdentical = Boolean(stars) && stars.best - stars.median <=
-    Math.max(SINGLE_SOLUTION_POINTS, stars.best * SINGLE_SOLUTION_FRACTION);
+  const firstClear = trials.findIndex((trial) => trial.completed);
   return {
     level,
     trials,
     clears,
-    spareClears,
-    firstSpareClear,
+    firstClear,
     bestScore: scores.length ? Math.max(...scores) : NaN,
     medianScore: median(scores),
-    bestSpare: spareClears.length ? Math.max(...spareClears.map((trial) => trial.crittersLeft)) : -1,
+    bestRemaining: clears.length ? Math.max(...clears.map((trial) => trial.crittersLeft)) : -1,
     medianShots: median(shots),
     minShots: Math.min(...shots),
     maxShots: Math.max(...shots),
-    stars,
-    nearIdentical
+    stars
   };
 }
 
@@ -158,27 +177,31 @@ function sameStars(actual, expected) {
 
 function printCampaign(rows) {
   console.log(`campaign bot: ${SEEDS.length} seeds, difficulty ${BOT_DIFFICULTY}`);
-  console.log('level    clear  spare  score median/best     shots min/med/max  failed pig survivors');
+  console.log('level    clear   left  score median/best     shots min/med/max  failed pig survivors');
   for (const row of rows) {
     const failed = row.trials.filter((trial) => !trial.completed);
     const survivors = [...new Set(failed.flatMap((trial) => trial.survivors))].join(',') || '—';
     console.log(`${row.level.id.padEnd(9)}${`${row.clears.length}/${SEEDS.length}`.padStart(5)}  ` +
-      `${(row.bestSpare >= 0 ? row.bestSpare : '—').toString().padStart(5)}  ` +
+      `${(row.bestRemaining >= 0 ? row.bestRemaining : '—').toString().padStart(5)}  ` +
       `${`${formatScore(row.medianScore)}/${formatScore(row.bestScore)}`.padStart(20)}  ` +
       `${`${row.minShots}/${row.medianShots}/${row.maxShots}`.padStart(17)}  ${survivors}`);
   }
 
-  console.log('\nstar thresholds (1★ completion floor; 2★ bot median; 3★ > bot best)');
-  console.log('level       one       two     three  bot median  bot best');
+  console.log('\nstar thresholds (1★ completion floor; 2★ bot median; 3★ mastery target)');
+  console.log('level       one       two     three  bot median  bot best  3★ basis');
   for (const row of rows) {
     if (!row.stars) {
       console.log(`${row.level.id.padEnd(9)}${'UNWINNABLE'.padStart(28)}`);
       continue;
     }
     const [one, two, three] = row.stars.stars;
+    const basis = row.stars.atBest ? 'at best (no structure)' :
+      row.stars.singleSolution ? `+${formatScore(row.stars.structureMargin)} structure` :
+        'next 100 above best';
     console.log(`${row.level.id.padEnd(9)}${formatScore(one).padStart(9)}` +
       `${formatScore(two).padStart(10)}${formatScore(three).padStart(10)}` +
-      `${formatScore(row.stars.median).padStart(12)}${formatScore(row.stars.best).padStart(10)}`);
+      `${formatScore(row.stars.median).padStart(12)}${formatScore(row.stars.best).padStart(10)}  ` +
+      basis);
   }
 }
 
@@ -186,7 +209,9 @@ function starComment() {
   return `${STAR_COMMENT_START}\n` +
     `// P5.8 provenance: tools/balance.mjs --campaign, seeds ${SEEDS.join(', ')}.\n` +
     '// Formula: 1★ = pig count × 5,000 (the completion floor); 2★ = the median bot\n' +
-    '// clear rounded down to 100; 3★ = the first 100-point step strictly above its best.\n' +
+    '// clear rounded down to 100; normally 3★ = the first 100-point step above its best.\n' +
+    '// If best is within 3% of median, 3★ = best + the cheaper of 500 or the least\n' +
+    '// valuable block left by a best run. If none remains, 3★ = best (and 2★ steps down).\n' +
     `${STAR_COMMENT_END}`;
 }
 
@@ -272,7 +297,6 @@ async function campaign(writeStars) {
   const failures = [];
   for (const row of rows) {
     if (!row.clears.length) failures.push(`${row.level.id}: bot never completed it`);
-    else if (!row.spareClears.length) failures.push(`${row.level.id}: no clear left a critter spare`);
     if (row.stars && row.stars.stars[2] > row.stars.maximum) {
       failures.push(`${row.level.id}: 3★ ${row.stars.stars[2]} exceeds theoretical maximum ` +
         `${row.stars.maximum}`);
@@ -282,10 +306,14 @@ async function campaign(writeStars) {
     }
   }
 
-  const singleSolution = rows.filter((row) => row.nearIdentical).map((row) => row.level.id);
-  const laterSeed = rows.filter((row) => row.firstSpareClear > 0).map((row) =>
-    `${row.level.id} (seed ${row.firstSpareClear + 1}/${SEEDS.length})`);
-  console.log(`\nnear-identical best/median: ${singleSolution.join(', ') || 'none'}`);
+  const zeroRemaining = rows.filter((row) => row.bestRemaining === 0).map((row) => row.level.id);
+  const singleSolution = rows.filter((row) => row.stars?.singleSolution).map((row) => row.level.id);
+  const atBest = rows.filter((row) => row.stars?.atBest).map((row) => row.level.id);
+  const laterSeed = rows.filter((row) => row.firstClear > 0).map((row) =>
+    `${row.level.id} (seed ${row.firstClear + 1}/${SEEDS.length})`);
+  console.log(`\nzero critters remaining: ${zeroRemaining.join(', ') || 'none'}`);
+  console.log(`single-solution (best within 3% of median): ${singleSolution.join(', ') || 'none'}`);
+  console.log(`3★ at bot best: ${atBest.join(', ') || 'none'}`);
   console.log(`needed more than one seed: ${laterSeed.join(', ') || 'none'}`);
 
   if (failures.length) {
@@ -295,7 +323,7 @@ async function campaign(writeStars) {
     return;
   }
   if (writeStars) await importStars(rows);
-  console.log(`\ncampaign balance passed: ${rows.length}/${rows.length} levels clear with a spare critter.`);
+  console.log(`\ncampaign balance passed: bot completed ${rows.length}/${rows.length} levels.`);
 }
 
 async function main(args) {
