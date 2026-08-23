@@ -4,6 +4,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AMMO, AMMO_BY_ID } from '../data.js';
+import { LEVELS } from '../levels.js';
 import { chromium } from 'playwright';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -359,6 +361,16 @@ function smokeUrl(baseUrl) {
   return url.href;
 }
 
+// Most assertions want to reach gameplay directly, and the new-critter card deliberately
+// stands in the way the first time a bag contains an unfamiliar bird. Marking every critter
+// as already met keeps those assertions about the thing they are named for; the card itself
+// gets its own dedicated assertion below, with the seen list cleared.
+async function markAllCrittersSeen(page) {
+  await page.addInitScript((ids) => {
+    localStorage.setItem('slingwreck.critters.seen.v1', JSON.stringify(ids));
+  }, AMMO.map((ammo) => ammo.id));
+}
+
 async function loadReady(page, url) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
   return poll(
@@ -403,6 +415,7 @@ async function editorRun(baseUrl) {
   });
   const page = await context.newPage();
   attachFailureCollectors(page, 'editor');
+  await markAllCrittersSeen(page);
 
   try {
     const loaded = await loadReady(page, smokeUrl(baseUrl));
@@ -526,6 +539,56 @@ async function editorRun(baseUrl) {
   }
 }
 
+// The new-critter card, tested with the seen list actually empty. Every other run marks
+// all critters as met so it stays out of the way, which means without this the feature
+// would ship untested — the same trap as an ability with no assertion.
+async function critterIntroRun(baseUrl) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await context.newPage();
+  attachFailureCollectors(page, 'critter intro');
+  try {
+    await page.addInitScript(() => localStorage.removeItem('slingwreck.critters.seen.v1'));
+    await loadReady(page, smokeUrl(baseUrl));
+    await page.locator('#play-button').click();
+    await page.locator('.episode-choice[data-episode="1"]').click();
+    await page.locator('.level-choice[data-level-id="sty-01"]').click();
+
+    const shown = await poll(() => page.evaluate(() => {
+      const panel = document.querySelector('#critter-intro');
+      return {
+        visible: panel && !panel.hidden,
+        name: document.querySelector('#critter-intro-name')?.textContent ?? '',
+        tip: document.querySelector('#critter-intro-tip')?.textContent ?? '',
+        phase: window.__SLINGWRECK_SMOKE__?.()?.phase ?? ''
+      };
+    }), (state) => state?.visible, 5000);
+
+    const first = AMMO_BY_ID[LEVELS[0].bag[0]];
+    report('a new critter is introduced before its first level', shown.ok &&
+      shown.value.name === first.name && shown.value.tip === first.tutorial,
+    pollMeasurement(shown, `card "${shown.value?.name}" — "${(shown.value?.tip ?? '').slice(0, 44)}…"`));
+
+    await page.locator('#critter-intro-button').click();
+    const playing = await poll(() => pageSnapshot(page),
+      (state) => state?.phase === 'aiming', 5000);
+    report('dismissing the card starts the level', playing.ok,
+      pollMeasurement(playing, `phase ${playing.value?.phase ?? 'unknown'}`));
+
+    // Second visit: the card must not reappear for a critter already met.
+    await page.locator('#restart-button').click();
+    await page.waitForTimeout(600);
+    const again = await page.evaluate(() => {
+      const panel = document.querySelector('#critter-intro');
+      return panel ? !panel.hidden : false;
+    });
+    report('the card does not repeat for a critter already met', again === false,
+      `card visible on replay: ${again}`);
+  } finally {
+    await page.close();
+    await context.close();
+  }
+}
+
 async function desktopRun(baseUrl) {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
@@ -533,6 +596,7 @@ async function desktopRun(baseUrl) {
   });
   const page = await context.newPage();
   attachFailureCollectors(page, 'desktop');
+  await markAllCrittersSeen(page);
 
   try {
     const loaded = await loadReady(page, smokeUrl(baseUrl));
@@ -751,6 +815,7 @@ async function mobileRun(baseUrl) {
   });
   const page = await context.newPage();
   attachFailureCollectors(page, 'portrait touch');
+  await markAllCrittersSeen(page);
   await page.addInitScript(() => {
     localStorage.setItem('slingwreck.campaign.progress.v1', JSON.stringify({
       version: 1,
@@ -878,6 +943,11 @@ try {
     await desktopRun(baseUrl);
   } catch (error) {
     runtimeIssues.push(`desktop run aborted: ${error.stack ?? error}`);
+  }
+  try {
+    await critterIntroRun(baseUrl);
+  } catch (error) {
+    runtimeIssues.push(`critter intro run aborted: ${error.stack ?? error}`);
   }
   try {
     await editorRun(baseUrl);

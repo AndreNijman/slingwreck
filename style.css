@@ -1230,3 +1230,10 @@ body.editing #game {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The new-critter card. Shown once per critter, the first time a campaign bag contains it. */
+.critter-intro { position: absolute; inset: 0; display: grid; place-items: center; z-index: 40; }
+.critter-intro[hidden] { display: none; }
+.critter-intro .panel-card { text-align: center; max-width: 22rem; }
+.critter-intro-art { width: 104px; height: 104px; display: block; margin: 0 auto var(--space-2); }
+.critter-intro-tip { margin: 0 0 var(--space-3); color: var(--ink-soft, #5A4C42); }

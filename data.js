@@ -179,12 +179,23 @@ export const SHAPES = {
   ball: { id: 'ball', kind: 'circle', r: 0.5, area: 0.7853981633974483 }
 };
 
+// Each critter also carries a one-line `tutorial`, shown once when it first appears in a
+// campaign bag. A playtester finished level after level without noticing abilities
+// existed, so the game now says what a new bird does the first time it hands you one.
+// Every critter needs its own face. They were all drawn in one colour with one silhouette,
+// so nine distinct abilities were completely invisible: a naive playtester played the
+// campaign without ever realising there was more than one kind of bird. `feature` is a
+// silhouette cue as well as a colour, so a critter is still identifiable in a thumbnail,
+// at speed, or to anyone who cannot separate the hues.
 export const AMMO = [
   {
     id: 'nib',
     name: 'Nib',
     mass: 1.00,
     radius: 0.32,
+    // the baseline: nothing to signal.
+    look: { fill: '#D9563F', tone: '#A63B29', feature: 'plain' },
+    tutorial: 'No trick at all. Aim well and hit something that matters.',
     ability: null,
     params: {}
   },
@@ -193,6 +204,9 @@ export const AMMO = [
     name: 'Chip',
     mass: 0.70,
     radius: 0.28,
+    // three tail feathers for the three it becomes.
+    look: { fill: '#3E8CA8', tone: '#276274', feature: 'trio' },
+    tutorial: 'Tap in the air to split into three. Glass gives up quickly.',
     ability: 'split',
     // 22 degrees BETWEEN adjacent fragments, not 22 total: three fragments at -22, 0
     // and +22 from the parent heading, 44 degrees of total fan.
@@ -214,6 +228,9 @@ export const AMMO = [
     name: 'Wedge',
     mass: 0.95,
     radius: 0.30,
+    // a swept dart beak: it accelerates.
+    look: { fill: '#E0A32C', tone: '#A8741A', feature: 'dart' },
+    tutorial: 'Tap to accelerate hard. Drills straight through wood.',
     ability: 'accel',
     params: {
       speedMultiplier: 2.1
@@ -224,6 +241,9 @@ export const AMMO = [
     name: 'Lob',
     mass: 1.60,
     radius: 0.36,
+    // a lit fuse on top, and the darkest body in the bag.
+    look: { fill: '#4A4038', tone: '#241F1A', feature: 'fuse' },
+    tutorial: 'Tap to detonate. Leave it and the fuse fires three seconds after it lands.',
     ability: 'boom',
     params: {
       tappableAtRest: true,
@@ -238,6 +258,9 @@ export const AMMO = [
     name: 'Pebble',
     mass: 0.85,
     radius: 0.30,
+    // pale, carrying a visible payload underneath.
+    look: { fill: '#EDE0C8', tone: '#B9A98A', feature: 'egg' },
+    tutorial: 'Tap to drop a heavy payload. The way over a tall front wall.',
     ability: 'drop',
     // The payload is heavier than the critter that carries it, which is the joke and
     // also the mechanic: Pebble is the answer to a tall front wall, so the thing it
@@ -255,6 +278,9 @@ export const AMMO = [
     name: 'Boomer',
     mass: 0.90,
     radius: 0.30,
+    // a long curved tail, the shape of its return.
+    look: { fill: '#6E9E58', tone: '#456B34', feature: 'hook' },
+    tutorial: 'Tap to reverse. Reaches what is hiding behind the fortress.',
     ability: 'reverse',
     params: {}
   },
@@ -263,6 +289,9 @@ export const AMMO = [
     name: 'Hulk',
     mass: 2.40,
     radius: 0.40,
+    // visibly the biggest, with puffed cheeks.
+    look: { fill: '#C4703A', tone: '#8A4820', feature: 'bulk' },
+    tutorial: 'Tap to inflate and shove. Wedge it in a gap first, even at rest.',
     ability: 'inflate',
     // The design said "3x volume" and also "0.40 -> 0.86", which are two different
     // shapes and neither is 3x: this is a 2D game, so it is area, and 3x area is 0.69.
@@ -281,6 +310,9 @@ export const AMMO = [
     name: 'Spike',
     mass: 1.30,
     radius: 0.26,
+    // steel grey with a hard spiked crest.
+    look: { fill: '#8A9098', tone: '#5B6068', feature: 'crest' },
+    tutorial: 'Tap to harden. Passes through glass and hits stone far harder.',
     ability: 'harden',
     params: {
       passThrough: 'glass',
@@ -292,6 +324,9 @@ export const AMMO = [
     name: 'Zip',
     mass: 0.55,
     radius: 0.22,
+    // the smallest, with speed streaks behind it.
+    look: { fill: '#C049B8', tone: '#8A2E84', feature: 'streak' },
+    tutorial: 'Tap to blink forward. Slips through gaps nothing else fits.',
     ability: 'blink',
     params: {
       distance: 3.5

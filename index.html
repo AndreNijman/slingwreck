@@ -137,6 +137,19 @@
       </div>
     </section>
 
+    <!-- Shown once, the first time a campaign bag hands the player a critter they have not
+         used. A playtester cleared level after level without ever noticing that different
+         birds did different things, because nothing said so and they all looked alike. -->
+    <section id="critter-intro" class="screen-panel critter-intro" aria-labelledby="critter-intro-name" hidden>
+      <div class="panel-card">
+        <p class="eyebrow">New critter</p>
+        <canvas id="critter-intro-art" class="critter-intro-art" aria-hidden="true"></canvas>
+        <h2 id="critter-intro-name">Nib</h2>
+        <p id="critter-intro-tip" class="critter-intro-tip"></p>
+        <button id="critter-intro-button" class="button primary" type="button">Let me try</button>
+      </div>
+    </section>
+
     <section id="round-hud" class="round-hud" aria-label="Round controls and status" hidden>
       <div class="hud-card">
         <!-- The objective, stated. A naive playtester could not tell whether it had to hit

@@ -85,6 +85,11 @@ const pigList = document.querySelector('#pig-list');
 // `#pig-list`; reusing either meant the editor's pig buttons and the HUD's objective row
 // were writing over each other, which broke the palette while looking like a CSS problem.
 const objectivePigs = document.querySelector('#objective-pigs');
+const critterIntro = document.querySelector('#critter-intro');
+const critterIntroArt = document.querySelector('#critter-intro-art');
+const critterIntroName = document.querySelector('#critter-intro-name');
+const critterIntroTip = document.querySelector('#critter-intro-tip');
+const critterIntroButton = document.querySelector('#critter-intro-button');
 const scoreValue = document.querySelector('#score-value');
 const roundTitle = document.querySelector('#round-title');
 const roundAnnouncement = document.querySelector('#round-announcement');
@@ -974,7 +979,51 @@ function observeCameraEvents(events) {
   }
 }
 
+const SEEN_CRITTERS_KEY = 'slingwreck.critters.seen.v1';
+
+function seenCritters() {
+  try { return new Set(JSON.parse(localStorage.getItem(SEEN_CRITTERS_KEY) ?? '[]')); }
+  catch { return new Set(); }
+}
+
+// The first critter in this level's bag the player has never been given. Returned one at a
+// time rather than all at once: a level that introduces two new birds should teach them in
+// sequence, not stack two cards before the player has touched either.
+function nextUnseenCritter(level) {
+  const seen = seenCritters();
+  const id = level.bag.find((ammoId) => !seen.has(ammoId));
+  return id ? AMMO_BY_ID[id] : null;
+}
+
+function markCritterSeen(id) {
+  const seen = seenCritters();
+  seen.add(id);
+  try { localStorage.setItem(SEEN_CRITTERS_KEY, JSON.stringify([...seen])); } catch { /* private mode */ }
+}
+
+function showCritterIntro(ammo, onDone) {
+  critterIntroName.textContent = ammo.name;
+  critterIntroTip.textContent = ammo.tutorial ?? '';
+  drawCritterHead(critterIntroArt, ammo);
+  critterIntro.hidden = false;
+  critterIntroButton.focus();
+  const dismiss = () => {
+    critterIntroButton.removeEventListener('click', dismiss);
+    critterIntro.hidden = true;
+    markCritterSeen(ammo.id);
+    onDone();
+  };
+  critterIntroButton.addEventListener('click', dismiss);
+}
+
 function startRound(level = currentLevel) {
+  // Teach before playing. Any critter in this bag the player has not met gets a card
+  // first, then the level starts — recursively, so a bag with two new birds shows two.
+  const unseen = nextUnseenCritter(level);
+  if (unseen) {
+    showCritterIntro(unseen, () => startRound(level));
+    return;
+  }
   currentLevel = level;
   round = createRound();
   playing = true;
@@ -1097,7 +1146,11 @@ function drawPigHead(icon, pig) {
   ctx.globalAlpha = 1;
 }
 
-function drawCritterHead(icon) {
+// Takes the ammo so each critter wears its own colour and silhouette cue. It used to
+// ignore the type entirely, so the bag preview showed the same bird nine times and the
+// abilities behind them were invisible.
+function drawCritterHead(icon, ammo) {
+  const look = ammo?.look ?? { fill: PALETTE.critter, tone: PALETTE.tntDark, feature: 'plain' };
   const size = 44;
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   icon.width = Math.round(size * dpr);
@@ -1108,7 +1161,27 @@ function drawCritterHead(icon) {
   ctx.lineCap = 'round';
   ctx.strokeStyle = PALETTE.ink;
   ctx.lineWidth = 2.5;
-  ctx.fillStyle = PALETTE.critter;
+  // Behind-the-body cues first.
+  if (look.feature === 'trio') {
+    ctx.fillStyle = look.tone;
+    for (const dy of [-7, 0, 7]) {
+      ctx.beginPath();
+      ctx.moveTo(12, 23); ctx.lineTo(-2, 23 + dy); ctx.lineTo(4, 27 + dy);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+  } else if (look.feature === 'hook') {
+    ctx.strokeStyle = look.tone; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(10, 23);
+    ctx.quadraticCurveTo(-4, 16, 2, 38); ctx.stroke();
+    ctx.strokeStyle = PALETTE.ink; ctx.lineWidth = 2.5;
+  } else if (look.feature === 'streak') {
+    ctx.strokeStyle = look.tone; ctx.lineWidth = 2.2;
+    for (const dy of [-6, 0, 6]) {
+      ctx.beginPath(); ctx.moveTo(8, 23 + dy); ctx.lineTo(-1, 23 + dy); ctx.stroke();
+    }
+    ctx.strokeStyle = PALETTE.ink; ctx.lineWidth = 2.5;
+  }
+  ctx.fillStyle = look.fill;
   ctx.beginPath();
   ctx.moveTo(10, 20);
   ctx.lineTo(4, 12);
@@ -1117,7 +1190,7 @@ function drawCritterHead(icon) {
   ctx.fill();
   ctx.stroke();
   ctx.beginPath();
-  ctx.arc(22, 23, 15, 0, Math.PI * 2);
+  ctx.arc(22, 23, look.feature === 'bulk' ? 17 : look.feature === 'streak' ? 12 : 15, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = PALETTE.belly;
@@ -1137,6 +1210,33 @@ function drawCritterHead(icon) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  // Front-of-body cues.
+  if (look.feature === 'dart') {
+    ctx.fillStyle = look.tone;
+    ctx.beginPath(); ctx.moveTo(41, 23); ctx.lineTo(30, 18); ctx.lineTo(30, 28);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else if (look.feature === 'fuse') {
+    ctx.beginPath(); ctx.moveTo(22, 8);
+    ctx.quadraticCurveTo(29, 2, 26, -1); ctx.stroke();
+    ctx.fillStyle = PALETTE.spring;
+    ctx.beginPath(); ctx.arc(26, -1, 3.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  } else if (look.feature === 'crest') {
+    ctx.fillStyle = look.tone;
+    ctx.beginPath();
+    for (let k = 0; k < 3; k++) {
+      const bx = 14 + k * 7;
+      ctx.moveTo(bx, 10); ctx.lineTo(bx + 3.5, 1); ctx.lineTo(bx + 7, 10);
+    }
+    ctx.fill(); ctx.stroke();
+  } else if (look.feature === 'egg') {
+    ctx.fillStyle = PALETTE.cream;
+    ctx.beginPath(); ctx.ellipse(22, 38, 6, 8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  } else if (look.feature === 'bulk') {
+    ctx.fillStyle = look.tone;
+    for (const dx of [-13, 13]) {
+      ctx.beginPath(); ctx.arc(22 + dx, 27, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+  }
 }
 
 function rebuildAmmoList() {
@@ -1147,7 +1247,7 @@ function rebuildAmmoList() {
     icon.className = 'ammo-head';
     icon.setAttribute('role', 'listitem');
     icon.setAttribute('aria-label', `${ammo.name}, shot ${index + 1}`);
-    drawCritterHead(icon);
+    drawCritterHead(icon, ammo);
     fragment.append(icon);
   }
   ammoList.replaceChildren(fragment);
@@ -1692,6 +1792,8 @@ updateHud(true);
 requestAnimationFrame(frame);
 
 if (new URLSearchParams(window.location.search).has('smoke-test')) {
+  // Lets tools/critter-sheet render the nine heads side by side for review.
+  window.__drawHead = drawCritterHead;
   Object.defineProperty(window, '__SLINGWRECK_SMOKE__', {
     configurable: true,
     value: () => ({

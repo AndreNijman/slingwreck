@@ -574,6 +574,10 @@ function itemFromPose(Path, body, camera, pose, wobble) {
     sy: centre.y,
     scale: camera.scale,
     bounds,
+    // A critter in flight carries its own colour and silhouette cue, same as the one in
+    // the pouch. Without this the shot that leaves the sling is a different creature from
+    // the one the player just aimed.
+    look: body.role === 'ammo' ? AMMO_BY_ID[body.ammoId]?.look ?? null : null,
     path: null
   };
   item.path = bodyPath(Path, body, item, wobble);
@@ -619,6 +623,17 @@ function drawBodyFills(r, groups) {
   const ctx = r.ctx;
   for (const [key, items] of groups) {
     const style = STYLES[key];
+    // A critter carries its own colour. Every ammo type used to share one fill, which is
+    // why nine distinct abilities were invisible. Per-item looks bypass the shared
+    // gradient pattern because the pattern is cached per material key, not per body.
+    if (key === 'critter' && items.some((item) => item.look)) {
+      ctx.globalAlpha = 1;
+      for (const item of items) {
+        ctx.fillStyle = bodyGradient(ctx, item, item.look?.fill ?? style.fill);
+        ctx.fill(item.path);
+      }
+      continue;
+    }
     const pattern = makeGradientPattern(r, key);
     ctx.globalAlpha = style.alpha;
     if (pattern?.setTransform) {
@@ -1333,9 +1348,95 @@ function drawHeldCritter(r, camera, round, x, y, outline) {
   if (!ammo) return;
   const body = { id: -1000 - round.shotIndex, role: 'ammo', kind: 'circle', r: ammo.radius, x, y, c: 1, s: 0 };
   const item = makeStaticItem(r.Path, body, camera);
+  item.look = ammo.look;
+  drawCritterFeature(r, item, ammo, outline);
   drawBackDetails(r, [item], outline); drawBodyFills(r, new Map([['critter', [item]]]));
   r.ctx.strokeStyle = PALETTE.ink; r.ctx.lineWidth = outline; r.ctx.stroke(item.path);
   drawFaces(r, [item], outline);
+  drawCritterFeature(r, item, ammo, outline, true);
+}
+
+// The silhouette half of a critter's identity. Colour alone fails at speed, in a
+// thumbnail, and for anyone who cannot separate the hues — so each ammo also has a shape
+// cue. Called twice: once behind the body for anything that should sit under it, once in
+// front for anything on top.
+function drawCritterFeature(r, item, ammo, outline, front = false) {
+  const feature = ammo.look?.feature;
+  if (!feature || feature === 'plain') return;
+  const ctx = r.ctx;
+  const { x, y } = item;
+  const size = item.radius ?? (item.r ?? 0);
+  if (!size) return;
+  const tone = ammo.look.tone;
+  ctx.save();
+  ctx.strokeStyle = PALETTE.ink;
+  ctx.lineWidth = outline;
+  ctx.fillStyle = tone;
+  ctx.lineJoin = 'round';
+
+  if (!front && feature === 'trio') {
+    // Three tail feathers for the three it becomes.
+    for (const angle of [-0.42, 0, 0.42]) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - size * 2.1 * Math.cos(angle), y - size * 2.1 * Math.sin(angle));
+      ctx.lineTo(x - size * 1.5 * Math.cos(angle), y - size * 1.5 * Math.sin(angle) + size * .5);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+  } else if (!front && feature === 'hook') {
+    // A long curved tail: the shape of its return.
+    ctx.beginPath();
+    ctx.moveTo(x - size * .4, y);
+    ctx.quadraticCurveTo(x - size * 2.4, y - size * .3, x - size * 1.7, y + size * 1.5);
+    ctx.lineWidth = outline * 1.6; ctx.strokeStyle = tone; ctx.stroke();
+  } else if (!front && feature === 'streak') {
+    // Speed streaks behind the smallest critter in the bag.
+    ctx.strokeStyle = tone; ctx.lineWidth = outline * .9;
+    for (const dy of [-size * .55, 0, size * .55]) {
+      ctx.beginPath();
+      ctx.moveTo(x - size * 1.4, y + dy); ctx.lineTo(x - size * 2.6, y + dy);
+      ctx.stroke();
+    }
+  } else if (front && feature === 'dart') {
+    // A swept dart beak: it accelerates.
+    ctx.beginPath();
+    ctx.moveTo(x + size * 1.9, y);
+    ctx.lineTo(x + size * .3, y - size * .55);
+    ctx.lineTo(x + size * .3, y + size * .55);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else if (front && feature === 'fuse') {
+    // A lit fuse, on the darkest body in the bag.
+    ctx.beginPath();
+    ctx.moveTo(x, y - size);
+    ctx.quadraticCurveTo(x + size * .5, y - size * 1.9, x + size * .1, y - size * 2.3);
+    ctx.strokeStyle = PALETTE.ink; ctx.lineWidth = outline; ctx.stroke();
+    ctx.fillStyle = PALETTE.spring;
+    ctx.beginPath(); ctx.arc(x + size * .1, y - size * 2.4, size * .34, 0, TAU);
+    ctx.fill(); ctx.stroke();
+  } else if (front && feature === 'crest') {
+    // A hard spiked crest.
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const bx = x - size * .55 + i * size * .55;
+      ctx.moveTo(bx, y - size * .85);
+      ctx.lineTo(bx + size * .28, y - size * 1.75);
+      ctx.lineTo(bx + size * .55, y - size * .85);
+    }
+    ctx.fillStyle = tone; ctx.fill(); ctx.stroke();
+  } else if (front && feature === 'egg') {
+    // The payload it carries, visible underneath.
+    ctx.beginPath();
+    ctx.ellipse(x, y + size * 1.15, size * .5, size * .66, 0, 0, TAU);
+    ctx.fillStyle = PALETTE.cream; ctx.fill(); ctx.stroke();
+  } else if (front && feature === 'bulk') {
+    // Puffed cheeks on visibly the biggest body.
+    ctx.fillStyle = tone;
+    for (const dx of [-size * .95, size * .95]) {
+      ctx.beginPath(); ctx.arc(x + dx, y + size * .25, size * .48, 0, TAU);
+      ctx.fill(); ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 export function drawSlingshot(r, camera, round, aim) {
   const ctx = r.ctx; const now = nowMs(r);
