@@ -418,3 +418,5 @@ that cannot survive serialisation should not exist in the editor at all.
 - 2026-08-23 `P5.5` **doing** — Episode 4 'Ironworks' — 13 levels, adds hulk/zip, sarge, iron and gel
 
 - 2026-08-23 `P5.5` **done** — Episode 4 'Ironworks' — 13 levels, adds hulk/zip, sarge, iron and gel. 13 Ironworks levels: iron as go-around, Hulk wedge-and-inflate incl. rest tap, gel absorption, Zip past screens, Sarge. 52/52 lint, zero audit flags, heights 2.99-15.50 monotonic, 1 gantry, 5 range-split, zero directly hittable pigs. 43-piece 9-critter finale.
+
+- 2026-08-23 `P5.8` **doing** — tools/balance.mjs --campaign — a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground

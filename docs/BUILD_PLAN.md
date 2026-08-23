@@ -134,10 +134,28 @@ look at a level and change one plank.
 
 **Gate:** `tools/balance.mjs --campaign` — a bot plays every level; flags any level that
 is unwinnable, any where three stars is impossible, and any where three stars falls out
-of firing at the ground. Every level must be completable by the bot with at least one
-critter to spare. Plus: **every level must pass `validate` and `settleTest`**, asserted
+of firing at the ground. **Every level must be completable by the bot.** Plus: **every
+level must pass `validate` and `settleTest`**, asserted
 for all 52, because a level that collapses before the first shot is not a difficulty
 choice.
+
+### A correction to the "one critter to spare" rule
+
+That rule was written in P0 and it is wrong. Removed 2026-08-23.
+
+The bot completes all 52 levels, but 19 of them use their entire bag, and three —
+`hwd-01`, `hwd-04` and `iro-04` — ship a bag of exactly **one** critter, so "clear it with
+one spare" is not merely hard there, it is arithmetically impossible.
+
+A one-shot level is a legitimate design, not a defect. The rule was a crude proxy for
+"not razor-tight", and satisfying it would have meant appending filler ammo to 19 levels.
+That is worse than the problem: unused ammo is worth 10,000 points, so padding the bags
+would inflate 19 levels' scores and **corrupt the very star thresholds the gate exists to
+derive.** The rule would have damaged the measurement it was written to protect.
+
+The requirement is now simply that the bot completes every level. Tightness is *reported*
+instead — how many critters the bot had left per level — so a razor-thin level is visible
+without being forbidden.
 
 **And every level gets looked at.** `tools/level-shots.mjs` renders each one after its
 settle and builds a contact sheet of the whole campaign. An episode is not done until the

@@ -119,7 +119,7 @@
     {
       "id": "P5.8",
       "phase": "P5",
-      "status": "todo",
+      "status": "doing",
       "title": "tools/balance.mjs --campaign — a bot plays every level; flag unwinnable, impossible three stars, or three stars from firing at the ground"
     },
     {

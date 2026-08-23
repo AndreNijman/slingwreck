@@ -111,9 +111,10 @@ for (const [episode, levels] of [...byEpisode].sort((a, b) => a[0] - b[0])) {
     if (hittable > 0 && !isTutorial) {
       flag(`${level.id}: ${hittable} directly hittable pig(s) — the fortress is decoration`);
     }
-    if (level.stars !== null && level.stars !== undefined) {
-      flag(`${level.id}: star thresholds set before P5.8 bot data exists`);
-    }
+    const starsValid = Array.isArray(level.stars) && level.stars.length === 3 &&
+      level.stars.every((threshold) => Number.isFinite(threshold)) &&
+      level.stars[0] < level.stars[1] && level.stars[1] < level.stars[2];
+    if (!starsValid) flag(`${level.id}: missing or invalid P5.8-derived star thresholds`);
   }
 
   const gantryCap = Math.floor(levels.length * MAX_GANTRY_FRACTION);
