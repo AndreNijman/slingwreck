@@ -414,3 +414,5 @@ that cannot survive serialisation should not exist in the editor at all.
 - 2026-08-22 `P5.4` **done** — Episode 3 'Highwind' — 13 levels, adds pebble/boomer, tusk/zep, spring pads. 13 Highwind levels: pebble over walls, boomer behind fortresses, spring pads both ways, Tusker and Zeppelin. Heights 2.99-14.50 monotonic, 1 gantry, 4 two-range, zero directly hittable pigs. Sol hit its usage limit mid-verification so I verified it: lint 39/39, audit clean except Episode 2's gantry count.
 
 - 2026-08-22 `P5.5` **doing** — Episode 4 'Ironworks' — 13 levels, adds hulk/zip, sarge, iron and gel
+
+- 2026-08-23 `P5.5` **doing** — Episode 4 'Ironworks' — 13 levels, adds hulk/zip, sarge, iron and gel

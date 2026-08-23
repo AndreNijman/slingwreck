@@ -27,7 +27,8 @@ const PIG_SEAT = {
   hogg: 37 / 64,
   helm: 27 / 64,
   tusk: 28 / 64,
-  zep: 22 / 64
+  zep: 22 / 64,
+  sarge: 30 / 64
 };
 function pig(id, x, surfaceY = 0) {
   return [id, x, surfaceY + PIG_SEAT[id], 0];
@@ -1018,5 +1019,263 @@ export const LEVELS = [
       /* level-export:hwd-13:start */ null /* level-export:hwd-13:end */
     ),
     bag: ['pebble', 'boomer', 'pebble'], cards: ['springloaded'], stars: null
+  },
+
+  // Idea: Break the glass end wall and let the iron roof drop into the Runt instead of wasting shots on the metal.
+  {
+    id: 'iro-01', episode: 4, index: 1, name: 'Dead Metal',
+    blueprint: tunedBlueprint(
+      composeMotifs(bunker({
+        x: 12, width: 2, wallHeight: 2,
+        frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'iron',
+        pigs: ['runt']
+      })),
+      /* level-export:iro-01:start */ null /* level-export:iro-01:end */
+    ),
+    bag: ['nib', 'nib'], cards: ['iron-ration'], stars: null
+  },
+
+  // Idea: Carry Pebble over the iron screen and drop its payload onto the glass lid that holds the iron weight above the Swine.
+  {
+    id: 'iro-02', episode: 4, index: 2, name: 'Go Over',
+    blueprint: tunedBlueprint(
+      composeMotifs(structure('iron screen and loaded drop box', [
+        block('pillar', 'iron', 9.5, 2),
+        block('cube', 'wood', 13, 0.5), block('cube', 'wood', 13, 1.5),
+        block('cube', 'wood', 15, 0.5), block('cube', 'wood', 15, 1.5),
+        block('slab', 'glass', 14, 2.5),
+        block('cube', 'iron', 14, 3.5)
+      ], [pig('swine', 14)])),
+      /* level-export:iro-02:start */ null /* level-export:iro-02:end */
+    ),
+    bag: ['pebble', 'nib'], cards: ['iron-ration'], stars: null
+  },
+
+  // Idea: Drop through the near glass lid from above, then change range and break the far glass wall so its iron cap falls into the second pen.
+  {
+    id: 'iro-03', episode: 4, index: 3, name: 'Over and Under',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('near screened drop box', [
+          block('pillar', 'iron', 2.5, 2),
+          block('cube', 'wood', 5, 0.5), block('cube', 'wood', 5, 1.5),
+          block('cube', 'wood', 7, 0.5), block('cube', 'wood', 7, 1.5),
+          block('slab', 'glass', 6, 2.5),
+          block('cube', 'stone', 6, 3.5)
+        ], [pig('runt', 6)]),
+        structure('far glass wall and iron cap', [
+          block('pillar', 'glass', 18, 2),
+          block('pillar', 'wood', 20, 2),
+          block('beam', 'iron', 19, 4.25)
+        ], [pig('swine', 19)])
+      ),
+      /* level-export:iro-03:start */ null /* level-export:iro-03:end */
+    ),
+    bag: ['pebble', 'chip'], cards: ['iron-ration'], stars: null
+  },
+
+  // Idea: Wedge Hulk between the iron buttress and the glass wall, then inflate so the loaded roof folds into the Runt.
+  {
+    id: 'iro-04', episode: 4, index: 4, name: 'Expansion Joint',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('iron inflation buttress', [
+          block('pillar', 'iron', 10, 2)
+        ], []),
+        bunker({
+          x: 12, width: 2, wallHeight: 4,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'wood',
+          pigs: ['runt']
+        }),
+        structure('loaded bunker cap', [
+          block('beam', 'stone', 13, 5.25)
+        ], [])
+      ),
+      /* level-export:iro-04:start */ null /* level-export:iro-04:end */
+    ),
+    bag: ['hulk'], cards: ['iron-ration'], stars: null
+  },
+
+  // Idea: Let Hulk settle into the floor pocket before inflating so it shoves the full glass wall and roof into the Swine.
+  {
+    id: 'iro-05', episode: 4, index: 5, name: 'After It Lands',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('low iron pocket stop', [
+          block('post', 'iron', 10.25, 1)
+        ], []),
+        bunker({
+          x: 12, width: 2, wallHeight: 5,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'wood',
+          pigs: ['swine']
+        })
+      ),
+      /* level-export:iro-05:start */ null /* level-export:iro-05:end */
+    ),
+    bag: ['hulk', 'nib'], cards: ['iron-ration'], stars: null
+  },
+
+  // Idea: Change range and rest each Hulk in its own iron-backed pocket before inflating the near and far glass walls.
+  {
+    id: 'iro-06', episode: 4, index: 6, name: 'Two Tight Fits',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('near pocket stop', [
+          block('post', 'iron', 1.25, 1)
+        ], []),
+        bunker({
+          x: 3, width: 2, wallHeight: 3,
+          frontMaterial: 'glass', backMaterial: 'wood', roofMaterial: 'stone',
+          pigs: ['runt']
+        }),
+        structure('far pocket stop', [
+          block('post', 'iron', 15.25, 1)
+        ], []),
+        structure('far tall inflation chamber', [
+          block('pillar', 'glass', 17, 2), block('post', 'glass', 17, 5),
+          block('pillar', 'wood', 19, 2), block('post', 'wood', 19, 5),
+          block('beam', 'stone', 18, 6.25)
+        ], [pig('swine', 18)])
+      ),
+      /* level-export:iro-06:start */ null /* level-export:iro-06:end */
+    ),
+    bag: ['hulk', 'hulk'], cards: ['iron-ration'], stars: null
+  },
+
+  // Idea: Fly Boomer past the gel face and timing mast, then reverse into the unshielded glass wall at the rear of the keep.
+  {
+    id: 'iro-07', episode: 4, index: 7, name: 'Soft Front, Weak Back',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('gelworks timing mast', [
+          block('pillar', 'stone', 8, 2), block('post', 'stone', 8, 5),
+          block('cube', 'wood', 8, 6.5), block('beam', 'wood', 8, 7.25)
+        ], []),
+        bunker({
+          x: 10, width: 4, wallHeight: 4,
+          frontMaterial: 'gel', dividerMaterial: 'wood', backMaterial: 'glass',
+          roofMaterial: 'wood',
+          pigs: [{ id: 'runt', bay: 1 }]
+        })
+      ),
+      /* level-export:iro-07:start */ null /* level-export:iro-07:end */
+    ),
+    bag: ['boomer', 'nib'], cards: ['gelworks'], stars: null
+  },
+
+  // Idea: Carry Pebble over the gel-shielded face and drop its payload onto the tall glass roof above the Swine.
+  {
+    id: 'iro-08', episode: 4, index: 8, name: 'Over the Absorber',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        stack({ x: 10, height: 4, materials: 'gel' }),
+        structure('tall loaded drop chamber', [
+          block('pillar', 'wood', 12, 2), block('pillar', 'wood', 12, 6),
+          block('pillar', 'wood', 16, 2), block('pillar', 'wood', 16, 6),
+          block('plank', 'glass', 14, 8.25)
+        ], [pig('swine', 14)])
+      ),
+      /* level-export:iro-08:start */ null /* level-export:iro-08:end */
+    ),
+    bag: ['pebble', 'nib'], cards: ['gelworks'], stars: null
+  },
+
+  // Idea: Reverse Boomer into the near bunker’s glass back, then change range and drop Pebble over the far gel-shielded wall onto its glass lid.
+  {
+    id: 'iro-09', episode: 4, index: 9, name: 'Back Door, Skylight',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        bunker({
+          x: 2, width: 2, wallHeight: 2,
+          frontMaterial: 'gel', backMaterial: 'glass', roofMaterial: 'wood',
+          pigs: ['runt']
+        }),
+        structure('far gel screen and drop wall', [
+          block('cube', 'gel', 16, 0.5), block('cube', 'gel', 16, 1.5),
+          block('pillar', 'stone', 18, 2), block('pillar', 'stone', 18, 6),
+          block('cube', 'stone', 18, 8.5), block('beam', 'stone', 18, 9.25)
+        ], []),
+        structure('far skylight chamber', [
+          block('cube', 'wood', 20, 0.5), block('cube', 'wood', 20, 1.5),
+          block('cube', 'wood', 22, 0.5), block('cube', 'wood', 22, 1.5),
+          block('slab', 'glass', 21, 2.5)
+        ], [pig('swine', 21)])
+      ),
+      /* level-export:iro-09:start */ null /* level-export:iro-09:end */
+    ),
+    bag: ['boomer', 'pebble'], cards: ['gelworks'], stars: null
+  },
+
+  // Idea: Blink Zip over the iron screen into the glass support so the heavy roof drops with enough force to crush Sarge.
+  {
+    id: 'iro-10', episode: 4, index: 10, name: 'Past the Gate',
+    blueprint: tunedBlueprint(
+      composeMotifs(structure('blink gate and Sarge press', [
+        block('pillar', 'iron', 10, 2),
+        block('pillar', 'glass', 13, 2),
+        block('pillar', 'wood', 17, 2),
+        block('pillar', 'stone', 19, 2), block('pillar', 'stone', 19, 6),
+        block('post', 'stone', 19, 9), block('beam', 'stone', 19, 10.25),
+        block('plank', 'stone', 15, 4.25)
+      ], [pig('sarge', 15)])),
+      /* level-export:iro-10:start */ null /* level-export:iro-10:end */
+    ),
+    bag: ['zip', 'nib'], cards: ['iron-ration'], stars: null
+  },
+
+  // Idea: Blink Zip over the gel wall into the raised TNT pocket so the blast releases the iron press above Sarge.
+  {
+    id: 'iro-11', episode: 4, index: 11, name: 'Fuse Pocket',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        stack({ x: 10, height: 4, materials: 'gel' }),
+        structure('raised blink fuse', [
+          block('post', 'wood', 13, 1), block('post', 'wood', 13, 3),
+          block('cube', 'tnt', 13, 4.5)
+        ], []),
+        structure('iron Sarge press and tall back', [
+          block('pillar', 'glass', 15, 2),
+          block('pillar', 'wood', 19, 2),
+          block('pillar', 'stone', 21, 2), block('pillar', 'stone', 21, 6),
+          block('post', 'stone', 21, 9), block('cube', 'stone', 21, 10.5),
+          block('beam', 'stone', 21, 11.25),
+          block('plank', 'iron', 17, 4.25)
+        ], [pig('sarge', 17)])
+      ),
+      /* level-export:iro-11:start */ null /* level-export:iro-11:end */
+    ),
+    bag: ['zip', 'nib'], cards: ['gelworks', 'iron-ration', 'sapper'], stars: null
+  },
+
+  // Idea: Change range and blink timing to trip the near glass press and the far TNT press, dropping a heavy roof onto each Sarge.
+  {
+    id: 'iro-12', episode: 4, index: 12, name: 'Double Bypass',
+    blueprint: tunedBlueprint(
+      composeMotifs(
+        structure('near blink press', [
+          block('pillar', 'iron', 3, 2),
+          block('pillar', 'glass', 5, 2), block('pillar', 'wood', 9, 2),
+          block('plank', 'stone', 7, 4.25)
+        ], [pig('sarge', 7)]),
+        structure('central smokestack', [
+          block('pillar', 'stone', 13, 2), block('pillar', 'stone', 13, 6),
+          block('pillar', 'stone', 13, 10), block('cube', 'stone', 13, 12.5),
+          block('beam', 'stone', 13, 13.25)
+        ], []),
+        stack({ x: 16, height: 4, materials: 'gel' }),
+        structure('far raised fuse', [
+          block('post', 'wood', 18, 1), block('post', 'wood', 18, 3),
+          block('cube', 'tnt', 18, 4.5)
+        ], []),
+        structure('far iron press and smokestack', [
+          block('pillar', 'glass', 19, 2),
+          block('pillar', 'wood', 23, 2),
+          block('plank', 'iron', 21, 4.25)
+        ], [pig('sarge', 21)])
+      ),
+      /* level-export:iro-12:start */ null /* level-export:iro-12:end */
+    ),
+    bag: ['zip', 'zip', 'wedge'],
+    cards: ['gelworks', 'iron-ration', 'sapper'], stars: null
   }
 ];

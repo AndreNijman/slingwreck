@@ -86,3 +86,53 @@ node tools/mp-smoke.mjs
 
 DNS before the guard route, guard route before the hub card, hub card before telling
 anyone. Deploying the relay is independent and can happen at any point.
+
+---
+
+# Deployment status — 2026-08-23
+
+**Infrastructure is live. The hub card is deliberately not added yet.**
+
+| step | state |
+| --- | --- |
+| GitHub repo `AndreNijman/slingwreck`, public | done |
+| `git push` of `main` | done |
+| Pages enabled, `build_type: workflow` | done |
+| Pages workflow run | **passing** — `npm ci`, Chromium install, `check`, `npm test`, `test:audio`, 1m53s |
+| Cloudflare DNS `CNAME slingwreck -> andrenijman.github.io`, proxied | done |
+| Guard `HOSTS` + `GAME_TITLES` + route, deployed | done, version `86a22bea` |
+| All ten guard hosts responding | verified 428 before and after, guard health `{"ok":true,"database":true}` |
+| Hub card in `games-site/index.html` | **held back on purpose** |
+
+## Why the hub card is held back
+
+The card advertises a game to anyone visiting `games.andrenijman.com`. The campaign is 39
+of 52 levels and Siege does not exist yet, so the card goes in at P8 alongside
+`tools/card-shot.mjs` generating the 1000×525 screenshot from a real round. The game is
+reachable at its own subdomain in the meantime, which is what is wanted for testing.
+
+## What was verified, and one thing that cannot be
+
+Reachability was confirmed at every layer that can be checked without a human: Pages
+serves directly, the proxied domain serves `robots.txt`, the guard recognises the host and
+renders its device-naming page, and the other nine games were checked before and after the
+Worker deploy to make sure nothing regressed.
+
+The last step — name a device, then play — **cannot be automated.** A headless Chromium
+stalls on the guard's device-naming form. That is not a fault in this game: an identical
+run against `bop.andrenijman.com`, which is live and working, stalls in exactly the same
+way with the same single console error. The guard's fingerprinting expects a real browser.
+
+Worth recording because the obvious reading of that first result is "the deployment is
+broken", and the control experiment is what showed it was not.
+
+## One thing that went wrong, and how it was caught
+
+The Worker was deployed from a local clone that was **three commits behind origin**. The
+push was rejected afterwards, which is what surfaced it. Had those commits touched
+`worker/index.js` or `wrangler.jsonc`, the deploy would have silently reverted them for
+every game on the domain.
+
+They did not — the net change was one orphaned `wavelength.png` — so nothing was lost. But
+the lesson stands: **`git fetch` and confirm you are current before deploying a Worker that
+fronts nine other people's games.** Rebased and pushed as `92265c4`.
