@@ -3,8 +3,8 @@
   "domain": "slingwreck.andrenijman.com",
   "relay": "slingwreck-relay",
   "architectureRevision": 1,
-  "phase": "P6",
-  "phaseName": "Relay and online Siege",
+  "phase": "P7",
+  "phaseName": "Match flow",
   "phases": [
     {
       "id": "P0",
@@ -45,13 +45,13 @@
     {
       "id": "P6",
       "name": "Relay and online Siege",
-      "status": "doing",
+      "status": "done",
       "gate": "npm run test:mp && node tools/audit-test.mjs"
     },
     {
       "id": "P7",
       "name": "Match flow",
-      "status": "todo",
+      "status": "doing",
       "gate": "node tools/balance.mjs --siege -n 400"
     },
     {
@@ -63,67 +63,59 @@
   ],
   "tasks": [
     {
-      "id": "P6.1",
-      "phase": "P6",
-      "status": "done",
-      "title": "net.js — one websocket, relay resolution order, no auto-reconnect mid-round",
-      "note": "net.js + worker.js: LobbyRegistry with read-time and alarm expiry, strict 1v1 SiegeRoom, origin allowlist, SHA-256 room passwords in constant time, cleanName, message caps, handshake timeout, per-IP password rate limit. Build phase is relay-authoritative: decode, validate in siege mode, settleTest, then ship the AUTHORED blueprint plus seed - verified no settled poses reach the wire. 9 worker tests, wrangler dry-run reports both DOs, and a real wrangler-dev smoke covered create/join/lobby/lock-in/handoff."
+      "id": "P7.1",
+      "phase": "P7",
+      "status": "todo",
+      "title": "Siege scoring \u2014 SCORE.siege in sim.js: block value, off-plot bonus, pig values, unused ammo, breach bonus",
+      "note": "Stubbed since P2.1 with a comment pointing here. The audit already compares full world digests, so scoring is additive rather than load-bearing for anti-cheat."
     },
     {
-      "id": "P6.2",
-      "phase": "P6",
-      "status": "done",
-      "title": "worker.js — SiegeRoom + LobbyRegistry Durable Objects, lobbies, room passwords, origin allowlist, rate limits",
-      "note": "Delivered with P6.1."
+      "id": "P7.2",
+      "phase": "P7",
+      "status": "todo",
+      "title": "Match structure \u2014 best of five, first to three, round win by King pop else higher score, sudden death, tie-break on cheaper fortress"
     },
     {
-      "id": "P6.3",
-      "phase": "P6",
-      "status": "done",
-      "title": "Build phase authority — relay validates the blueprint, settles it to confirm it stands, ships the AUTHORED blueprint",
-      "note": "Delivered with P6.1 - relay validates, settles to confirm it stands, ships the authored blueprint only."
+      "id": "P7.3",
+      "phase": "P7",
+      "status": "todo",
+      "title": "Scrap budgets \u2014 base 110 + 25/round + 15/deficit, early-lock banking, winner bonus"
     },
     {
-      "id": "P6.4",
-      "phase": "P6",
-      "status": "done",
-      "title": "Siege phase — simultaneous play, shot streaming, the 8 Hz corner preview stream",
-      "note": "Simultaneous siege, lossy 8 Hz preview relay, audited King claims, forfeits."
+      "id": "P7.4",
+      "phase": "P7",
+      "status": "todo",
+      "title": "The draft \u2014 3 cards from the deficit-derived tier, 25 s, loser picks, relay rolls from the match seed"
     },
     {
-      "id": "P6.5",
-      "phase": "P6",
-      "status": "done",
-      "title": "The audit — relay replays the shot log through sim.js and compares score digests, forfeiting on divergence",
-      "note": "relay-audit.js: incremental replay with a per-tick step budget, digest comparison, unconditional bounds and cadence checks, VALIDATE=lenient fallback tested. Measured 5,051 steps/s; both 180 s worlds cost 4.28 CPU-s against the 30 s DO limit, a 7x margin - viable as designed, no sampling needed."
+      "id": "P7.5",
+      "phase": "P7",
+      "status": "todo",
+      "title": "Card effects \u2014 all 25 applied from their declarative effect data, no per-card switch"
     },
     {
-      "id": "P6.6",
-      "phase": "P6",
-      "status": "done",
-      "title": "Reconnect — rebuild from (blueprint, seed, shot log) which the relay already holds",
-      "note": "Reconnect from (blueprint, seed, shot log) with rotating tokens and a 20 s grace."
+      "id": "P7.6",
+      "phase": "P7",
+      "status": "todo",
+      "title": "Siege UI \u2014 build phase HUD, corner preview window, draft screen, match standings, results"
     },
     {
-      "id": "P6.7",
-      "phase": "P6",
-      "status": "done",
-      "title": "tools/mp-smoke.mjs — two real browsers through a full round against a real relay",
-      "note": "Independent Chromium processes assert authored handoff, twin settle digests, simultaneous shots, bidirectional previews, grace/reconnect reconstruction and audited King end under 500 ms."
+      "id": "P7.7",
+      "phase": "P7",
+      "status": "todo",
+      "title": "Solo Siege vs bot using bots.js fortress templates and the ballistic aimer"
     },
     {
-      "id": "P6.8",
-      "phase": "P6",
-      "status": "done",
-      "title": "tools/audit-test.mjs — a deliberately lying client is caught and forfeited",
-      "note": "All three attacks caught and forfeited; honest 7-shot round never accused."
+      "id": "P7.8",
+      "phase": "P7",
+      "status": "todo",
+      "title": "tools/balance.mjs --siege -n 400 \u2014 flag any card above 65% or below 40% round win rate at parity; report the win-condition distribution"
     },
     {
-      "id": "P6.9",
-      "phase": "P6",
-      "status": "doing",
-      "title": "P6 gate — mp-smoke and audit-test green, all prior suites, four-engine determinism, commit",
-      "note": "All requested gates are green; final commit remains pending explicit authorization."
+      "id": "P7.9",
+      "phase": "P7",
+      "status": "todo",
+      "title": "P7 gate \u2014 balance --siege green, mp-smoke through a full best-of-five, all prior suites, commit"
     }
   ],
   "deployed": false,

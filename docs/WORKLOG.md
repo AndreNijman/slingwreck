@@ -538,3 +538,41 @@ P3.1 was for.
 - 2026-08-23 `P6.6` **done** — Reconnect — rebuild from (blueprint, seed, shot log) which the relay already holds. Reconnect from (blueprint, seed, shot log) with rotating tokens and a 20 s grace.
 
 - 2026-08-23 `P6.8` **done** — tools/audit-test.mjs — a deliberately lying client is caught and forfeited. All three attacks caught and forfeited; honest 7-shot round never accused.
+
+- 2026-08-23 `P6.7` **done** — tools/mp-smoke.mjs — two real browsers through a full round against a real relay. Two browsers, real relay: create/join with password, both lock in, each fortress verified to settle to an IDENTICAL digest on both clients (the property ARCHITECTURE.md S5 rests on), previews both ways, audited King pop ending the round in 20 ms, drop and resume.
+
+- 2026-08-23 `P6.9` **done** — P6 gate — mp-smoke and audit-test green, all prior suites, four-engine determinism, commit. worker tests 12/12, mp-smoke, audit-test 4/4, check, smoke 37/37, four engines agree.
+
+### P6 complete — 2026-08-23
+
+The relay works. Two Durable Objects, relay-authoritative build phase, simultaneous siege,
+an 8 Hz preview relay, deterministic audit, and reconnect.
+
+Gates: worker tests 12/12, `mp-smoke` through a full round in two real browsers,
+`audit-test` catching all three attacks, `check`, smoke 37/37, four engines bit-identical.
+
+**The determinism work paid off, measurably.** The audit replays each client's shot log
+through the same `sim.js` and compares full world digests. Benchmarked at 5,051 steps per
+second on a 124-body fortress: auditing both complete 180-second worlds costs about 4.3
+CPU-seconds against a 30-second Durable Object limit, a **7x margin**. The design does not
+need sampling. That number was requested up front precisely because "replay the whole
+round" is the kind of plan that works in a test and falls over in production.
+
+Two properties worth recording as verified rather than intended:
+
+- **No settled state crosses the wire.** Traced in the code: the relay stores
+  `result.encoded` — the authored blueprint — and sends it with the seed. There is no
+  reference to a settled blueprint anywhere in `worker.js`. Both clients settle it
+  themselves.
+- **Both clients settle a given fortress to an identical digest.** `mp-smoke` asserts this
+  per fortress, with an error message that names which one diverged. This is the single
+  assumption the whole audit model rests on and it is now checked by a browser test on
+  every run, not just by the headless determinism gate.
+
+The audit also refuses to believe a **King pop** until it has replayed it, because that
+claim ends a round instantly and is therefore the most valuable thing to lie about. And
+`audit-test` asserts an honest client is never accused across a full round — a false
+positive bans a real player, which is worse than missing a cheat.
+
+Next: P7, the match flow and the 25 cards. Siege scoring has been deliberately stubbed
+since P2.1 and is the first task.

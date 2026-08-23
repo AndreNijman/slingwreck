@@ -83,7 +83,7 @@
     {
       "path": "build.js",
       "phase": "P4",
-      "budget": 750,
+      "budget": 850,
       "imports": [
         "data.js",
         "sim.js"
@@ -133,14 +133,15 @@
     {
       "path": "worker.js",
       "phase": "P6",
-      "budget": 1200,
+      "budget": 1600,
       "imports": [
         "data.js",
         "physics.js",
         "sim.js",
         "relay-audit.js"
       ],
-      "job": "The relay. SiegeRoom and LobbyRegistry Durable Objects, blueprint validation and authoritative settle, shot log, incremental audit replay, preview relaying, reconnect, room passwords, origin allowlist, rate limits."
+      "job": "The relay. SiegeRoom and LobbyRegistry Durable Objects, blueprint validation and authoritative settle, shot log, incremental audit replay, preview relaying, reconnect, room passwords, origin allowlist, rate limits.",
+      "budgetNote": "Raised from 800 across P6. Two Durable Objects, the full security surface (origin allowlist, hashed passwords, name sanitising, message caps, handshake timeouts, per-IP rate limits), relay-authoritative build validation, the simultaneous siege phase, the preview relay, reconnect with rotating tokens, and registry expiry. The audit itself is already split into relay-audit.js."
     },
     {
       "path": "relay-audit.js",
