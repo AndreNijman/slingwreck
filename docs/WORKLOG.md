@@ -576,3 +576,21 @@ positive bans a real player, which is worse than missing a cheat.
 
 Next: P7, the match flow and the 25 cards. Siege scoring has been deliberately stubbed
 since P2.1 and is the first task.
+
+- 2026-08-23 `P7.1` **doing** — Siege scoring — SCORE.siege in sim.js: block value, off-plot bonus, pig values, unused ammo, breach bonus
+
+- 2026-08-23 `P7.1` **done** — Siege scoring uses the shared distinct-block ray path for breach LOS and measures destroyed value, entirely-off-plot bonus, pig values and round-end ammo/breach bonuses.
+- 2026-08-23 `P7.2` **done** — First-to-three match resolution, immediate audited King wins, score fallback, one-Lob sudden death, efficiency tie-break and a seeded degenerate final tie are implemented in the relay rules/state machine.
+- 2026-08-23 `P7.3` **done** — Round/deficit budgets, one-round early-lock carry consumption and the winner's +10 carry are authoritative in the relay.
+- 2026-08-23 `P7.4` **done** — The relay rolls reproducible loser-only three-card offers from the match seed, excludes owned cards, enforces the 25-second timeout and defaults to candidate one.
+- 2026-08-23 `P7.5` **done** — All 25 cards are interpreted by declarative effect kind across build, sim, audit and relay boundaries. `tools/siege-test.mjs` reports 25/25 measurable before/after changes; no card-id branch was required.
+
+- 2026-08-23 `P7.1` **done** — Siege scoring — SCORE.siege in sim.js: block value, off-plot bonus, pig values, unused ammo, breach bonus. Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch.
+
+- 2026-08-23 `P7.2` **done** — Match structure — best of five, first to three, round win by King pop else higher score, sudden death, tie-break on cheaper fortress. Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch.
+
+- 2026-08-23 `P7.3` **done** — Scrap budgets — base 110 + 25/round + 15/deficit, early-lock banking, winner bonus. Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch.
+
+- 2026-08-23 `P7.4` **done** — The draft — 3 cards from the deficit-derived tier, 25 s, loser picks, relay rolls from the match seed. Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch.
+
+- 2026-08-23 `P7.5` **done** — Card effects — all 25 applied from their declarative effect data, no per-card switch. Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch.

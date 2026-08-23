@@ -1,7 +1,7 @@
 import { BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SHAPES, TUNE } from './data.js';
-import { fromDegrees, makeWorld, maxPenetration, raycast, raycastAll } from './physics.js';
+import { fromDegrees, makeWorld, maxPenetration, raycast } from './physics.js';
 import { BLUEPRINT_VERSION, PIG_FLAG_DECOY, PIG_FLAG_FLAK, PIG_FLAGS,
-  blueprintFromLevel, instantiate, makeRound, stepRound } from './sim.js';
+  blockRayDepth, blueprintFromLevel, instantiate, makeRound, stepRound } from './sim.js';
 const HISTORY_LIMIT = 64;
 const LEGACY_CODEC_VERSION = 1;
 const FLAGS_CODEC_VERSION = 2;
@@ -222,16 +222,9 @@ function basePieceCost(piece, rules) {
   return PIGS[piece.pig].cost;
 }
 function totalCost(pieces, rules) {
-  const freeUsed = Object.create(null);
   let total = 0;
   for (const piece of pieces) {
-    const auto = piece.kind === 'pig' ? rules.autoPigs[piece.pig] : null;
-    if (auto && !piece.decoy && (freeUsed[piece.pig] ?? 0) < auto.count) {
-      freeUsed[piece.pig] = (freeUsed[piece.pig] ?? 0) + 1;
-      total += auto.cost;
-    } else {
-      total += basePieceCost(piece, rules);
-    }
+    total += basePieceCost(piece, rules);
   }
   return total;
 }
@@ -457,18 +450,11 @@ function burialInWorld(world, context, kingIndex) {
   const reach = TUNE.plotW + TUNE.plotH + 2;
   let minimum = Infinity;
   for (const direction of BURIAL_DIRECTIONS) {
-    const hits = raycastAll(world,
+    const depth = blockRayDepth(world,
       king.x + direction[0] * reach,
       king.y + direction[1] * reach,
-      king.x, king.y,
-      (body) => body.role === 'block'
-    );
-    const seen = [];
-    for (const hit of hits) {
-      const index = hit.body.blueprintIndex;
-      if (!seen.includes(index)) seen.push(index);
-    }
-    minimum = Math.min(minimum, seen.length);
+      king.x, king.y);
+    minimum = Math.min(minimum, depth);
     if (minimum === 0) break;
   }
   return minimum;
@@ -539,7 +525,10 @@ export function validate(value, opts = {}) {
   for (let index = 0; index < context.pigIds.length; index++) {
     if (!context.kingFlags[index]) otherPigIds.push(context.pigIds[index]);
   }
-  if (mode === 'siege' && otherPigIds.length < TUNE.minOtherPigs) {
+  const automaticOtherPigs = Object.values(rulesFor(context.cards).autoPigs)
+    .reduce((count, effect) => count +
+      (PIGS[effect.pig].traits.king ? 0 : effect.count), 0);
+  if (mode === 'siege' && otherPigIds.length + automaticOtherPigs < TUNE.minOtherPigs) {
     errors.push(error(
       'too-few-pigs', `At least ${TUNE.minOtherPigs} pigs besides the King are required.`,
       otherPigIds
@@ -610,7 +599,8 @@ export function settleTest(value, opts = {}) {
     pigs: [['runt', TUNE.slingX, PIGS.runt.radius, 0]]
   } : context.blueprint;
   const round = makeRound({
-    mode: 'campaign', seed: opts.seed ?? 1, bag: [], blueprint: testedBlueprint
+    mode: 'campaign', seed: opts.seed ?? 1, bag: [], blueprint: testedBlueprint,
+    defenderCards: context.cards
   });
   const tested = [
     ...round.blocks,

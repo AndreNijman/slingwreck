@@ -1,5 +1,6 @@
 import {
   AMMO_BY_ID,
+  CARDS,
   CARDS_BY_ID,
   MATERIALS,
   PIGS,
@@ -62,7 +63,24 @@ const PIG_FLAG_MASK = PIG_FLAG_DECOY | PIG_FLAG_FLAK;
 const BODY_DIGEST_FIELDS = ['x', 'y', 'c', 's', 'vx', 'vy', 'av', 'hp', 'maxHp'];
 const DIGEST_BUFFER = new ArrayBuffer(8);
 const DIGEST_VIEW = new DataView(DIGEST_BUFFER);
-const ZEP_BALLOON = CARDS_BY_ID.airlift.effect;
+const BALLOON_EFFECT = CARDS.find((card) => card.effect.kind === 'kingBalloon').effect;
+
+function normaliseCards(cards = []) {
+  const wanted = Object.create(null);
+  for (const card of cards) {
+    const id = typeof card === 'string' ? card : card?.id;
+    if (CARDS_BY_ID[id]) wanted[id] = true;
+  }
+  return CARDS.filter((card) => wanted[card.id]).map((card) => card.id);
+}
+
+export function cardEffects(cards = []) {
+  return normaliseCards(cards).map((id) => CARDS_BY_ID[id].effect);
+}
+
+function effectOf(effects, kind) {
+  return effects.find((effect) => effect.kind === kind) ?? null;
+}
 
 function finite(value, label) {
   if (!Number.isFinite(value)) throw new TypeError(`${label} must be finite`);
@@ -124,21 +142,49 @@ export function blueprintFromLevel(level) {
   return normaliseBlueprint(source);
 }
 
+// Shared by build burial validation and the Siege breach bonus. Keeping the exact
+// ray shape and distinct-block counting here prevents two subtly different line-of-
+// sight rules from growing on either side of the blueprint/simulation boundary.
+export function blockRayDepth(world, x0, y0, x1, y1) {
+  const hits = raycastAll(world, x0, y0, x1, y1,
+    (body) => body.role === 'block' && !body.dead);
+  const seen = [];
+  for (const hit of hits) {
+    const identity = hit.body.blueprintIndex ?? hit.body.id;
+    if (!seen.includes(identity)) seen.push(identity);
+  }
+  return seen.length;
+}
+
 function circleArea(radius) {
   const scale = radius / SHAPES.ball.r;
   return SHAPES.ball.area * scale * scale;
 }
 
-function addGround(world) {
+function transformPose(x, y, c, s, tilt) {
+  if (!tilt) return { x, y, c, s };
+  return {
+    x: tilt.cos * x - tilt.sin * y,
+    y: tilt.sin * x + tilt.cos * y,
+    c: tilt.cos * c - tilt.sin * s,
+    s: tilt.sin * c + tilt.cos * s
+  };
+}
+
+function addGround(world, tilt) {
   const width = TUNE.viewMaxX - TUNE.viewMinX;
   // Only the top face at y=0 is a game rule. Deriving hidden depth from the grid
   // avoids a new ground-thickness tune that client, Worker and tests could disagree on.
   const height = TUNE.gridSnap * 2;
+  const pose = transformPose((TUNE.viewMinX + TUNE.viewMaxX) / 2,
+    -height / 2, 1, 0, tilt);
   const ground = addBody(world, {
     shape: { id: 'ground', kind: 'box', w: width, h: height, area: width * height },
     mat: { ...MATERIALS.stone, id: 'ground' },
-    x: (TUNE.viewMinX + TUNE.viewMaxX) / 2,
-    y: -height / 2,
+    x: pose.x,
+    y: pose.y,
+    c: pose.c,
+    s: pose.s,
     isStatic: true,
     filterTag: 'ground',
     tag: 'ground'
@@ -147,7 +193,7 @@ function addGround(world) {
   return ground;
 }
 
-function addPig(world, tuple, index) {
+function addPig(world, tuple, index, hpDelta = 0) {
   const pigId = tuple[PIG_ID];
   const pig = PIGS[pigId];
   const area = circleArea(pig.radius);
@@ -169,8 +215,8 @@ function addPig(world, tuple, index) {
     filterTag: material.id,
     tag: `pig:${index}`
   });
-  body.hp = pig.hp;
-  body.maxHp = pig.hp;
+  body.hp = pig.hp + hpDelta;
+  body.maxHp = pig.hp + hpDelta;
   body.role = 'pig';
   body.pigId = pigId;
   body.pig = pig;
@@ -182,8 +228,8 @@ function addPig(world, tuple, index) {
   return body;
 }
 
-function addBalloon(world, pigBody) {
-  const traits = { ...ZEP_BALLOON, ...pigBody.pig.traits };
+function addBalloon(world, pigBody, grant = {}) {
+  const traits = { ...BALLOON_EFFECT, ...grant, ...pigBody.pig.traits };
   const area = circleArea(traits.balloonRadius);
   const material = {
     ...MATERIALS.wood,
@@ -220,6 +266,69 @@ function addBalloon(world, pigBody) {
   return balloon;
 }
 
+function tupleBottom(tuple) {
+  const shape = SHAPES[tuple[BLOCK_SHAPE_ID]];
+  if (shape.kind === 'circle') return tuple[BLOCK_Y] - shape.r;
+  const rotation = fromDegrees(tuple[BLOCK_ROTATION] * TUNE.rotSnapDeg);
+  if (shape.kind === 'box') {
+    return tuple[BLOCK_Y] - Math.abs(rotation.s) * shape.w / 2 -
+      Math.abs(rotation.c) * shape.h / 2;
+  }
+  const vertices = [
+    [-shape.w / 3, -shape.h / 3],
+    [2 * shape.w / 3, -shape.h / 3],
+    [-shape.w / 3, 2 * shape.h / 3]
+  ];
+  let bottom = Infinity;
+  for (const vertex of vertices) {
+    bottom = Math.min(bottom, tuple[BLOCK_Y] +
+      rotation.s * vertex[0] + rotation.c * vertex[1]);
+  }
+  return bottom;
+}
+
+function autoPigPosition(world, blocks, pigs, radius, tilt) {
+  for (let logicalX = TUNE.gridSnap * 2;
+    logicalX <= TUNE.plotW - TUNE.gridSnap * 2; logicalX += TUNE.gridSnap * 2) {
+    const start = transformPose(logicalX, TUNE.plotH, 1, 0, tilt);
+    const end = transformPose(logicalX, -TUNE.gridSnap, 1, 0, tilt);
+    const hit = raycast(world, start.x, start.y, end.x, end.y,
+      (body) => body.role === 'ground' || body.role === 'block');
+    if (!hit) continue;
+    const upX = tilt ? -tilt.sin : 0;
+    const upY = tilt ? tilt.cos : 1;
+    const pose = {
+      x: hit.x + upX * radius,
+      y: hit.y + upY * radius,
+      c: tilt?.cos ?? 1,
+      s: tilt?.sin ?? 0
+    };
+    const logicalY = tilt
+      ? -tilt.sin * pose.x + tilt.cos * pose.y : pose.y;
+    if (logicalY + radius > TUNE.plotH) continue;
+    const probe = { x: pose.x, y: pose.y, r: radius };
+    let clear = true;
+    for (const block of blocks) {
+      if (!block.dead && pointToBlockDistanceSq(probe, block) < radius * radius) {
+        clear = false;
+        break;
+      }
+    }
+    if (!clear) continue;
+    for (const pig of pigs) {
+      const dx = pig.x - pose.x;
+      const dy = pig.y - pose.y;
+      const reach = pig.r + radius;
+      if (!pig.dead && dx * dx + dy * dy < reach * reach) {
+        clear = false;
+        break;
+      }
+    }
+    if (clear) return { logicalX, pose };
+  }
+  return null;
+}
+
 function restitutionFor(a, b) {
   if (a.mat?.ammoRestitution !== undefined && b.role === 'ammo') {
     return a.mat.ammoRestitution;
@@ -230,9 +339,18 @@ function restitutionFor(a, b) {
   return Math.max(a.rest, b.rest);
 }
 
-export function instantiate(world, blueprint) {
+export function instantiate(world, blueprint, options = {}) {
   const source = normaliseBlueprint(blueprint);
-  addGround(world);
+  const effects = cardEffects(options.cards ?? options.defenderCards ?? []);
+  const tilt = effectOf(effects, 'plotTilt');
+  const pigHp = effectOf(effects, 'pigHp')?.delta ?? 0;
+  const bedrock = effectOf(effects, 'plotRow');
+  const kingBalloon = effectOf(effects, 'kingBalloon');
+  const flak = effectOf(effects, 'pigAbility');
+  const remoteTnt = effectOf(effects, 'remoteTnt');
+  const materialAbilities = effects.filter((effect) => effect.kind === 'materialAbility');
+  const autoPigs = effects.filter((effect) => effect.kind === 'autoPig');
+  addGround(world, tilt);
   const blocks = [];
   const pigs = [];
   const balloons = [];
@@ -240,13 +358,15 @@ export function instantiate(world, blueprint) {
   for (let index = 0; index < source.blocks.length; index++) {
     const tuple = source.blocks[index];
     const rotation = fromDegrees(tuple[BLOCK_ROTATION] * TUNE.rotSnapDeg);
+    const pose = transformPose(tuple[BLOCK_X], tuple[BLOCK_Y],
+      rotation.c, rotation.s, tilt);
     const body = addBody(world, {
       shape: tuple[BLOCK_SHAPE_ID],
       mat: tuple[BLOCK_MATERIAL_ID],
-      x: tuple[BLOCK_X],
-      y: tuple[BLOCK_Y],
-      c: rotation.c,
-      s: rotation.s,
+      x: pose.x,
+      y: pose.y,
+      c: pose.c,
+      s: pose.s,
       filterTag: tuple[BLOCK_MATERIAL_ID],
       tag: `block:${index}`
     });
@@ -254,13 +374,50 @@ export function instantiate(world, blueprint) {
     body.shapeId = tuple[BLOCK_SHAPE_ID];
     body.materialId = tuple[BLOCK_MATERIAL_ID];
     body.blueprintIndex = index;
+    body.originalX = pose.x;
+    body.originalY = pose.y;
+    body.originalC = pose.c;
+    body.originalS = pose.s;
+    body.indestructible = Boolean(bedrock?.indestructible &&
+      bedrock.row === 'bottom' && tupleBottom(tuple) <= TUNE.slop);
+    const materialAbility = materialAbilities.find((effect) =>
+      effect.material === body.materialId);
+    if (materialAbility && body.mat.blastRadius !== undefined) {
+      body.blast = {
+        ...body.mat,
+        blastRadius: body.mat.blastRadius * (materialAbility.radiusMultiplier ?? 1),
+        blastDamage: body.mat.blastDamage * (materialAbility.damageMultiplier ?? 1)
+      };
+    }
+    body.remoteTnt = Boolean(remoteTnt && body.materialId === 'tnt');
     blocks.push(body);
   }
 
   for (let index = 0; index < source.pigs.length; index++) {
-    const pig = addPig(world, source.pigs[index], index);
+    const tuple = source.pigs[index];
+    const pose = transformPose(tuple[PIG_X], tuple[PIG_Y], 1, 0, tilt);
+    const transformed = [tuple[PIG_ID], pose.x, pose.y, tuple[PIG_FLAGS]];
+    const pig = addPig(world, transformed, index, pigHp);
     pigs.push(pig);
+    if (pig.flak && flak?.ability === 'flak') pig.flakEffect = flak;
     if (pig.pig.traits.balloon) balloons.push(addBalloon(world, pig));
+    else if (pig.isKing && kingBalloon) {
+      pig.invulnerableWhileBalloon = Boolean(kingBalloon.invulnerableUntilPopped);
+      balloons.push(addBalloon(world, pig, kingBalloon));
+    }
+  }
+
+  for (const effect of autoPigs) {
+    for (let automatic = 0; automatic < effect.count; automatic++) {
+      const pigDefinition = PIGS[effect.pig];
+      const position = autoPigPosition(world, blocks, pigs, pigDefinition.radius, tilt);
+      if (!position) break;
+      const pig = addPig(world, [
+        effect.pig, position.pose.x, position.pose.y, 0
+      ], source.pigs.length + automatic, pigHp);
+      pig.autoPlaced = true;
+      pigs.push(pig);
+    }
   }
   return { blocks, pigs, balloons };
 }
@@ -288,6 +445,7 @@ function splitAbility(round, body, ammo) {
       y: body.y,
       mass,
       radius,
+      shotIndex: body.shotIndex,
       tag: `${body.tag}:split:${index}`
     }
   ));
@@ -414,9 +572,120 @@ function addAmmoBody(round, ammo, vx, vy, options = {}) {
   body.role = options.role ?? 'ammo';
   if (body.role === 'ammo') {
     body.ammoId = ammo.id;
+    body.shotIndex = options.shotIndex ?? round.shotIndex;
     if (ammo.params.fuseSeconds !== undefined) body.fuseContactStep = null;
   }
   return body;
+}
+
+function interceptVelocity(source, target, speed) {
+  const rx = target.x - source.x;
+  const ry = target.y - source.y;
+  const a = target.vx * target.vx + target.vy * target.vy - speed * speed;
+  const b = 2 * (rx * target.vx + ry * target.vy);
+  const c = rx * rx + ry * ry;
+  let time = 0;
+  if (Math.abs(a) < 1e-9) {
+    if (Math.abs(b) > 1e-9) time = Math.max(0, -c / b);
+  } else {
+    const discriminant = b * b - 4 * a * c;
+    if (discriminant >= 0) {
+      const root = Math.sqrt(discriminant);
+      const first = (-b - root) / (2 * a);
+      const second = (-b + root) / (2 * a);
+      if (first > 0 && second > 0) time = Math.min(first, second);
+      else time = Math.max(first, second, 0);
+    }
+  }
+  const dx = rx + target.vx * time;
+  const dy = ry + target.vy * time;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  return length > 0
+    ? { vx: dx * speed / length, vy: dy * speed / length }
+    : { vx: speed, vy: 0 };
+}
+
+function fireFlak(round) {
+  if (round.phase !== 'flying' && round.phase !== 'settling') {
+    for (const pig of round.pigs) if (pig.flakEffect) pig.flakNextStep = null;
+    return;
+  }
+  const incoming = round.world.bodies.filter((body) =>
+    !body.dead && body.role === 'ammo' && body.shotIndex === round.shotIndex - 1)
+    .sort((a, b) => a.id - b.id)[0];
+  if (!incoming) {
+    for (const pig of round.pigs) if (pig.flakEffect) pig.flakNextStep = null;
+    return;
+  }
+  for (const pig of round.pigs) {
+    const effect = pig.flakEffect;
+    if (pig.dead || !effect) continue;
+    const every = Math.ceil(effect.intervalSeconds / TUNE.step);
+    if (pig.flakNextStep === null || pig.flakNextStep === undefined) {
+      pig.flakNextStep = round.stepCount + every;
+    }
+    if (round.stepCount < pig.flakNextStep) continue;
+    pig.flakNextStep += every;
+    const velocity = interceptVelocity(pig, incoming, effect.stoneSpeed);
+    const speed = Math.sqrt(velocity.vx * velocity.vx + velocity.vy * velocity.vy);
+    const clearance = pig.r + effect.stoneRadius + TUNE.slop;
+    const area = circleArea(effect.stoneRadius);
+    const stone = addBody(round.world, {
+      shape: { id: 'flak-stone', kind: 'circle', r: effect.stoneRadius, area },
+      mat: {
+        ...MATERIALS.stone,
+        id: 'flak-stone',
+        density: effect.stoneMass / area
+      },
+      x: pig.x + velocity.vx / speed * clearance,
+      y: pig.y + velocity.vy / speed * clearance,
+      vx: velocity.vx,
+      vy: velocity.vy,
+      filterTag: 'flak-stone',
+      tag: `${pig.tag}:flak:${round.stepCount}`
+    });
+    stone.role = 'defence';
+    stone.hitSpeedMultiplier = effect.hitSpeedMultiplier;
+    stone.ignoreGravity = true;
+    round.events.push({
+      kind: EVENT_KIND.ability,
+      ability: effect.ability,
+      x: pig.x,
+      y: pig.y,
+      projectileId: stone.id
+    });
+  }
+}
+
+function applyCardForces(round, dt) {
+  const headwind = round.defenderEffects.find((effect) =>
+    effect.kind === 'headwind' && effect.appliesTo === 'ammo');
+  for (const body of round.world.bodies) {
+    if (body.dead) continue;
+    if (body.ignoreGravity) body.vy += round.world.gravity * dt;
+    if (headwind && body.role === 'ammo') body.vx -= headwind.accel * dt;
+  }
+  const body = round.flying;
+  const homing = body?.homing;
+  if (!body || body.dead || !homing?.active || round.stepCount >= homing.untilStep) return;
+  const king = round.pigs.find((pig) => pig.isKing && !pig.dead);
+  if (!king) return;
+  const speedSq = body.vx * body.vx + body.vy * body.vy;
+  if (!(speedSq > 0)) return;
+  const speed = Math.sqrt(speedSq);
+  const dx = king.x - body.x;
+  const dy = king.y - body.y;
+  const cross = body.vx * dy - body.vy * dx;
+  const direction = cross < 0 ? -1 : 1;
+  const vx = body.vx;
+  const vy = body.vy;
+  body.vx += -vy / speed * homing.steerAccel * dt * direction;
+  body.vy += vx / speed * homing.steerAccel * dt * direction;
+  const nextSpeed = Math.sqrt(body.vx * body.vx + body.vy * body.vy);
+  if (nextSpeed > 0) {
+    body.vx *= speed / nextSpeed;
+    body.vy *= speed / nextSpeed;
+  }
 }
 
 function eventPoint(contact) {
@@ -436,6 +705,40 @@ function queueExplosion(round, body, blast = body.mat) {
     impulse: blast.blastImpulse,
     damage: blast.blastDamage
   });
+}
+
+export function remoteDetonate(round) {
+  const effect = round.defenderEffects?.find((candidate) =>
+    candidate.kind === 'remoteTnt');
+  if (!effect || round.remoteTntTaps >= effect.tapsPerRound) return false;
+  const crates = round.blocks.filter((block) =>
+    block.remoteTnt && !block.remoteFired).sort((a, b) => a.blueprintIndex - b.blueprintIndex);
+  if (!crates.length) return false;
+  round.remoteTntTaps++;
+  for (const block of crates) {
+    block.remoteFired = true;
+    queueExplosion(round, block, block.blast ?? block.mat);
+    if (!block.dead) {
+      block.dead = true;
+      block.destroyedStep = round.stepCount;
+      removeBody(round.world, block);
+      round.queuedEvents.push({
+        kind: EVENT_KIND.shatter,
+        x: block.x,
+        y: block.y,
+        mat: block.materialId,
+        shape: block.shapeId
+      });
+    }
+  }
+  round.queuedEvents.push({
+    kind: EVENT_KIND.ability,
+    ability: 'remote-tnt',
+    x: crates[0].x,
+    y: crates[0].y,
+    count: crates.length
+  });
+  return crates.length;
 }
 
 function springPair(a, b) {
@@ -470,6 +773,7 @@ function killBody(round, body) {
   body.dead = true;
   round.deadThisStep.push(body);
   if (body.role === 'block') {
+    body.destroyedStep = round.stepCount;
     round.events.push({
       kind: EVENT_KIND.shatter,
       x: body.x,
@@ -486,7 +790,9 @@ function killBody(round, body) {
         chunks: body.mat.chunks
       });
     }
-    if (body.materialId === 'tnt') queueExplosion(round, body);
+    if (body.materialId === 'tnt' && !body.remoteTnt) {
+      queueExplosion(round, body, body.blast ?? body.mat);
+    }
   } else if (body.role === 'pig') {
     round.events.push({ kind: EVENT_KIND.pop, pig: body.pigId, x: body.x, y: body.y });
     if (body.balloon && !body.balloon.dead) killBody(round, body.balloon);
@@ -516,6 +822,9 @@ function armourScale(body, towardSourceX, towardSourceY) {
 function damageTarget(round, body, source, contact, towardSourceX, towardSourceY, point) {
   if (body.dead || body.role !== 'block' && body.role !== 'pig' &&
       body.role !== 'balloon') return;
+  if (body.indestructible) return;
+  if (body.role === 'pig' && body.invulnerableWhileBalloon &&
+      body.balloon && !body.balloon.dead) return;
   const definition = body.role === 'pig' ? body.pig : body.mat;
   let amount = Math.max(0, contact.pn - definition.thresh) * definition.frailty;
   if (definition.brittle) {
@@ -560,6 +869,26 @@ function applyContactDamage(round, world) {
   for (const contact of world.contacts) {
     const point = eventPoint(contact);
     springLaunchEvent(round, contact, point);
+    const stone = contact.a.role === 'defence' ? contact.a
+      : contact.b.role === 'defence' ? contact.b : null;
+    if (stone) {
+      if (stone.dead) continue;
+      const other = contact.a === stone ? contact.b : contact.a;
+      if (other.role === 'ammo') {
+        other.vx *= stone.hitSpeedMultiplier;
+        other.vy *= stone.hitSpeedMultiplier;
+      }
+      stone.dead = true;
+      removeBody(world, stone);
+      round.events.push({
+        kind: EVENT_KIND.ability,
+        ability: 'flak',
+        x: point.x,
+        y: point.y,
+        speedMultiplier: other.role === 'ammo' ? stone.hitSpeedMultiplier : 1
+      });
+      continue;
+    }
     // The normal points A -> B. For armour, the useful direction is target -> source.
     damageTarget(round, contact.a, contact.b, contact, contact.nx, contact.ny, point);
     damageTarget(round, contact.b, contact.a, contact, -contact.nx, -contact.ny, point);
@@ -622,6 +951,9 @@ function applyExplosion(round, world, explosion) {
   // through this loop made later ids receive a different blast than earlier ids.
   const targets = explosionTargets(world, explosion);
   for (const target of targets) {
+    if (target.body.indestructible || target.body.role === 'pig' &&
+        target.body.invulnerableWhileBalloon && target.body.balloon &&
+        !target.body.balloon.dead) continue;
     const impulse = explosion.impulse * target.falloff;
     applyImpulse(world, target.body, target.nx * impulse, target.ny * impulse);
     if (target.body.role !== 'block' && target.body.role !== 'pig' &&
@@ -865,8 +1197,15 @@ function bodyBounds(body) {
   return { minX, minY, maxX, maxY };
 }
 
-function repairSpaceOccupied(world, block) {
-  const target = bodyBounds(block);
+function repairSpaceOccupied(world, block, original = false) {
+  const targetBody = original ? {
+    ...block,
+    x: block.originalX,
+    y: block.originalY,
+    c: block.originalC,
+    s: block.originalS
+  } : block;
+  const target = bodyBounds(targetBody);
   for (const other of world.bodies) {
     if (other.dead || other === block) continue;
     const bounds = bodyBounds(other);
@@ -877,14 +1216,14 @@ function repairSpaceOccupied(world, block) {
   return false;
 }
 
-function respawnBlock(round, block) {
+function respawnBlock(round, block, original = false) {
   const restored = addBody(round.world, {
     shape: block.shape,
     mat: block.mat,
-    x: block.x,
-    y: block.y,
-    c: block.c,
-    s: block.s,
+    x: original ? block.originalX : block.x,
+    y: original ? block.originalY : block.y,
+    c: original ? block.originalC : block.c,
+    s: original ? block.originalS : block.s,
     filterTag: block.filterTag,
     tag: block.tag
   });
@@ -894,27 +1233,54 @@ function respawnBlock(round, block) {
   restored.shapeId = block.shapeId;
   restored.materialId = block.materialId;
   restored.blueprintIndex = block.blueprintIndex;
+  restored.originalX = block.originalX;
+  restored.originalY = block.originalY;
+  restored.originalC = block.originalC;
+  restored.originalS = block.originalS;
+  restored.indestructible = block.indestructible;
+  restored.blast = block.blast;
+  restored.remoteTnt = block.remoteTnt;
+  restored.cardRestored = block.cardRestored;
   round.blocks[round.blocks.indexOf(block)] = restored;
   return restored;
 }
 
-function restoreBlock(round, sarge, block) {
+function restoreBlock(round, sarge, block, fraction = sarge.pig.traits.repairFraction,
+  original = false) {
   const resurrected = block.dead;
-  const target = resurrected ? respawnBlock(round, block) : block;
+  const target = resurrected ? respawnBlock(round, block, original) : block;
   const before = target.hp;
   target.hp = Math.min(target.maxHp,
-    target.hp + target.maxHp * sarge.pig.traits.repairFraction);
+    target.hp + target.maxHp * fraction);
   wakeBody(round.world, target);
-  wakeBody(round.world, sarge);
+  if (sarge) wakeBody(round.world, sarge);
   round.events.push({
     kind: EVENT_KIND.repair,
     x: target.x,
     y: target.y,
-    pigId: sarge.id,
+    pigId: sarge?.id ?? null,
     blockId: target.id,
     amount: target.hp - before,
     resurrected
   });
+  return target;
+}
+
+function restoreMasonBlock(round) {
+  const effect = round.defenderEffects.find((candidate) =>
+    candidate.kind === 'restoreBlock');
+  if (!effect || round.shotIndex % effect.everyEnemyShots !== 0) return null;
+  const candidates = round.blocks.filter((block) =>
+    block.dead && !block.cardRestored).sort((a, b) =>
+    (a.destroyedStep ?? Infinity) - (b.destroyedStep ?? Infinity) || a.id - b.id);
+  for (const block of candidates) {
+    if (effect.requireClearSpace && repairSpaceOccupied(round.world, block, true)) continue;
+    block.cardRestored = true;
+    const restored = restoreBlock(round, null, block, effect.hpFraction, true);
+    restored.cardRestored = true;
+    return restored;
+  }
+  return null;
 }
 
 function repairSarges(round) {
@@ -960,6 +1326,17 @@ function removeDeadAtStepEnd(round) {
     spawnBreakup(round, body);
   }
   round.deadThisStep = [];
+}
+
+function cullDefenceProjectiles(round) {
+  for (const body of round.world.bodies.slice()) {
+    if (body.role !== 'defence') continue;
+    if (body.x + body.r < TUNE.viewMinX || body.x - body.r > TUNE.viewMaxX ||
+        body.y + body.r < -TUNE.gridSnap || body.y - body.r > TUNE.plotH + 4) {
+      body.dead = true;
+      removeBody(round.world, body);
+    }
+  }
 }
 
 function allPigsDead(round) {
@@ -1054,18 +1431,26 @@ export function makeRound(spec) {
   if (!Number.isInteger(spec.seed)) throw new TypeError('round seed must be an integer');
 
   const blueprint = blueprintFromLevel(spec.blueprint);
+  const attackerCards = normaliseCards(spec.attackerCards ?? spec.cards ?? []);
+  const defenderCards = normaliseCards(spec.defenderCards ?? []);
+  const attackerEffects = cardEffects(attackerCards);
+  const defenderEffects = cardEffects(defenderCards);
   const round = {};
   const world = makeWorld({
     onDamage: (activeWorld) => damageStep(round, activeWorld),
     restitutionFor
   });
-  const bodies = instantiate(world, blueprint);
+  const bodies = instantiate(world, blueprint, { cards: defenderCards });
   Object.assign(round, {
     world,
     blueprint,
     seed: spec.seed >>> 0,
     rng: rng(spec.seed),
     bag,
+    attackerCards,
+    defenderCards,
+    attackerEffects,
+    defenderEffects,
     shotIndex: 0,
     shots: [],
     phase: bodies.pigs.length ? 'aiming' : 'won',
@@ -1075,6 +1460,7 @@ export function makeRound(spec) {
     events: [],
     queuedEvents: [],
     score: 0,
+    scoreBreakdown: null,
     pigs: bodies.pigs,
     blocks: bodies.blocks,
     balloons: bodies.balloons,
@@ -1083,18 +1469,38 @@ export function makeRound(spec) {
     settleTimer: 0,
     pendingExplosions: [],
     deadThisStep: [],
-    pierceStarts: []
+    pierceStarts: [],
+    remoteTntTaps: 0,
+    homingAssigned: 0,
+    suddenDeath: false,
+    scoreFinal: false
   });
   scoreRound(round);
   return round;
+}
+
+function slingForShot(round, index) {
+  const effect = round.attackerEffects.find((candidate) =>
+    candidate.kind === 'slingshots');
+  const alternate = effect?.alternating && effect.count > 1 && index % effect.count !== 0;
+  return {
+    x: TUNE.slingX,
+    y: TUNE.slingY + (alternate ? effect.secondSlingYOffset : 0)
+  };
+}
+
+function slingPullMultiplier(round) {
+  return round.attackerEffects.find((effect) =>
+    effect.kind === 'slingPull')?.multiplier ?? 1;
 }
 
 export function launch(round, dx, dy) {
   if (round.phase !== 'aiming' || round.shotIndex >= round.bag.length) return false;
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) return false;
 
+  const pullMultiplier = slingPullMultiplier(round);
   const drawLength = Math.sqrt(dx * dx + dy * dy);
-  const clampedLength = Math.min(drawLength, TUNE.slingRadius);
+  const clampedLength = Math.min(drawLength, TUNE.slingRadius * pullMultiplier);
   const drawScale = drawLength > 0 ? clampedLength / drawLength : 0;
   const clampedDx = dx * drawScale;
   const clampedDy = dy * drawScale;
@@ -1103,13 +1509,20 @@ export function launch(round, dx, dy) {
   const vy = -clampedDy * launchScale;
   const ammoId = round.bag[round.shotIndex];
   const ammo = AMMO_BY_ID[ammoId];
-  const body = addAmmoBody(round, ammo, vx, vy);
+  const sling = slingForShot(round, round.shotIndex);
+  const body = addAmmoBody(round, ammo, vx, vy, { x: sling.x, y: sling.y });
+  const homing = round.attackerEffects.find((effect) => effect.kind === 'ammoHoming');
+  if (homing && round.homingAssigned < homing.ammoCount) {
+    body.homing = { ...homing, active: false, untilStep: -1 };
+    round.homingAssigned++;
+  }
 
   round.shots.push({
     step: round.stepCount,
     ammo: ammoId,
     dx: clampedDx,
     dy: clampedDy,
+    slingY: sling.y,
     tapStep: null
   });
   round.shotIndex++;
@@ -1117,6 +1530,7 @@ export function launch(round, dx, dy) {
   round.flying = body;
   round.settleTimer = 0;
   round.queuedEvents.push({ kind: EVENT_KIND.launch, ammo: ammoId });
+  restoreMasonBlock(round);
   scoreRound(round);
   return body;
 }
@@ -1124,15 +1538,22 @@ export function launch(round, dx, dy) {
 export function tap(round) {
   if (!round.flying || round.flying.dead) return false;
   const ammo = AMMO_BY_ID[round.flying.ammoId];
-  if (!ammo.ability) return false;
+  const homing = round.flying.homing;
+  if (!ammo.ability && !homing) return false;
   const usableNow = round.phase === 'flying' ||
     round.phase === 'settling' && ammo.params.tappableAtRest;
   if (!usableNow) return false;
   const shot = round.shots[round.shots.length - 1];
   if (shot.tapStep !== null) return false;
-  const handler = ABILITY_HANDLERS[ammo.ability];
-  if (!handler) throw new Error(`no ability handler for '${ammo.ability}'`);
-  handler(round, round.flying, ammo);
+  if (homing) {
+    homing.active = true;
+    homing.untilStep = round.stepCount + Math.ceil(homing.steerSeconds / TUNE.step);
+  }
+  if (ammo.ability) {
+    const handler = ABILITY_HANDLERS[ammo.ability];
+    if (!handler) throw new Error(`no ability handler for '${ammo.ability}'`);
+    handler(round, round.flying, ammo);
+  }
   shot.tapStep = round.stepCount;
   return true;
 }
@@ -1151,6 +1572,8 @@ export function stepRound(round, dt = TUNE.step) {
   round.events = round.queuedEvents;
   round.queuedEvents = [];
   round.deadThisStep = [];
+  fireFlak(round);
+  applyCardForces(round, dt);
   advanceInflations(round.world, dt);
   positionBalloons(round, round.time, true);
   capturePierceStarts(round);
@@ -1165,11 +1588,14 @@ export function stepRound(round, dt = TUNE.step) {
     ? settleTimedOut(round) : false;
   if (timedOut) round.settleTimer = TUNE.settleTimeout;
   removeDeadAtStepEnd(round);
+  cullDefenceProjectiles(round);
   repairSarges(round);
   const retired = retireFlyingBody(round);
   const timedOutFuse = timedOut && detonateUncontactedFuse(round);
 
-  if (allPigsDead(round)) {
+  const king = round.pigs.find((pig) => pig.isKing);
+  const objectiveWon = round.mode === 'siege' ? Boolean(king?.dead) : allPigsDead(round);
+  if (objectiveWon) {
     round.phase = 'won';
     round.flying = null;
     round.events.push({ kind: EVENT_KIND.won });
@@ -1190,11 +1616,80 @@ export function isRoundOver(round) {
   return round.phase === 'won' || round.phase === 'lost';
 }
 
+export function beginSuddenDeath(round) {
+  if (round.suddenDeath) return false;
+  round.regulationScore = round.score;
+  round.regulationDamage = round.scoreBreakdown?.damage ?? 0;
+  round.bag.push('lob');
+  round.phase = 'aiming';
+  round.flying = null;
+  round.settleTimer = 0;
+  round.suddenDeath = true;
+  round.scoreFinal = false;
+  scoreRound(round);
+  return true;
+}
+
+export function finalizeSiegeScore(round) {
+  if (round.mode !== 'siege') return scoreRound(round);
+  round.scoreFinal = true;
+  return scoreRound(round);
+}
+
 export function scoreRound(round) {
   if (round.mode === 'siege') {
-    // P7 owns the breach and off-plot tests; returning a partial score now would make
-    // an intentionally incomplete result look authoritative to the relay.
-    round.score = 0;
+    const tilt = round.defenderEffects.find((effect) => effect.kind === 'plotTilt');
+    let destroyedBlocks = 0;
+    let offPlotBlocks = 0;
+    for (const block of round.blocks) {
+      let target = block;
+      if (tilt) {
+        target = {
+          ...block,
+          x: tilt.cos * block.x + tilt.sin * block.y,
+          y: -tilt.sin * block.x + tilt.cos * block.y,
+          c: tilt.cos * block.c + tilt.sin * block.s,
+          s: -tilt.sin * block.c + tilt.cos * block.s
+        };
+      }
+      const bounds = bodyBounds(target);
+      const offPlot = bounds.maxX < 0 || bounds.minX > TUNE.plotW ||
+        bounds.maxY < 0 || bounds.minY > TUNE.plotH;
+      const value = block.shape.area * block.mat.cost;
+      if (block.dead || offPlot) {
+        destroyedBlocks += value * SCORE.siege.blockDestroyedCostMultiplier;
+      }
+      if (offPlot) {
+        offPlotBlocks += value * SCORE.siege.blockOffPlotBonusCostMultiplier;
+      }
+    }
+    let pigs = 0;
+    for (const pig of round.pigs) {
+      if (pig.dead) pigs += SCORE.siege.pigs[pig.pigId] ?? 0;
+    }
+    const atRoundEnd = round.scoreFinal || isRoundOver(round);
+    const unused = atRoundEnd
+      ? (round.bag.length - round.shotIndex) * SCORE.siege.unusedAmmo : 0;
+    const king = round.pigs.find((pig) => pig.isKing && !pig.dead);
+    const slingshots = round.attackerEffects.find((effect) => effect.kind === 'slingshots');
+    const slingOrigins = [{ x: TUNE.slingX, y: TUNE.slingY }];
+    if (slingshots?.count > 1) slingOrigins.push({
+      x: TUNE.slingX,
+      y: TUNE.slingY + slingshots.secondSlingYOffset
+    });
+    const breach = atRoundEnd && king && slingOrigins.some((origin) =>
+      blockRayDepth(round.world, origin.x, origin.y, king.x, king.y) === 0)
+      ? SCORE.siege.breach : 0;
+    const damage = destroyedBlocks + offPlotBlocks + pigs;
+    round.scoreBreakdown = {
+      destroyedBlocks,
+      offPlotBlocks,
+      pigs,
+      unused,
+      breach,
+      damage
+    };
+    round.score = damage + unused + breach;
     return round.score;
   }
 
@@ -1235,6 +1730,15 @@ function hashBody(hash, body) {
   hash = hashNumber(hash, body.id);
   hash = fnvWord(hash, body.dead ? 1 : 0);
   hash = hashNumber(hash, body.flags ?? 0);
+  hash = fnvWord(hash, body.indestructible ? 1 : 0);
+  hash = fnvWord(hash, body.remoteTnt ? 1 : 0);
+  hash = fnvWord(hash, body.remoteFired ? 1 : 0);
+  hash = fnvWord(hash, body.cardRestored ? 1 : 0);
+  hash = fnvWord(hash, body.homing?.active ? 1 : 0);
+  hash = hashNumber(hash, body.homing?.untilStep ?? -1);
+  hash = hashNumber(hash, body.shotIndex ?? -1);
+  hash = hashNumber(hash, body.flakNextStep ?? -1);
+  hash = hashNumber(hash, body.destroyedStep ?? -1);
   for (const field of BODY_DIGEST_FIELDS) hash = hashNumber(hash, body[field]);
   return hash;
 }
@@ -1249,9 +1753,18 @@ export function digestRound(round) {
   hash = hashNumber(hash, round.time);
   hash = hashNumber(hash, round.settleTimer);
   hash = hashNumber(hash, round.score);
+  hash = hashNumber(hash, round.remoteTntTaps);
+  hash = hashNumber(hash, round.homingAssigned);
+  hash = fnvWord(hash, round.suddenDeath ? 1 : 0);
+  hash = fnvWord(hash, round.scoreFinal ? 1 : 0);
   hash = hashNumber(hash, round.flying?.id ?? -1);
   hash = hashNumber(hash, round.flying?.fuseContactStep ?? -1);
   hash = hashNumber(hash, round.world.nextId);
+
+  hash = fnvWord(hash, round.attackerCards.length);
+  for (const id of round.attackerCards) hash = hashString(hash, id);
+  hash = fnvWord(hash, round.defenderCards.length);
+  for (const id of round.defenderCards) hash = hashString(hash, id);
 
   hash = fnvWord(hash, round.bag.length);
   for (const ammoId of round.bag) hash = hashString(hash, ammoId);
@@ -1261,6 +1774,7 @@ export function digestRound(round) {
     hash = hashString(hash, shot.ammo);
     hash = hashNumber(hash, shot.dx);
     hash = hashNumber(hash, shot.dy);
+    hash = hashNumber(hash, shot.slingY);
     hash = hashNumber(hash, shot.tapStep ?? -1);
   }
 

@@ -502,12 +502,13 @@ function budgetGate() {
     } else if (effect.kind === 'autoPig') {
       checked++;
       const draft = makeDraft({ budget: 0, cards: [card.id] });
-      let accepted = true;
-      for (let index = 0; index < effect.count; index++) {
-        accepted &&= place(draft, { pig: effect.pig, x: index + 1, y: 1 }).ok;
-      }
-      const extra = place(draft, { pig: effect.pig, x: effect.count + 1, y: 1 });
-      if (accepted && !extra.ok && extra.reason === 'over-budget') authored++;
+      const manual = place(draft, { pig: effect.pig, x: 1, y: 1 });
+      const round = makeRound({
+        mode: 'siege', seed: 1, bag: [], defenderCards: [card.id],
+        blueprint: { v: 1, blocks: [], pigs: [['king', 12, 0.6875, 0]] }
+      });
+      const automatic = round.pigs.filter((pig) => pig.autoPlaced).length;
+      if (!manual.ok && manual.reason === 'over-budget' && automatic === effect.count) authored++;
     }
   }
   report('declarative build card effects', authored === checked,

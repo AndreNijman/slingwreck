@@ -16,6 +16,7 @@ import {
   checkScore,
   checkShot,
   checkTap,
+  checkRemoteTnt,
   cleanName,
   constantTimeEqual,
   disconnectExpired,
@@ -198,6 +199,11 @@ test('Siege bag and unconditional plausibility checks are deterministic', () => 
   }, startedAt + 20).code, 'shot-timing');
   assert.deepEqual(checkTap(siege, { step: SETTLE_STEPS + 1 }, startedAt + 20),
     { ok: true });
+  assert.deepEqual(checkRemoteTnt(siege, { step: SETTLE_STEPS + 1 }, startedAt + 20),
+    { ok: true });
+  assert.equal(checkRemoteTnt(siege, {
+    step: SETTLE_STEPS + Math.ceil(10 / TUNE.step)
+  }, startedAt + 20).code, 'remote-tnt-timing');
   assert.equal(checkScore(siege, {
     step: SETTLE_STEPS + 1,
     ammoIndex: 0,

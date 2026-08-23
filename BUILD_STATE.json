@@ -65,39 +65,43 @@
     {
       "id": "P7.1",
       "phase": "P7",
-      "status": "todo",
-      "title": "Siege scoring \u2014 SCORE.siege in sim.js: block value, off-plot bonus, pig values, unused ammo, breach bonus",
-      "note": "Stubbed since P2.1 with a comment pointing here. The audit already compares full world digests, so scoring is additive rather than load-bearing for anti-cheat."
+      "status": "done",
+      "title": "Siege scoring — SCORE.siege in sim.js: block value, off-plot bonus, pig values, unused ammo, breach bonus",
+      "note": "Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch."
     },
     {
       "id": "P7.2",
       "phase": "P7",
-      "status": "todo",
-      "title": "Match structure \u2014 best of five, first to three, round win by King pop else higher score, sudden death, tie-break on cheaper fortress"
+      "status": "done",
+      "title": "Match structure — best of five, first to three, round win by King pop else higher score, sudden death, tie-break on cheaper fortress",
+      "note": "Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch."
     },
     {
       "id": "P7.3",
       "phase": "P7",
-      "status": "todo",
-      "title": "Scrap budgets \u2014 base 110 + 25/round + 15/deficit, early-lock banking, winner bonus"
+      "status": "done",
+      "title": "Scrap budgets — base 110 + 25/round + 15/deficit, early-lock banking, winner bonus",
+      "note": "Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch."
     },
     {
       "id": "P7.4",
       "phase": "P7",
-      "status": "todo",
-      "title": "The draft \u2014 3 cards from the deficit-derived tier, 25 s, loser picks, relay rolls from the match seed"
+      "status": "done",
+      "title": "The draft — 3 cards from the deficit-derived tier, 25 s, loser picks, relay rolls from the match seed",
+      "note": "Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch."
     },
     {
       "id": "P7.5",
       "phase": "P7",
-      "status": "todo",
-      "title": "Card effects \u2014 all 25 applied from their declarative effect data, no per-card switch"
+      "status": "done",
+      "title": "Card effects — all 25 applied from their declarative effect data, no per-card switch",
+      "note": "Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch."
     },
     {
       "id": "P7.6",
       "phase": "P7",
       "status": "todo",
-      "title": "Siege UI \u2014 build phase HUD, corner preview window, draft screen, match standings, results"
+      "title": "Siege UI — build phase HUD, corner preview window, draft screen, match standings, results"
     },
     {
       "id": "P7.7",
@@ -109,13 +113,13 @@
       "id": "P7.8",
       "phase": "P7",
       "status": "todo",
-      "title": "tools/balance.mjs --siege -n 400 \u2014 flag any card above 65% or below 40% round win rate at parity; report the win-condition distribution"
+      "title": "tools/balance.mjs --siege -n 400 — flag any card above 65% or below 40% round win rate at parity; report the win-condition distribution"
     },
     {
       "id": "P7.9",
       "phase": "P7",
       "status": "todo",
-      "title": "P7 gate \u2014 balance --siege green, mp-smoke through a full best-of-five, all prior suites, commit"
+      "title": "P7 gate — balance --siege green, mp-smoke through a full best-of-five, all prior suites, commit"
     }
   ],
   "deployed": false,

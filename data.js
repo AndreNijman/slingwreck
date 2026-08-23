@@ -656,7 +656,13 @@ export const CARDS = [
     tier: 3,
     tierName: 'desperado',
     text: 'your plot tilts 8° away from the slingshot, so everything that breaks rolls back toward the shooter and out of play',
-    effect: { kind: 'plotTilt', degrees: 8, direction: 'awayFromSling' }
+    // The sim may not call implementation-defined trigonometry. These are the literal
+    // cosine and sine of 8 degrees, stored beside the authored angle so every host uses
+    // the same plot transform bit for bit.
+    effect: {
+      kind: 'plotTilt', degrees: 8, direction: 'awayFromSling',
+      cos: 0.9902680687415704, sin: 0.13917310096006544
+    }
   },
   {
     id: 'conscription',

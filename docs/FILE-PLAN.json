@@ -23,13 +23,13 @@
     {
       "path": "sim.js",
       "phase": "P2",
-      "budget": 1400,
+      "budget": 1800,
       "imports": [
         "data.js",
         "physics.js"
       ],
       "job": "The game on the solver: slingshot launch, critter abilities, material damage, explosions and chaining, pig death, settle detection, scoring, round state, blueprint instantiation, wire format. No DOM, no network, no Math.random, no wall clock.",
-      "budgetNote": "Raised from 1100 in P3. It now carries nine critter abilities, four pig traits and four material behaviours on top of damage, explosions and round state. Still one job - the game on the solver - so it grows rather than splits."
+      "budgetNote": "Raised from 1100 in P3 and from 1400 in P7. It now carries nine critter abilities, four pig traits, four material behaviours, Siege scoring, and the live-world interpretation of the declarative card effects. These all remain one job - the deterministic game on the solver - so it grows rather than splits."
     },
     {
       "path": "render.js",
@@ -133,7 +133,7 @@
     {
       "path": "worker.js",
       "phase": "P6",
-      "budget": 1600,
+      "budget": 1800,
       "imports": [
         "data.js",
         "physics.js",
@@ -141,7 +141,7 @@
         "relay-audit.js"
       ],
       "job": "The relay. SiegeRoom and LobbyRegistry Durable Objects, blueprint validation and authoritative settle, shot log, incremental audit replay, preview relaying, reconnect, room passwords, origin allowlist, rate limits.",
-      "budgetNote": "Raised from 800 across P6. Two Durable Objects, the full security surface (origin allowlist, hashed passwords, name sanitising, message caps, handshake timeouts, per-IP rate limits), relay-authoritative build validation, the simultaneous siege phase, the preview relay, reconnect with rotating tokens, and registry expiry. The audit itself is already split into relay-audit.js."
+      "budgetNote": "Raised from 800 across P6 and from 1600 in P7. Two Durable Objects, the full security surface, relay-authoritative build validation, simultaneous Siege and replay, reconnect, plus the best-of-five, loser-only draft, budgets and timeout defaults all remain one authoritative room state machine. The pure audit and match decisions stay split into relay-audit.js."
     },
     {
       "path": "relay-audit.js",
@@ -230,6 +230,11 @@
       "path": "tools/worker-test.mjs",
       "phase": "P6",
       "job": "node --test over the relay's pure helpers: validation, tier selection, seeding, sanitising."
+    },
+    {
+      "path": "tools/siege-test.mjs",
+      "phase": "P7",
+      "job": "Measured headless Siege rules gate: score components, best-of-five resolution, budgets, seeded loser-only drafts, and one observable before/after assertion for every declarative card effect."
     },
     {
       "path": "tools/stamp.mjs",

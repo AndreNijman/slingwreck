@@ -4,6 +4,8 @@
 import {
   AMMO,
   BAG,
+  CARD_TIER_RULES,
+  CARDS,
   CARDS_BY_ID,
   MATERIALS,
   SCORE,
@@ -11,7 +13,16 @@ import {
   TUNE
 } from './data.js';
 import { rng } from './physics.js';
-import { digestRound, launch, makeRound, stepRound, tap } from './sim.js';
+import {
+  beginSuddenDeath,
+  digestRound,
+  finalizeSiegeScore,
+  launch,
+  makeRound,
+  remoteDetonate,
+  stepRound,
+  tap
+} from './sim.js';
 
 export const SETTLE_STEPS = Math.ceil(TUNE.blueprintSettleSeconds / TUNE.step);
 export const ROUND_STEPS = Math.ceil(TUNE.roundSeconds / TUNE.step);
@@ -22,6 +33,15 @@ const SCORE_TOLERANCE = 1e-6;
 const BASE_AMMO = ['nib', 'chip', 'wedge', 'lob', 'boomer', 'hulk', 'zip'];
 
 function fail(code, message) { return { ok: false, code, message }; }
+
+function effectsFor(cards = []) {
+  const effects = [];
+  for (const id of cards) {
+    const effect = CARDS_BY_ID[id]?.effect;
+    if (effect) effects.push(effect);
+  }
+  return effects;
+}
 
 export function validationMode(env = {}) {
   return String(env.VALIDATE ?? '').toLowerCase() === 'lenient'
@@ -49,7 +69,74 @@ export function bagForRound(seed, round, cards = []) {
   return bag;
 }
 
-export function scoreCeiling(blueprint, bagLength) {
+export function draftTiers(deficit, round) {
+  // A round loser can still be tied or one win ahead after the result (for example
+  // 2-0 becoming 2-1). Reinforce is the floor: the data's deficit-1 rule remains the
+  // authoritative baseline instead of leaving that legal match state without a draw.
+  const gap = Math.max(1, Math.floor(deficit));
+  const number = Math.max(1, Math.floor(round));
+  const rule = CARD_TIER_RULES.find((candidate) =>
+    gap === candidate.deficit && number >= (candidate.minRound ?? 1));
+  return rule ? [...rule.tiers] : [];
+}
+
+export function rollDraft(seed, round, deficit, owned = [], player = 0) {
+  const tiers = draftTiers(deficit, round);
+  if (!tiers.length) return [];
+  const ownedSet = new Set(owned);
+  const available = CARDS.filter((card) =>
+    tiers.includes(card.tier) && !ownedSet.has(card.id));
+  const random = rng((seed ^ Math.imul(round, 0x45d9f3b) ^
+    Math.imul(player, 0x27d4eb2d)) | 0);
+  const result = [];
+  while (result.length < 3 && available.length) {
+    const tier = tiers[Math.floor(random() * tiers.length) % tiers.length];
+    let choices = available.filter((card) => card.tier === tier);
+    if (!choices.length) choices = available;
+    const chosen = choices[Math.floor(random() * choices.length) % choices.length];
+    result.push(chosen.id);
+    available.splice(available.indexOf(chosen), 1);
+  }
+  return result;
+}
+
+export function defaultDraftPick(candidates) {
+  return Array.isArray(candidates) && candidates.length ? candidates[0] : null;
+}
+
+export function resolveRound(players) {
+  if (!Array.isArray(players) || players.length !== 2) {
+    throw new TypeError('round resolution requires exactly two players');
+  }
+  const popped = players.filter((player) => player.kingPopped);
+  if (popped.length === 1) {
+    return { resolved: true, winner: popped[0].pid, reason: 'king-pop' };
+  }
+  if (players[0].score !== players[1].score) {
+    const winner = players[0].score > players[1].score ? players[0] : players[1];
+    return { resolved: true, winner: winner.pid, reason: 'score' };
+  }
+  const hasSuddenDeath = players.every((player) =>
+    Number.isFinite(player.suddenDeathDamage));
+  if (!hasSuddenDeath) return { resolved: false, winner: null, reason: 'sudden-death' };
+  if (players[0].suddenDeathDamage !== players[1].suddenDeathDamage) {
+    const winner = players[0].suddenDeathDamage > players[1].suddenDeathDamage
+      ? players[0] : players[1];
+    return { resolved: true, winner: winner.pid, reason: 'sudden-death-damage' };
+  }
+  if (players[0].fortressCost !== players[1].fortressCost) {
+    const winner = players[0].fortressCost < players[1].fortressCost
+      ? players[0] : players[1];
+    return { resolved: true, winner: winner.pid, reason: 'fortress-cost' };
+  }
+  return { resolved: false, winner: null, reason: 'fortress-cost-tie' };
+}
+
+export function matchWinner(players) {
+  return players.find((player) => player.wins >= TUNE.winsNeeded)?.pid ?? null;
+}
+
+export function scoreCeiling(blueprint, bagLength, defenderCards = []) {
   let total = SCORE.siege.breach + bagLength * SCORE.siege.unusedAmmo;
   for (const tuple of blueprint.blocks) {
     total += SHAPES[tuple[0]].area * MATERIALS[tuple[1]].cost *
@@ -57,11 +144,20 @@ export function scoreCeiling(blueprint, bagLength) {
         SCORE.siege.blockOffPlotBonusCostMultiplier);
   }
   for (const tuple of blueprint.pigs) total += SCORE.siege.pigs[tuple[0]] ?? 0;
+  for (const effect of effectsFor(defenderCards)) {
+    if (effect.kind !== 'autoPig') continue;
+    total += effect.count * (SCORE.siege.pigs[effect.pig] ?? 0);
+  }
   return total;
 }
 
-export function previewAllowed(lastAt, now) {
-  return !Number.isFinite(lastAt) || now - lastAt >= 1000 / TUNE.previewHz;
+export function previewInterval(cards = []) {
+  const effect = effectsFor(cards).find((candidate) => candidate.kind === 'previewRate');
+  return effect ? effect.intervalSeconds * 1000 : 1000 / TUNE.previewHz;
+}
+
+export function previewAllowed(lastAt, now, cards = []) {
+  return !Number.isFinite(lastAt) || now - lastAt >= previewInterval(cards);
 }
 
 function wallStepLimit(siege, now) {
@@ -80,8 +176,10 @@ export function checkShot(siege, message, now) {
   if (!Number.isFinite(message.dx) || !Number.isFinite(message.dy)) {
     return fail('invalid-shot', 'shot aim must be finite');
   }
+  const pull = effectsFor(siege.attackerCards).find((effect) =>
+    effect.kind === 'slingPull')?.multiplier ?? 1;
   if (message.dx * message.dx + message.dy * message.dy >
-      TUNE.slingRadius * TUNE.slingRadius + 1e-9) {
+      TUNE.slingRadius * TUNE.slingRadius * pull * pull + 1e-9) {
     return fail('shot-bounds', 'shot aim exceeds the slingshot radius');
   }
   if (message.step < SETTLE_STEPS || message.step > wallStepLimit(siege, now)) {
@@ -114,6 +212,19 @@ export function checkTap(siege, message, now) {
   return { ok: true };
 }
 
+export function checkRemoteTnt(siege, message, now) {
+  if (!Number.isInteger(message.step)) {
+    return fail('invalid-remote-tnt', 'remote TNT step must be an integer');
+  }
+  if (message.step < SETTLE_STEPS ||
+      message.step < (siege.lastShotStep ?? SETTLE_STEPS) ||
+      message.step > wallStepLimit(siege, now)) {
+    return fail('remote-tnt-timing',
+      'remote TNT step is outside the current fortress simulation clock');
+  }
+  return { ok: true };
+}
+
 export function checkScore(siege, message, now, strict) {
   if (!Number.isInteger(message.step) || !Number.isInteger(message.ammoIndex)) {
     return fail('invalid-score', 'score step and ammoIndex must be integers');
@@ -138,9 +249,11 @@ export function checkScore(siege, message, now, strict) {
   return { ok: true };
 }
 
-export function createAudit({ blueprint, seed, bag }) {
+export function createAudit({ blueprint, seed, bag, attackerCards = [], defenderCards = [] }) {
   return {
-    round: makeRound({ mode: 'siege', blueprint, seed, bag }),
+    round: makeRound({
+      mode: 'siege', blueprint, seed, bag, attackerCards, defenderCards
+    }),
     eventIndex: 0,
     boundaryIndex: 0
   };
@@ -160,6 +273,8 @@ function applyEvents(audit, siege) {
       }
     } else if (event.t === 'tap' && !tap(round)) {
       return fail('audit-illegal-tap', 'the replay rejected a reported ability tap');
+    } else if (event.t === 'remote-tnt' && !remoteDetonate(round)) {
+      return fail('audit-illegal-remote-tnt', 'the replay rejected a remote TNT trigger');
     }
     audit.eventIndex++;
   }
@@ -198,11 +313,23 @@ function verifyBoundary(audit, siege) {
     boundary,
     digest: actualDigest,
     score: audit.round.score,
+    damage: audit.round.scoreBreakdown?.damage ?? 0,
     kingPopped: Boolean(boundary.kingPop && king?.dead),
     settled,
     spent: audit.round.shotIndex >= audit.round.bag.length && settled,
     step: audit.round.stepCount
   };
+}
+
+export function startSuddenDeath(audit, siege) {
+  if (!audit || siege.suddenDeath || !beginSuddenDeath(audit.round)) return false;
+  siege.suddenDeath = true;
+  siege.regulationScore = audit.round.regulationScore;
+  siege.regulationDamage = audit.round.regulationDamage;
+  siege.bag.push('lob');
+  siege.spent = false;
+  siege.settled = false;
+  return true;
 }
 
 export function auditTarget(audit, siege, now) {
@@ -243,6 +370,16 @@ export function auditSnapshot(audit) {
     step: audit.round.stepCount,
     digest: digestRound(audit.round),
     score: audit.round.score
+  };
+}
+
+export function finalizeAuditScore(audit) {
+  finalizeSiegeScore(audit.round);
+  return {
+    score: audit.round.score,
+    damage: audit.round.scoreBreakdown?.damage ?? 0,
+    digest: digestRound(audit.round),
+    step: audit.round.stepCount
   };
 }
 

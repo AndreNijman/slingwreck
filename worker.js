@@ -10,7 +10,7 @@
 //   GET /lobbies  - public lobby directory
 //   GET /ws?room= - websocket, first message must be create or join
 
-import { PIGS, TUNE } from './data.js';
+import { BUDGET, CARDS_BY_ID, PIGS, SCORE, TUNE } from './data.js';
 import { PIG_FLAG_DECOY } from './sim.js';
 import {
   AUDIT_STEP_BUDGET,
@@ -22,9 +22,18 @@ import {
   checkScore,
   checkShot,
   checkTap,
+  checkRemoteTnt,
   createAudit,
+  defaultDraftPick,
+  draftTiers,
+  finalizeAuditScore,
+  matchWinner,
   previewAllowed,
+  previewInterval,
+  resolveRound,
+  rollDraft,
   scoreCeiling,
+  startSuddenDeath,
   validationMode
 } from './relay-audit.js';
 import {
@@ -32,7 +41,9 @@ import {
   decode,
   earlyLockScrap,
   encode,
+  fromBlueprint,
   settleTest,
+  spent,
   validate
 } from './build.js';
 
@@ -55,7 +66,15 @@ export {
   checkScore,
   checkShot,
   checkTap,
+  checkRemoteTnt,
+  defaultDraftPick,
+  draftTiers,
+  finalizeAuditScore,
+  matchWinner,
   previewAllowed,
+  previewInterval,
+  resolveRound,
+  rollDraft,
   scoreCeiling,
   validationMode
 };
@@ -176,7 +195,8 @@ export function validateBlueprintSubmission(source, options = {}) {
       ));
       return { ok: false, stage: 'settle', errors, settled };
     }
-    return { ok: true, blueprint: decoded, encoded: source, settled };
+    const cost = spent(fromBlueprint(decoded, options));
+    return { ok: true, blueprint: decoded, encoded: source, settled, cost };
   } catch {
     return {
       ok: false,
@@ -409,6 +429,7 @@ export class SiegeRoom {
     this.passwordAttempts = new Map();
     this.audits = new Map();
     this.result = null;
+    this.draftPid = -1;
     this.validateMode = validationMode(env);
     this.ctx.blockConcurrencyWhile(async () => {
       await this.restore();
@@ -430,6 +451,7 @@ export class SiegeRoom {
       deadline: this.deadline,
       touched: this.touched,
       result: this.result,
+      draftPid: this.draftPid,
       players: [...this.players.values()]
     };
   }
@@ -454,6 +476,7 @@ export class SiegeRoom {
     this.deadline = saved.deadline;
     this.touched = saved.touched;
     this.result = saved.result ?? null;
+    this.draftPid = saved.draftPid ?? -1;
     const now = Date.now();
     for (const record of saved.players) {
       record.connected = false;
@@ -474,7 +497,9 @@ export class SiegeRoom {
     audit = createAudit({
       blueprint,
       seed: record.siege.seed,
-      bag: record.siege.bag
+      bag: record.siege.bag,
+      attackerCards: record.siege.attackerCards,
+      defenderCards: record.siege.defenderCards
     });
     this.audits.set(record.pid, audit);
     return audit;
@@ -603,6 +628,7 @@ export class SiegeRoom {
     this.seed = 0;
     this.deadline = 0;
     this.result = null;
+    this.draftPid = -1;
     this.audits.clear();
     this.passwordAttempts.clear();
     await Promise.all([registryWork, this.ctx.storage.delete(ROOM_STATE_KEY)]);
@@ -663,11 +689,15 @@ export class SiegeRoom {
       await this.saveDraft(session, record, message);
       return;
     }
+    if (message.t === 'draft-pick') {
+      await this.pickDraft(session, record, message.card);
+      return;
+    }
     if (message.t === 'lock') {
       await this.lockBlueprint(session, record, message);
       return;
     }
-    if (['shot', 'tap', 'shot-end', 'score', 'round-over'].includes(message.t)) {
+    if (['shot', 'tap', 'remote-tnt', 'shot-end', 'score', 'round-over'].includes(message.t)) {
       await this.handleSiegePhaseMessage(session, message);
       return;
     }
@@ -779,9 +809,12 @@ export class SiegeRoom {
       wins: 0,
       cards: [],
       bankedScrap: 0,
+      roundCarry: 0,
       budget: 0,
       draft: '',
+      draftOffer: null,
       blueprint: '',
+      fortressCost: 0,
       locked: false,
       autoCompleted: false,
       connected: true,
@@ -818,7 +851,7 @@ export class SiegeRoom {
     const pid = Number(message.pid);
     const record = this.players.get(pid);
     if (key !== this.key || key !== session.routeKey || !record ||
-        this.phase !== 'siege' && this.phase !== 'round-over') {
+        this.phase !== 'siege' && this.phase !== 'round-over' && this.phase !== 'draft') {
       this.reject(session, 'resume-missing', 'that resumable round no longer exists');
       return;
     }
@@ -851,7 +884,8 @@ export class SiegeRoom {
       reconnected: true,
       resumeToken
     });
-    await this.sendResume(session, record);
+    if (this.phase === 'draft') this.sendDraftOffer(record);
+    else await this.sendResume(session, record);
     this.broadcast({
       t: 'opponent-reconnected',
       pid,
@@ -873,11 +907,12 @@ export class SiegeRoom {
     if (session.pid < 0) return;
     const record = this.players.get(session.pid);
     if (!record) return;
-    if (this.phase === 'siege' || this.phase === 'round-over') {
+    if (this.phase === 'siege' || this.phase === 'round-over' || this.phase === 'draft') {
       const now = Date.now();
       record.connected = false;
       record.disconnectedAt = now;
-      record.graceDeadline = now + TUNE.disconnectGraceSeconds * 1000;
+      record.graceDeadline = this.phase === 'draft'
+        ? this.deadline : now + TUNE.disconnectGraceSeconds * 1000;
       this.broadcast({
         t: 'opponent-disconnected',
         pid: record.pid,
@@ -958,22 +993,33 @@ export class SiegeRoom {
       this.sendError(session, 'need-two-players', 'exactly two players are required');
       return;
     }
-    this.phase = 'build';
-    this.round = 1;
     this.seed = randomSeed();
     this.result = null;
+    this.draftPid = -1;
+    await this.beginBuild(1);
+  }
+
+  async beginBuild(round) {
+    this.phase = 'build';
+    this.round = round;
     this.audits.clear();
     this.deadline = Date.now() + TUNE.buildSeconds * 1000;
     this.lastClockSecond = TUNE.buildSeconds;
+    const leadingWins = Math.max(...[...this.players.values()].map((player) => player.wins));
     for (const player of this.players.values()) {
+      const roundsBehind = leadingWins - player.wins;
+      player.roundCarry = player.bankedScrap;
+      player.bankedScrap = 0;
       player.budget = budgetFor({
         round: this.round,
-        roundsBehind: 0,
-        bankedScrap: player.bankedScrap,
+        roundsBehind,
+        bankedScrap: player.roundCarry,
         cards: player.cards
       });
       player.draft = '';
+      player.draftOffer = null;
       player.blueprint = '';
+      player.fortressCost = 0;
       player.locked = false;
       player.autoCompleted = false;
       player.siege = null;
@@ -991,11 +1037,12 @@ export class SiegeRoom {
   }
 
   buildOptions(record) {
+    const leadingWins = Math.max(...[...this.players.values()].map((player) => player.wins));
     return {
       mode: 'siege',
       round: this.round,
-      roundsBehind: 0,
-      bankedScrap: record.bankedScrap,
+      roundsBehind: leadingWins - record.wins,
+      bankedScrap: record.roundCarry,
       cards: record.cards,
       seed: this.seed ^ record.pid ^ this.round
     };
@@ -1053,6 +1100,7 @@ export class SiegeRoom {
     }
     record.draft = result.encoded;
     record.blueprint = result.encoded;
+    record.fortressCost = result.cost;
     record.locked = true;
     const secondsRemaining = Math.max(0, (this.deadline - Date.now()) / 1000);
     const banked = earlyLockScrap(secondsRemaining);
@@ -1089,6 +1137,7 @@ export class SiegeRoom {
         return;
       }
       record.blueprint = result.encoded;
+      record.fortressCost = result.cost;
       record.locked = true;
       record.autoCompleted = true;
     }
@@ -1106,18 +1155,23 @@ export class SiegeRoom {
         seed: this.seed,
         blueprint: opponent.blueprint,
         bag,
+        attackerCards: [...player.cards],
+        defenderCards: [...opponent.cards],
         log: [],
         boundaries: [],
         shotCount: 0,
         tappedShot: -1,
         lastShotStep: null,
         lastShotAt: startedAt,
-        scoreCeiling: scoreCeiling(blueprint, bag.length),
+        scoreCeiling: scoreCeiling(blueprint, bag.length, opponent.cards),
         verifiedScore: 0,
+        verifiedDamage: 0,
         verifiedStep: SETTLE_STEPS,
         verifiedDigest: null,
         spent: false,
         settled: false,
+        suddenDeath: false,
+        remoteTntTriggered: false,
         forfeited: false
       };
     }
@@ -1131,6 +1185,8 @@ export class SiegeRoom {
         round: this.round,
         seed: this.seed,
         bag: player.siege.bag,
+        attackerCards: player.siege.attackerCards,
+        defenderCards: player.siege.defenderCards,
         left: TUNE.roundSeconds,
         validate: this.validateMode,
         opponent: { pid: opponent.pid, name: opponent.name },
@@ -1158,6 +1214,28 @@ export class SiegeRoom {
     const record = this.players.get(session.pid);
     const siege = record?.siege;
     if (!record || !siege || siege.forfeited) return;
+    if (message.t === 'remote-tnt') {
+      const granted = record.cards.some((id) =>
+        CARDS_BY_ID[id]?.effect.kind === 'remoteTnt');
+      const target = [...this.players.values()].find((candidate) =>
+        candidate.pid !== record.pid);
+      if (!granted || !target?.siege || target.siege.remoteTntTriggered) {
+        this.sendError(session, 'card-required',
+          'remote TNT may be triggered once only by its drafted holder');
+        return;
+      }
+      const timing = checkRemoteTnt(target.siege, message, Date.now());
+      if (!timing.ok) {
+        this.sendError(session, timing.code, timing.message);
+        return;
+      }
+      target.siege.log.push({ t: 'remote-tnt', step: message.step });
+      target.siege.remoteTntTriggered = true;
+      this.send(session.socket, { t: 'remote-tnt-accepted', step: message.step });
+      await this.persist();
+      if (this.validateMode === 'strict') await this.runAudits(AUDIT_STEP_BUDGET);
+      return;
+    }
     if (message.t === 'score' || message.t === 'shot-end' ||
         message.t === 'round-over') {
       await this.handleAuditMessage(session, message);
@@ -1197,7 +1275,8 @@ export class SiegeRoom {
   handlePreviewMessage(session, message) {
     if (this.phase !== 'siege') return;
     const now = Date.now();
-    if (!previewAllowed(session.lastPreviewAt, now)) return;
+    const sender = this.players.get(session.pid);
+    if (!sender || !previewAllowed(session.lastPreviewAt, now, sender.cards)) return;
     session.lastPreviewAt = now;
     const opponent = [...this.players.values()].find((record) =>
       record.pid !== session.pid);
@@ -1235,6 +1314,7 @@ export class SiegeRoom {
       return;
     }
     siege.verifiedScore = boundary.score;
+    siege.verifiedDamage = boundary.score;
     siege.verifiedStep = boundary.step;
     siege.settled = boundary.settled;
     siege.spent = siege.shotCount >= siege.bag.length && boundary.settled;
@@ -1277,6 +1357,9 @@ export class SiegeRoom {
       blueprint: siege.blueprint,
       seed: siege.seed,
       bag: siege.bag,
+      attackerCards: siege.attackerCards,
+      defenderCards: siege.defenderCards,
+      suddenDeath: siege.suddenDeath,
       shotLog: siege.log,
       step: snapshot.step,
       digest: snapshot.digest,
@@ -1311,6 +1394,7 @@ export class SiegeRoom {
         verifiedAny = true;
         const siege = record.siege;
         siege.verifiedScore = verified.score;
+        siege.verifiedDamage = verified.damage;
         siege.verifiedStep = verified.step;
         siege.verifiedDigest = verified.digest;
         siege.settled = verified.settled;
@@ -1339,11 +1423,73 @@ export class SiegeRoom {
     const records = [...this.players.values()];
     if (!records.length || !records.every((record) =>
       record.siege?.spent && record.siege?.settled)) return;
-    const [first, second] = records;
-    const winner = first.siege.verifiedScore === second.siege.verifiedScore
-      ? null
-      : first.siege.verifiedScore > second.siege.verifiedScore ? first.pid : second.pid;
-    await this.finishRound(winner, winner === null ? 'tie' : 'score');
+    await this.resolveCurrentRound('spent');
+  }
+
+  async beginSuddenDeath() {
+    const records = [...this.players.values()];
+    for (const record of records) {
+      const siege = record.siege;
+      const audit = this.auditFor(record);
+      if (audit) startSuddenDeath(audit, siege);
+      else {
+        siege.suddenDeath = true;
+        siege.regulationScore = siege.verifiedScore;
+        siege.regulationDamage = siege.verifiedDamage;
+        siege.bag.push('lob');
+        siege.spent = false;
+        siege.settled = false;
+      }
+      siege.scoreCeiling += SCORE.siege.unusedAmmo;
+    }
+    this.deadline = Date.now() + TUNE.draftSeconds * 1000;
+    this.lastClockSecond = TUNE.draftSeconds;
+    this.broadcast({
+      t: 'sudden-death',
+      round: this.round,
+      ammo: 'lob',
+      left: TUNE.draftSeconds,
+      m: 'Exact tie: one Lob each. Higher damage wins.'
+    });
+    await this.persist();
+  }
+
+  async resolveCurrentRound(trigger) {
+    const records = [...this.players.values()];
+    const sudden = records.every((record) => record.siege?.suddenDeath);
+    const result = resolveRound(records.map((record) => ({
+      pid: record.pid,
+      score: sudden ? record.siege.regulationScore : record.siege.verifiedScore,
+      kingPopped: false,
+      suddenDeathDamage: sudden
+        ? record.siege.verifiedDamage - record.siege.regulationDamage : undefined,
+      fortressCost: record.fortressCost
+    })));
+    if (!result.resolved && result.reason === 'sudden-death') {
+      await this.beginSuddenDeath();
+      return;
+    }
+    if (!result.resolved) {
+      // Identical damage and identical scrap are possible. The match seed supplies a
+      // final auditable ordering so even that degenerate case cannot stall a room.
+      const winner = records[(this.seed ^ this.round) & 1].pid;
+      await this.finishRound(winner, 'seeded-final-tie', { trigger });
+      return;
+    }
+    await this.finishRound(result.winner, result.reason, { trigger });
+  }
+
+  finalizeClockScores() {
+    if (this.validateMode !== 'strict') return;
+    for (const record of this.players.values()) {
+      const audit = this.auditFor(record);
+      if (!audit) continue;
+      const final = finalizeAuditScore(audit);
+      record.siege.verifiedScore = final.score;
+      record.siege.verifiedDamage = final.damage;
+      record.siege.verifiedDigest = final.digest;
+      record.siege.verifiedStep = final.step;
+    }
   }
 
   async forfeit(record, code, message) {
@@ -1366,7 +1512,9 @@ export class SiegeRoom {
     this.phase = 'round-over';
     this.deadline = 0;
     const winningRecord = this.players.get(winner);
-    if (winningRecord) winningRecord.wins++;
+    if (!winningRecord) return;
+    winningRecord.wins++;
+    winningRecord.bankedScrap += BUDGET.winnerBonus;
     this.result = { winner, reason, round: this.round, at: Date.now(), ...extra };
     this.broadcast({
       t: 'round-over',
@@ -1375,8 +1523,84 @@ export class SiegeRoom {
         pid: record.pid, name: record.name, wins: record.wins
       }))
     });
+    const match = matchWinner([...this.players.values()]);
+    if (match !== null || this.round >= TUNE.maxRounds) {
+      this.phase = 'match-over';
+      this.deadline = 0;
+      this.broadcast({
+        t: 'match-over',
+        winner: match ?? winner,
+        round: this.round,
+        standings: [...this.players.values()].map((record) => ({
+          pid: record.pid, name: record.name, wins: record.wins
+        }))
+      });
+    } else {
+      this.beginDraft(winner);
+    }
     await this.persist();
     await this.syncRegistry();
+  }
+
+  beginDraft(winner) {
+    const loser = [...this.players.values()].find((record) => record.pid !== winner);
+    const winningRecord = this.players.get(winner);
+    if (!loser || !winningRecord) return;
+    const deficit = winningRecord.wins - loser.wins;
+    const candidates = rollDraft(this.seed, this.round, deficit, loser.cards, loser.pid);
+    this.phase = 'draft';
+    this.draftPid = loser.pid;
+    this.deadline = Date.now() + TUNE.draftSeconds * 1000;
+    this.lastClockSecond = TUNE.draftSeconds;
+    loser.draftOffer = { candidates, deficit, round: this.round };
+    this.sendDraftOffer(loser);
+    const winnerSession = this.playerSession(winner);
+    if (winnerSession) this.send(winnerSession.socket, {
+      t: 'draft-wait',
+      picker: loser.pid,
+      left: TUNE.draftSeconds,
+      winnerBonus: BUDGET.winnerBonus
+    });
+  }
+
+  sendDraftOffer(record) {
+    const target = this.playerSession(record.pid);
+    if (!target || !record.draftOffer) return;
+    this.send(target.socket, {
+      t: 'draft-offer',
+      round: this.round,
+      deficit: record.draftOffer.deficit,
+      tiers: draftTiers(record.draftOffer.deficit, this.round),
+      candidates: record.draftOffer.candidates,
+      left: Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000))
+    });
+  }
+
+  async pickDraft(session, record, requested, timedOut = false) {
+    if (this.phase !== 'draft' || record.pid !== this.draftPid || !record.draftOffer) {
+      if (session) this.sendError(session, 'wrong-phase', 'only the round loser may draft');
+      return false;
+    }
+    const candidate = timedOut
+      ? defaultDraftPick(record.draftOffer.candidates) : String(requested ?? '');
+    if (!record.draftOffer.candidates.includes(candidate) || record.cards.includes(candidate) ||
+        !CARDS_BY_ID[candidate]) {
+      if (session) this.sendError(session, 'invalid-draft-pick',
+        'the selected card was not in this draft offer');
+      return false;
+    }
+    record.cards.push(candidate);
+    record.draftOffer = null;
+    const loser = record.pid;
+    this.draftPid = -1;
+    this.broadcast({
+      t: 'draft-picked',
+      picker: loser,
+      card: candidate,
+      timedOut
+    });
+    await this.beginBuild(this.round + 1);
+    return true;
   }
 
   // -- the cheap room clock ----------------------------------------------
@@ -1401,7 +1625,7 @@ export class SiegeRoom {
       await this.reset();
       return;
     }
-    if (!this.sessions.size && this.phase !== 'siege') {
+    if (!this.sessions.size && this.phase !== 'siege' && this.phase !== 'draft') {
       await this.reset();
       return;
     }
@@ -1426,18 +1650,27 @@ export class SiegeRoom {
       await this.runAudits(AUDIT_STEP_BUDGET);
       if (this.phase !== 'siege') return;
       if (now >= this.deadline) {
-        const [first, second] = records;
-        const winner = first.siege.verifiedScore === second.siege.verifiedScore
-          ? null
-          : first.siege.verifiedScore > second.siege.verifiedScore
-            ? first.pid : second.pid;
-        await this.finishRound(winner, winner === null ? 'clock-tie' : 'clock');
+        this.finalizeClockScores();
+        await this.resolveCurrentRound('clock');
         return;
       }
       const left = Math.max(0, Math.ceil((this.deadline - now) / 1000));
       if (left !== this.lastClockSecond) {
         this.lastClockSecond = left;
         this.broadcast({ t: 'siege-clock', left });
+      }
+      return;
+    }
+    if (this.phase === 'draft') {
+      const picker = this.players.get(this.draftPid);
+      if (now >= this.deadline) {
+        if (picker) await this.pickDraft(null, picker, null, true);
+        return;
+      }
+      const left = Math.max(0, Math.ceil((this.deadline - now) / 1000));
+      if (left !== this.lastClockSecond) {
+        this.lastClockSecond = left;
+        this.broadcast({ t: 'draft-clock', left, picker: this.draftPid });
       }
       return;
     }
@@ -1455,11 +1688,12 @@ export class SiegeRoom {
 
   async alarm() {
     await this.tick();
-    if (this.phase === 'siege' && !this.sessions.size) {
+    if ((this.phase === 'siege' || this.phase === 'draft') && !this.sessions.size) {
       const next = [...this.players.values()]
         .filter((record) => !record.connected && record.graceDeadline > Date.now())
         .reduce((soonest, record) => Math.min(soonest, record.graceDeadline), Infinity);
-      if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next);
+      const alarmAt = this.phase === 'draft' ? this.deadline : next;
+      if (Number.isFinite(alarmAt)) await this.ctx.storage.setAlarm(alarmAt);
     }
   }
 }
