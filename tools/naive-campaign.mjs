@@ -109,6 +109,7 @@ async function playLevel(n, level) {
     let stars = 0;
     let turnsUsed = 0;
     let score = 0;
+    let attempts = 1;
     const confusions = [];
 
     try {
@@ -158,7 +159,11 @@ async function playLevel(n, level) {
           return { phase: s.phase, stars, score: s.score };
         }).catch(() => null);
         if (state?.phase === 'won') { outcome = 'won'; stars = state.stars; score = state.score; break; }
-        if (state?.phase === 'lost') { outcome = 'lost'; break; }
+        // Do not stop on a loss. A real player reads the failure screen and presses Retry,
+        // and the tester does exactly that when left to it — in an earlier single-level run
+        // it lost twice and won on the third attempt. Breaking here recorded that as
+        // "cannot beat the level", which measures the harness rather than the game.
+        if (state?.phase === 'lost') { outcome = 'lost'; attempts++; }
       }
     } catch (e) {
       issues.push(`level: ${e.message}`);
@@ -180,10 +185,10 @@ async function playLevel(n, level) {
       }
     }
 
-    results.push({ ...level, outcome, stars, score, turnsUsed, confusions, issues });
+    results.push({ ...level, outcome, stars, score, attempts, turnsUsed, confusions, issues });
     finished++;
     console.log(`${String(finished).padStart(2)}/${targets.length}  ${level.id.padEnd(8)} ` +
-      `${outcome.padEnd(10)} ${stars}★  ${turnsUsed} turns` +
+      `${outcome.padEnd(10)} ${stars}★  ${turnsUsed} turns, ${attempts} try` +
       (confusions.length ? `  (${confusions.length} confused)` : '') +
       (issues.length ? `  [${issues.length} issue]` : ''));
   }
@@ -218,9 +223,9 @@ const report = [
   '',
   '## Per level',
   '',
-  '| level | episode | outcome | stars | score | turns | confusions |',
-  '| --- | --- | --- | --- | --- | --- | --- |',
-  ...results.map((r) => `| \`${r.id}\` | ${r.episode} | ${r.outcome} | ${r.stars} | ${r.score.toLocaleString()} | ${r.turnsUsed} | ${r.confusions.length} |`),
+  '| level | episode | outcome | stars | score | tries | turns | confusions |',
+  '| --- | --- | --- | --- | --- | --- | --- | --- |',
+  ...results.map((r) => `| \`${r.id}\` | ${r.episode} | ${r.outcome} | ${r.stars} | ${r.score.toLocaleString()} | ${r.attempts} | ${r.turnsUsed} | ${r.confusions.length} |`),
   '',
   '## What it could not work out',
   '',
