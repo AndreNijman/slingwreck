@@ -76,6 +76,7 @@ const editorBackButton = document.querySelector('#editor-back-button');
 const restartButton = document.querySelector('#restart-button');
 const muteButton = document.querySelector('#mute-button');
 const abilityButton = document.querySelector('#ability-button');
+const abilityHint = document.querySelector('#ability-hint');
 const retryButton = document.querySelector('#retry-button');
 const nextButton = document.querySelector('#next-button');
 const menuButton = document.querySelector('#menu-button');
@@ -1309,6 +1310,15 @@ function updateHud(force = false) {
   }
   if (force || round.phase !== shownPhase) {
     abilityButton.hidden = round.phase !== 'flying';
+    // The hint used to be hardcoded in index.html as "Nib has no trick" and never changed,
+    // so a Lob in mid-air told the player it had no trick — the opposite of true, at the
+    // one moment the tap matters. Take it from the critter actually in flight.
+    if (round.phase === 'flying') {
+      const flying = AMMO_BY_ID[round.flying?.ammoId ?? round.bag[round.shotIndex - 1]];
+      abilityHint.textContent = flying
+        ? (flying.ability ? `${flying.name} — ${flying.tutorial}` : `${flying.name} has no trick`)
+        : '';
+    }
     canvas.dataset.phase = round.phase;
     shownPhase = round.phase;
   }
