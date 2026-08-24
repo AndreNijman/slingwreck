@@ -102,14 +102,29 @@ anyone. Deploying the relay is independent and can happen at any point.
 | Cloudflare DNS `CNAME slingwreck -> andrenijman.github.io`, proxied | done |
 | Guard `HOSTS` + `GAME_TITLES` + route, deployed | done, version `86a22bea` |
 | All ten guard hosts responding | verified 428 before and after, guard health `{"ok":true,"database":true}` |
-| Hub card in `games-site/index.html` | **held back on purpose** |
+| Relay Worker `slingwreck-relay` | deployed, `/health` returns ok |
+| Hub card in `games-site/index.html` | **live** |
 
-## Why the hub card is held back
+## The hub card went live 2026-08-24
 
-The card advertises a game to anyone visiting `games.andrenijman.com`. The campaign is 39
-of 52 levels and Siege does not exist yet, so the card goes in at P8 alongside
-`tools/card-shot.mjs` generating the 1000×525 screenshot from a real round. The game is
-reachable at its own subdomain in the meantime, which is what is wanted for testing.
+The campaign is complete — 52 levels, nine critters, star thresholds derived from play —
+so the card now advertises something finished. `tools/card-shot.mjs` generates it from a
+real round in `sty-13`, caught mid-collapse with debris still in the air.
+
+The card copy describes **only what is playable**: "Slingshot demolition · 52 levels ·
+9 critters · fortress workshop · hand-written physics". Siege's rules, relay and cards all
+exist and are tested, but there is no UI to reach them, so the card does not mention it.
+Advertising a mode nobody can click would be a lie told to everyone who visits the hub.
+
+Two attempts were needed for the image. The first used `qry-07`, whose tapped Lob wins the
+level outright and put the results panel over the entire frame — a screenshot of a dialog
+rather than of the game. `sty-13` has thirty pieces and several pigs, so one shot takes a
+visible bite without ending the round.
+
+Verifying it took several passes because the guard fetches the hub document from GitHub
+Pages with `cacheEverything` at a 30-second TTL. The origin served the new HTML
+immediately; the edge did not. A cache purge plus a cache-busting query parameter
+confirmed it. Worth knowing before concluding a hub change has failed to deploy.
 
 ## What was verified, and one thing that cannot be
 
