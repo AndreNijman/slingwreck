@@ -100,14 +100,16 @@
     {
       "id": "P7.6",
       "phase": "P7",
-      "status": "doing",
-      "title": "Siege UI — build phase HUD, corner preview window, draft screen, match standings, results"
+      "status": "done",
+      "title": "Siege UI — build phase HUD, corner preview window, draft screen, match standings, results",
+      "note": "Solo Siege playable end to end: build phase reuses the editor with a scrap budget, timer, early-lock banking and the same siege validation the relay enforces; bot builds via bots.js templates; both worlds step simultaneously in one frame loop; corner preview shows your own fortress under attack with their score and ammo; round resolution, draft of three cards to the loser, standings, best of five."
     },
     {
       "id": "P7.7",
       "phase": "P7",
-      "status": "todo",
-      "title": "Solo Siege vs bot using bots.js fortress templates and the ballistic aimer"
+      "status": "done",
+      "title": "Solo Siege vs bot using bots.js fortress templates and the ballistic aimer",
+      "note": "Solo Siege playable end to end: build phase reuses the editor with a scrap budget, timer, early-lock banking and the same siege validation the relay enforces; bot builds via bots.js templates; both worlds step simultaneously in one frame loop; corner preview shows your own fortress under attack with their score and ammo; round resolution, draft of three cards to the loser, standings, best of five."
     },
     {
       "id": "P7.8",

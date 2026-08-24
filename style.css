@@ -1252,3 +1252,54 @@ body.editing #game {
   .ammo-head.loaded { width: 38px; height: 38px; }
   .ammo-loaded-name { font-size: 10px; }
 }
+
+/* ---- Siege ---------------------------------------------------------------
+   The corner preview is the mode's hook: both players attack at the same time,
+   so you watch your own fortress come apart while you are still working on
+   theirs. Everything else here is scaffolding around that. */
+.siege-banner {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--space-3);
+  background: var(--panel, #F4EBD6); border: 3px solid var(--ink, #2B211C);
+  border-top: none; border-radius: 0 0 14px 14px;
+  padding: 0.5rem 1rem; z-index: 30;
+  font: 600 13px var(--mono, ui-monospace, monospace);
+}
+.siege-banner[hidden] { display: none; }
+.siege-round { font-weight: 700; }
+.siege-wins { color: var(--accent, #B23B2E); font-weight: 700; }
+.siege-clock { min-width: 3.2em; text-align: right; }
+
+.siege-preview {
+  position: absolute; top: var(--space-3); right: var(--space-3);
+  width: 260px; background: var(--panel, #F4EBD6);
+  border: 3px solid var(--ink, #2B211C); border-radius: 12px;
+  overflow: hidden; z-index: 30;
+  font: 600 11px var(--mono, ui-monospace, monospace);
+}
+.siege-preview[hidden] { display: none; }
+.siege-preview-head, .siege-preview-foot {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 8px; background: var(--ink, #2B211C); color: var(--paper, #EDE3CB);
+}
+.siege-preview canvas { display: block; width: 260px; height: 150px; }
+.siege-king.dead { filter: grayscale(1) opacity(0.4); }
+
+.siege-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+.siege-card {
+  text-align: left; padding: var(--space-2);
+  border: 3px solid var(--ink, #2B211C); border-radius: 12px;
+  background: var(--paper, #EDE3CB); cursor: pointer;
+}
+.siege-card:hover, .siege-card:focus-visible { background: #F8F1DF; }
+.siege-card .tier { font: 700 10px var(--mono, ui-monospace, monospace); color: var(--accent, #B23B2E); text-transform: uppercase; }
+.siege-card .card-name { font-weight: 700; margin: 2px 0 4px; }
+.siege-card .card-text { font-size: 12px; line-height: 1.35; color: #4A3E35; }
+.panel-card.wide { max-width: 46rem; }
+.siege-standings { font: 600 14px var(--mono, ui-monospace, monospace); margin: var(--space-2) 0; }
+@media (max-width: 640px) {
+  .siege-preview { width: 168px; }
+  .siege-preview canvas { width: 168px; height: 97px; }
+  .siege-cards { grid-template-columns: 1fr; }
+  .siege-banner { gap: var(--space-2); font-size: 11px; padding: 0.35rem 0.6rem; }
+}

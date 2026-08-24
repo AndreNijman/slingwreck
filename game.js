@@ -1,5 +1,6 @@
-import { AMMO_BY_ID, CARDS, MATERIALS, PIGS, SCORE, SHAPES, TUNE } from './data.js?v=20260822-1';
+import { AMMO_BY_ID, BUDGET, CARDS, MATERIALS, PIGS, SCORE, SHAPES, TUNE } from './data.js?v=20260822-1';
 import {
+  finalizeSiegeScore,
   isRoundOver,
   launch,
   makeRound,
@@ -11,6 +12,7 @@ import {
   TRAJECTORY_STEP,
   capturePose,
   draw,
+  drawPreview,
   drawThumbnail,
   frameRect,
   makeCamera,
@@ -26,6 +28,7 @@ import {
   unlock as unlockAudio
 } from './audio.js?v=20260822-1';
 import {
+  budgetFor,
   decode,
   encode,
   fromBlueprint,
@@ -41,6 +44,13 @@ import {
   validate
 } from './build.js?v=20260822-1';
 import { LEVELS } from './levels.js?v=20260822-1';
+import { fortressForBudget, planShot, shouldTap } from './bots.js?v=20260822-1';
+import {
+  bagForRound,
+  matchWinner,
+  resolveRound,
+  rollDraft
+} from './relay-audit.js?v=20260822-1';
 import {
   createCampaignUI,
   starResultText,
@@ -152,6 +162,7 @@ let cameraPhase = round.phase;
 let fortressFeedbackTime = 0;
 let editing = false;
 let editorDraft = makeDraft();
+let editorSiege = null;
 let editorRound = null;
 let editorBodyPieceIds = new Map();
 let editorGroup = 'materials';
@@ -888,7 +899,17 @@ async function pasteBlueprint() {
   }
 }
 
-function openEditor() {
+// `siegeCtx` turns the workshop into Siege's build phase: same editor, same validation,
+// but with a scrap budget, the player's drafted cards, and a lock-in that hands the
+// blueprint back rather than just saving it. Reusing the editor rather than writing a
+// second one is the whole reason it was built before the campaign.
+function openEditor(siegeCtx = null) {
+  editorSiege = siegeCtx && typeof siegeCtx.onLock === 'function' ? siegeCtx : null;
+  if (editorSiege) {
+    editorDraft = makeDraft({ budget: editorSiege.budget, cards: editorSiege.cards });
+    editorHighlightIds = new Set();
+    editorHighlightCode = null;
+  }
   playing = false;
   editing = true;
   accumulator = 0;
@@ -1609,6 +1630,12 @@ function frame(now) {
     requestAnimationFrame(frame);
     return;
   }
+  if (siege.active && siege.phase === 'assault') {
+    stepSiegeOpponent(elapsed, now);
+    drawSiegePreview(now);
+    if (siegeRoundFinished()) endSiegeRound();
+  }
+  if (siege.active && siege.phase === 'build') updateSiegeBanner();
   if (playing && !isRoundOver(round)) {
     accumulator = Math.min(
       accumulator + elapsed / 1000,
@@ -1895,3 +1922,294 @@ if (new URLSearchParams(window.location.search).has('smoke-test')) {
     })
   });
 }
+
+// ---------------------------------------------------------------- Siege
+//
+// Solo Siege against a bot. Both sides build a fortress, then attack each other's at the
+// same time: the player fires at the bot's, and the bot's attack on the player's runs
+// alongside in the same frame loop, feeding the corner preview. That simultaneity is the
+// whole point of the mode — the pressure comes from watching your own walls fall while you
+// are still working on theirs.
+//
+// The rules all exist already: budgets and validation in build.js, bag composition, draft
+// tiers, round resolution and match victory in relay-audit.js, scoring in sim.js, and the
+// bot's aim in bots.js. This is wiring, not new rules.
+
+let siegeAccumulatorUnused = 0;
+const siege = {
+  active: false, phase: 'idle', round: 1, seed: 0,
+  wins: [0, 0], cards: [[], []], banked: [0, 0],
+  playerRound: null, botRound: null, botFortress: null, playerFortress: null,
+  botNextShot: 0, deadline: 0, lastPreview: 0
+};
+
+const siegeBanner = document.querySelector('#siege-banner');
+const siegeRoundLabel = document.querySelector('#siege-round');
+const siegeWinsLabel = document.querySelector('#siege-wins');
+const siegeScrapLabel = document.querySelector('#siege-scrap');
+const scrapLeftLabel = document.querySelector('#scrap-left');
+const siegeClock = document.querySelector('#siege-clock');
+const siegeLock = document.querySelector('#siege-lock');
+const siegePreview = document.querySelector('#siege-preview');
+const siegePreviewCanvas = document.querySelector('#siege-preview-canvas');
+const siegePreviewKing = document.querySelector('#siege-preview-king');
+const siegeTheirScore = document.querySelector('#siege-their-score');
+const siegeTheirAmmo = document.querySelector('#siege-their-ammo');
+const siegeDraftScreen = document.querySelector('#siege-draft');
+const siegeDraftCards = document.querySelector('#siege-draft-cards');
+const siegeDraftEyebrow = document.querySelector('#siege-draft-eyebrow');
+const siegeResultScreen = document.querySelector('#siege-result');
+const siegeResultTitle = document.querySelector('#siege-result-title');
+const siegeResultEyebrow = document.querySelector('#siege-result-eyebrow');
+const siegeResultDetail = document.querySelector('#siege-result-detail');
+const siegeStandings = document.querySelector('#siege-standings');
+const siegeContinue = document.querySelector('#siege-continue');
+const siegeQuit = document.querySelector('#siege-quit');
+const siegeButton = document.querySelector('#siege-button');
+
+function siegeBudget(pid) {
+  const behind = Math.max(0, siege.wins[1 - pid] - siege.wins[pid]);
+  return budgetFor({ round: siege.round, roundsBehind: behind }) + siege.banked[pid];
+}
+
+function startSiegeMatch() {
+  siege.active = true;
+  siege.round = 1;
+  siege.wins = [0, 0];
+  siege.cards = [[], []];
+  siege.banked = [0, 0];
+  // One seed for the whole match: bag composition and the draft are both derived from it,
+  // so a match is reproducible and — when this is wired to the relay — auditable.
+  siege.seed = (Date.now() ^ 0x5109) >>> 0;
+  beginSiegeBuild();
+}
+
+function beginSiegeBuild() {
+  siege.phase = 'build';
+  siegePreview.hidden = true;
+  siegeDraftScreen.hidden = true;
+  siegeResultScreen.hidden = true;
+  siege.deadline = performance.now() + TUNE.buildSeconds * 1000;
+  openEditor({
+    budget: siegeBudget(0),
+    cards: siege.cards[0],
+    onLock: lockSiegeFortress
+  });
+  updateSiegeBanner();
+}
+
+function updateSiegeBanner() {
+  if (!siege.active || siege.phase !== 'build') { siegeBanner.hidden = true; return; }
+  siegeBanner.hidden = false;
+  siegeRoundLabel.textContent = `Round ${siege.round}`;
+  siegeWinsLabel.textContent = `${siege.wins[0]} – ${siege.wins[1]}`;
+  // Read the editor's own meter rather than recomputing the remainder here. Two
+  // independent calculations of one number is exactly how the banner ended up showing a
+  // full purse over a fortress that had already spent 60 — the same duplicated-maths
+  // fault that broke the smoke probe's dot sampling and the editor's pouch position.
+  siegeScrapLabel.textContent = `${(scrapLeftLabel?.textContent ?? '').trim() || '—'} scrap`;
+  const remaining = Math.max(0, (siege.deadline - performance.now()) / 1000);
+  siegeClock.textContent = `${Math.floor(remaining / 60)}:${String(Math.floor(remaining % 60)).padStart(2, '0')}`;
+  if (remaining <= 0) lockSiegeFortress();
+}
+
+function lockSiegeFortress() {
+  if (siege.phase !== 'build') return;
+  const blueprint = toBlueprint(editorDraft);
+  const check = validate(blueprint, { mode: 'siege', budget: siegeBudget(0), cards: siege.cards[0] });
+  if (!check.ok) {
+    // Same rules the relay enforces. Surfacing them here rather than silently repairing
+    // the draft keeps the solo mode honest about what online will accept.
+    renderValidation();
+    return;
+  }
+  // Bank the unspent time, per DESIGN.md: locking in early is the only reason to stop
+  // fiddling with a fortress.
+  const remaining = Math.max(0, (siege.deadline - performance.now()) / 1000);
+  siege.banked[0] += Math.floor(remaining / 10) * BUDGET.earlyLockPer10s;
+  siege.playerFortress = blueprint;
+  siege.botFortress = fortressForBudget(siegeBudget(1), siege.round + siege.wins[0]);
+  beginSiegeAssault();
+}
+
+function beginSiegeAssault() {
+  siege.phase = 'assault';
+  siegeBanner.hidden = true;
+  closeEditor();
+  const bag = bagForRound(siege.seed, siege.round, siege.cards[0]);
+  const botBag = bagForRound(siege.seed, siege.round, siege.cards[1]);
+  // Two independent worlds that never interact: you attack theirs, they attack yours.
+  siege.playerRound = makeRound({ blueprint: siege.botFortress, bag, seed: siege.seed, mode: 'siege' });
+  siege.botRound = makeRound({ blueprint: siege.playerFortress, bag: botBag, seed: siege.seed ^ 0x9e37, mode: 'siege' });
+  round = siege.playerRound;
+  playing = true;
+  editing = false;
+  siege.botNextShot = performance.now() + 2200;
+  siegePreview.hidden = false;
+  roundHud.hidden = false;
+  titleScreen.hidden = true;
+  document.body.classList.add('playing');
+  resetCameraState('aiming');
+  updateHud(true);
+}
+
+// The bot's attack, stepped in the same frame as the player's. It plans a shot with
+// bots.js, waits for its own world to settle, then plans the next — the same rhythm a
+// person plays at, so the corner preview reads as an opponent rather than a metronome.
+function stepSiegeOpponent(elapsed, now) {
+  const bot = siege.botRound;
+  if (!bot || isRoundOver(bot)) return;
+  let acc = (siege.botAccumulator ?? 0) + elapsed / 1000;
+  let steps = 0;
+  while (acc >= TUNE.step && steps < TUNE.catchUpSteps) {
+    stepRound(bot, TUNE.step);
+    acc -= TUNE.step;
+    steps++;
+  }
+  siege.botAccumulator = acc;
+  if (bot.phase === 'aiming' && now >= siege.botNextShot && bot.shotIndex < bot.bag.length) {
+    const plan = planShot(bot, 0.82, bot.rng);
+    if (plan) {
+      launch(bot, plan.dx, plan.dy);
+      if (shouldTap(bot, plan)) siege.botTapAt = bot.stepCount + (plan.tapStep ?? 30);
+    } else {
+      launch(bot, -TUNE.slingRadius * 0.8, -TUNE.slingRadius * 0.4);
+    }
+    siege.botNextShot = now + 4200;
+  }
+  if (siege.botTapAt && bot.stepCount >= siege.botTapAt) {
+    tap(bot);
+    siege.botTapAt = 0;
+  }
+}
+
+function drawSiegePreview(now) {
+  if (siege.phase !== 'assault' || now - siege.lastPreview < 1000 / TUNE.previewHz) return;
+  siege.lastPreview = now;
+  const ctx = siegePreviewCanvas.getContext('2d');
+  drawPreview(ctx, siege.botRound, siegePreviewCanvas.width, siegePreviewCanvas.height);
+  const king = siege.botRound.pigs.find((pig) => pig.king ?? PIGS[pig.id]?.traits?.king);
+  siegePreviewKing.classList.toggle('dead', Boolean(king?.dead));
+  siegeTheirScore.textContent = scoreFormat.format(Math.round(finalizeSiegeScore(siege.botRound)));
+  siegeTheirAmmo.textContent = `${siege.botRound.bag.length - siege.botRound.shotIndex} left`;
+}
+
+function siegePlayerState(pid) {
+  const r = pid === 0 ? siege.playerRound : siege.botRound;
+  const fortress = pid === 0 ? siege.playerFortress : siege.botFortress;
+  const king = r.pigs.find((pig) => pig.king ?? PIGS[pig.id]?.traits?.king);
+  return {
+    pid,
+    score: finalizeSiegeScore(r),
+    kingPopped: Boolean(king?.dead),
+    wins: siege.wins[pid],
+    fortressCost: fortress.blocks.length,
+    suddenDeathDamage: undefined
+  };
+}
+
+function siegeRoundFinished() {
+  const both = [siege.playerRound, siege.botRound];
+  const kingDown = both.some((r) => r.pigs.some((p) => (p.king ?? PIGS[p.id]?.traits?.king) && p.dead));
+  const spent = both.every((r) => r.shotIndex >= r.bag.length && !isRoundOver(r) ? r.phase === 'aiming' : true);
+  const exhausted = both.every((r) => r.shotIndex >= r.bag.length && r.phase === 'aiming');
+  return kingDown || exhausted;
+}
+
+function endSiegeRound() {
+  siege.phase = 'roundover';
+  playing = false;
+  siegePreview.hidden = true;
+  const players = [siegePlayerState(0), siegePlayerState(1)];
+  const outcome = resolveRound(players);
+  // An unresolved round would mean a genuine tie all the way down to fortress cost. Rather
+  // than stall the match, award it to the defender who spent least — the same tie-break
+  // DESIGN.md uses, applied one step earlier.
+  const winner = outcome.resolved ? outcome.winner
+    : (players[0].fortressCost <= players[1].fortressCost ? 0 : 1);
+  siege.wins[winner]++;
+  const iWon = winner === 0;
+  siegeResultEyebrow.textContent = `Round ${siege.round}`;
+  siegeResultTitle.textContent = iWon ? 'You took the round' : 'They took the round';
+  siegeResultDetail.textContent = outcome.reason === 'king-pop'
+    ? (iWon ? 'You popped their King.' : 'They popped your King.')
+    : `On points — ${scoreFormat.format(Math.round(players[0].score))} against ` +
+      `${scoreFormat.format(Math.round(players[1].score))}.`;
+  siegeStandings.textContent = `You ${siege.wins[0]} — ${siege.wins[1]} Bot` +
+    `  ·  first to ${TUNE.winsNeeded}`;
+  siege.banked[winner] += BUDGET.winnerBonus;
+  const champion = matchWinner([
+    { pid: 0, wins: siege.wins[0] }, { pid: 1, wins: siege.wins[1] }
+  ]);
+  if (champion !== null) {
+    siegeResultEyebrow.textContent = 'Match over';
+    siegeResultTitle.textContent = champion === 0 ? 'You win the siege' : 'The bot wins the siege';
+    siegeContinue.textContent = 'Play again';
+    siege.phase = 'matchover';
+  } else {
+    siegeContinue.textContent = iWon ? 'Next round' : 'Draft a card';
+  }
+  siegeResultScreen.hidden = false;
+  roundHud.hidden = true;
+}
+
+function offerSiegeDraft() {
+  const loser = siege.wins[0] > siege.wins[1] ? 1 : 0;
+  if (loser !== 0) { siege.round++; beginSiegeBuild(); return; }
+  const deficit = siege.wins[1] - siege.wins[0];
+  const choices = rollDraft(siege.seed, siege.round, deficit, siege.cards[0], 0);
+  if (!choices.length) { siege.round++; beginSiegeBuild(); return; }
+  siege.phase = 'draft';
+  siegeDraftEyebrow.textContent = deficit >= 2 ? 'Two rounds down — take something unfair'
+    : 'You lost the round';
+  siegeDraftCards.replaceChildren(...choices.map((card) => {
+    const button = document.createElement('button');
+    button.className = 'siege-card';
+    button.type = 'button';
+    button.innerHTML = '';
+    const tier = document.createElement('div');
+    tier.className = 'tier';
+    tier.textContent = card.tierName;
+    const name = document.createElement('div');
+    name.className = 'card-name';
+    name.textContent = card.name;
+    const text = document.createElement('div');
+    text.className = 'card-text';
+    text.textContent = card.text;
+    button.append(tier, name, text);
+    button.addEventListener('click', () => {
+      siege.cards[0].push(card.id);
+      siegeDraftScreen.hidden = true;
+      siege.round++;
+      beginSiegeBuild();
+    });
+    return button;
+  }));
+  siegeResultScreen.hidden = true;
+  siegeDraftScreen.hidden = false;
+  siegeDraftCards.querySelector('button')?.focus();
+}
+
+function quitSiege() {
+  siege.active = false;
+  siege.phase = 'idle';
+  playing = false;
+  editing = false;
+  siegeBanner.hidden = true;
+  siegePreview.hidden = true;
+  siegeDraftScreen.hidden = true;
+  siegeResultScreen.hidden = true;
+  roundHud.hidden = true;
+  document.body.classList.remove('playing', 'editing');
+  editorScreen.hidden = true;
+  titleScreen.hidden = false;
+}
+
+siegeButton.addEventListener('click', startSiegeMatch);
+siegeLock.addEventListener('click', lockSiegeFortress);
+siegeQuit.addEventListener('click', quitSiege);
+siegeContinue.addEventListener('click', () => {
+  siegeResultScreen.hidden = true;
+  if (siege.phase === 'matchover') { startSiegeMatch(); return; }
+  offerSiegeDraft();
+});

@@ -31,6 +31,7 @@
         <div class="title-actions">
           <button id="play-button" class="button primary" type="button">Campaign</button>
           <button id="editor-button" class="button secondary" type="button">Fortress Workshop</button>
+          <button id="siege-button" class="button secondary" type="button">Siege a Bot</button>
         </div>
         <p id="controls-hint" class="controls-hint"><b>Drag</b> to aim · <b>release</b> to fire · <b>R</b> restart · <b>M</b> mute</p>
       </div>
@@ -140,6 +141,50 @@
     <!-- Shown once, the first time a campaign bag hands the player a critter they have not
          used. A playtester cleared level after level without ever noticing that different
          birds did different things, because nothing said so and they all looked alike. -->
+    <!-- Siege: build a fortress, then both sides attack at once. The corner window is the
+         mode's whole hook — you watch your own fortress coming apart while you work. -->
+    <div id="siege-banner" class="siege-banner" hidden>
+      <span class="siege-round" id="siege-round">Round 1</span>
+      <span class="siege-wins" id="siege-wins">0 – 0</span>
+      <span class="siege-scrap" id="siege-scrap">110 scrap</span>
+      <span class="siege-clock" id="siege-clock">1:30</span>
+      <button id="siege-lock" class="button primary small" type="button">Lock in</button>
+    </div>
+
+    <div id="siege-preview" class="siege-preview" hidden>
+      <div class="siege-preview-head">
+        <span>Their attack on you</span>
+        <span id="siege-preview-king" class="siege-king">👑</span>
+      </div>
+      <canvas id="siege-preview-canvas" width="260" height="150"></canvas>
+      <div class="siege-preview-foot">
+        <span id="siege-their-score">0</span>
+        <span id="siege-their-ammo">–</span>
+      </div>
+    </div>
+
+    <section id="siege-draft" class="screen-panel siege-draft" aria-labelledby="siege-draft-title" hidden>
+      <div class="panel-card wide">
+        <p class="eyebrow" id="siege-draft-eyebrow">You lost the round</p>
+        <h2 id="siege-draft-title">Take something back</h2>
+        <p class="muted" id="siege-draft-sub">Pick one. Only the loser drafts.</p>
+        <div id="siege-draft-cards" class="siege-cards"></div>
+      </div>
+    </section>
+
+    <section id="siege-result" class="screen-panel siege-result" aria-labelledby="siege-result-title" hidden>
+      <div class="panel-card">
+        <p class="eyebrow" id="siege-result-eyebrow">Round over</p>
+        <h2 id="siege-result-title">You took the round</h2>
+        <p id="siege-result-detail" class="muted"></p>
+        <div id="siege-standings" class="siege-standings"></div>
+        <div class="row">
+          <button id="siege-continue" class="button primary" type="button">Next round</button>
+          <button id="siege-quit" class="button ghost" type="button">Back to title</button>
+        </div>
+      </div>
+    </section>
+
     <section id="critter-intro" class="screen-panel critter-intro" aria-labelledby="critter-intro-name" hidden>
       <div class="panel-card">
         <p class="eyebrow">New critter</p>

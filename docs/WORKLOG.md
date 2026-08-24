@@ -596,3 +596,7 @@ since P2.1 and is the first task.
 - 2026-08-23 `P7.5` **done** — Card effects — all 25 applied from their declarative effect data, no per-card switch. Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch.
 
 - 2026-08-23 `P7.6` **doing** — Siege UI — build phase HUD, corner preview window, draft screen, match standings, results
+
+- 2026-08-24 `P7.6` **done** — Siege UI — build phase HUD, corner preview window, draft screen, match standings, results. Solo Siege playable end to end: build phase reuses the editor with a scrap budget, timer, early-lock banking and the same siege validation the relay enforces; bot builds via bots.js templates; both worlds step simultaneously in one frame loop; corner preview shows your own fortress under attack with their score and ammo; round resolution, draft of three cards to the loser, standings, best of five.
+
+- 2026-08-24 `P7.7` **done** — Solo Siege vs bot using bots.js fortress templates and the ballistic aimer. Solo Siege playable end to end: build phase reuses the editor with a scrap budget, timer, early-lock banking and the same siege validation the relay enforces; bot builds via bots.js templates; both worlds step simultaneously in one frame loop; corner preview shows your own fortress under attack with their score and ammo; round resolution, draft of three cards to the loser, standings, best of five.
