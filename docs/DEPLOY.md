@@ -151,3 +151,48 @@ every game on the domain.
 They did not — the net change was one orphaned `wavelength.png` — so nothing was lost. But
 the lesson stands: **`git fetch` and confirm you are current before deploying a Worker that
 fronts nine other people's games.** Rebased and pushed as `92265c4`.
+
+## The deployment was broken for a day and every check I ran said it was fine
+
+`slingwreck.andrenijman.com` served **"Site not found · GitHub Pages"** from the moment it
+was registered until 2026-08-24. The game never loaded once.
+
+Every check I had run passed:
+
+- all ten guard hosts returned **428** — including this one
+- the guard reported `{"ok":true,"database":true}`
+- `robots.txt` returned 200 through the proxied domain
+- `andrenijman.github.io/slingwreck/` returned 200
+- the Pages workflow was green on every commit
+
+None of them touched the thing that was broken. **428 is the guard's "name your device"
+response, and the guard returns it before it ever fetches upstream** — so a 428 proves the
+Worker is alive and proves nothing whatsoever about whether there is a site behind it. The
+200 on `robots.txt` came from the guard's asset path, and the 200 on the `github.io` URL
+was the *project pages* path, which exists whether or not a custom domain is attached.
+
+The actual fault: enabling Pages with `build_type: workflow` via the API does **not** set
+the custom domain. The repository has a `CNAME` file and the workflow uploads it, but the
+Pages configuration itself had `cname: null`, so GitHub had nothing routing
+`slingwreck.andrenijman.com` to this repository and answered every request with its
+generic not-found page.
+
+```bash
+gh api -X PUT repos/AndreNijman/slingwreck/pages -f cname=slingwreck.andrenijman.com
+```
+
+Note the order: setting `cname` and `https_enforced=true` together fails with *"The
+certificate does not exist yet"*. Set the domain, let the certificate provision, then
+enforce HTTPS.
+
+**The lesson is about the check, not the config.** I verified the gate and never verified
+what was behind it. A deployment check has to assert something only a working deployment
+can produce — the game's own markup, its canvas, a string from `index.html` — and not a
+status code from the thing standing in front of it. `tools/smoke.mjs` already does exactly
+this locally; it should be run against production too:
+
+```bash
+BASE_URL=https://slingwreck.andrenijman.com node tools/smoke.mjs
+```
+
+That would have failed on day one.
