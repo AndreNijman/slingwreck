@@ -66,42 +66,42 @@
       "id": "P7.1",
       "phase": "P7",
       "status": "done",
-      "title": "Siege scoring — SCORE.siege in sim.js: block value, off-plot bonus, pig values, unused ammo, breach bonus",
+      "title": "Siege scoring \u2014 SCORE.siege in sim.js: block value, off-plot bonus, pig values, unused ammo, breach bonus",
       "note": "Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch."
     },
     {
       "id": "P7.2",
       "phase": "P7",
       "status": "done",
-      "title": "Match structure — best of five, first to three, round win by King pop else higher score, sudden death, tie-break on cheaper fortress",
+      "title": "Match structure \u2014 best of five, first to three, round win by King pop else higher score, sudden death, tie-break on cheaper fortress",
       "note": "Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch."
     },
     {
       "id": "P7.3",
       "phase": "P7",
       "status": "done",
-      "title": "Scrap budgets — base 110 + 25/round + 15/deficit, early-lock banking, winner bonus",
+      "title": "Scrap budgets \u2014 base 110 + 25/round + 15/deficit, early-lock banking, winner bonus",
       "note": "Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch."
     },
     {
       "id": "P7.4",
       "phase": "P7",
       "status": "done",
-      "title": "The draft — 3 cards from the deficit-derived tier, 25 s, loser picks, relay rolls from the match seed",
+      "title": "The draft \u2014 3 cards from the deficit-derived tier, 25 s, loser picks, relay rolls from the match seed",
       "note": "Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch."
     },
     {
       "id": "P7.5",
       "phase": "P7",
       "status": "done",
-      "title": "Card effects — all 25 applied from their declarative effect data, no per-card switch",
+      "title": "Card effects \u2014 all 25 applied from their declarative effect data, no per-card switch",
       "note": "Delivered together: siege scoring incl. raycast breach bonus, best-of-five, budgets, deficit-tiered draft from the match seed, and all 25 cards applied from declarative effect data with a measured assertion each. No card needed a special-case branch."
     },
     {
       "id": "P7.6",
       "phase": "P7",
       "status": "done",
-      "title": "Siege UI — build phase HUD, corner preview window, draft screen, match standings, results",
+      "title": "Siege UI \u2014 build phase HUD, corner preview window, draft screen, match standings, results",
       "note": "Solo Siege playable end to end: build phase reuses the editor with a scrap budget, timer, early-lock banking and the same siege validation the relay enforces; bot builds via bots.js templates; both worlds step simultaneously in one frame loop; corner preview shows your own fortress under attack with their score and ammo; round resolution, draft of three cards to the loser, standings, best of five."
     },
     {
@@ -115,13 +115,13 @@
       "id": "P7.8",
       "phase": "P7",
       "status": "todo",
-      "title": "tools/balance.mjs --siege -n 400 — flag any card above 65% or below 40% round win rate at parity; report the win-condition distribution"
+      "title": "tools/balance.mjs --siege -n 400 \u2014 flag any card above 65% or below 40% round win rate at parity; report the win-condition distribution"
     },
     {
       "id": "P7.9",
       "phase": "P7",
       "status": "todo",
-      "title": "P7 gate — balance --siege green, mp-smoke through a full best-of-five, all prior suites, commit"
+      "title": "P7 gate \u2014 balance --siege green, mp-smoke through a full best-of-five, all prior suites, commit"
     }
   ],
   "deployed": false,
@@ -154,5 +154,10 @@
       "DEPLOYMENT: the Cloudflare API token and R2 key pair in ~/special.special were accidentally printed into a session transcript on 2026-08-22 and must be rotated before any deploy. They were not used.",
       "GUARD REGISTRATION: adding slingwreck.andrenijman.com to the shared games-guard Worker affects every other game on that domain. Prepared in docs/DEPLOY.md but wants a human decision."
     ]
-  }
+  },
+  "knownIssues": [
+    "SIEGE (solo) is playable but NOT finished. Build phase, lock-in, simultaneous assault and the corner preview all work and were verified in a browser. Two defects remain: (1) the siege banner's scrap readout stays at the full budget after a fortress is loaded, while the editor's own meter beside it is correct \u2014 the two numbers come from different places and one is wrong; (2) siegeRoundFinished() does not fire, so a round never resolves into the result panel, draft or standings even after both bags are spent. Everything downstream of it - resolveRound, rollDraft, the card UI, standings, best-of-five - is written and unit-tested in tools/siege-test.mjs but has never been reached through the UI.",
+    "SIEGE (online) has no UI at all. worker.js, net.js and relay-audit.js are built, deployed and tested, but nothing in the client connects to them.",
+    "Next diagnostic step for the round-resolution bug: instrument siegeRoundFinished() and log both rounds' shotIndex, bag.length and phase each frame. The suspicion is that the bot's round stalls in 'settling' rather than returning to 'aiming', so `both.every(done)` never becomes true - but that is a hypothesis, not a finding, and it should be measured before anything is changed."
+  ]
 }

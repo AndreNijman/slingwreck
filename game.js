@@ -2110,11 +2110,17 @@ function siegePlayerState(pid) {
 
 function siegeRoundFinished() {
   const both = [siege.playerRound, siege.botRound];
-  const kingDown = both.some((r) => r.pigs.some((p) => (p.king ?? PIGS[p.id]?.traits?.king) && p.dead));
-  const spent = both.every((r) => r.shotIndex >= r.bag.length && !isRoundOver(r) ? r.phase === 'aiming' : true);
-  const exhausted = both.every((r) => r.shotIndex >= r.bag.length && r.phase === 'aiming');
-  return kingDown || exhausted;
+  const kingDown = both.some((r) =>
+    r.pigs.some((pig) => (pig.king ?? PIGS[pig.id]?.traits?.king) && pig.dead));
+  if (kingDown) return true;
+  // Otherwise the round ends when neither side has anything left to throw and both worlds
+  // have come to rest. `isRoundOver` covers a side that has already won or lost outright;
+  // an empty bag sitting in `aiming` is the ordinary case.
+  const done = (r) => isRoundOver(r) ||
+    (r.shotIndex >= r.bag.length && (r.phase === 'aiming' || r.phase === 'won' || r.phase === 'lost'));
+  return both.every(done);
 }
+
 
 function endSiegeRound() {
   siege.phase = 'roundover';
