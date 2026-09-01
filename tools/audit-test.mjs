@@ -235,6 +235,53 @@ async function sendHonestShot(page, shot) {
   if (shot.tapStep !== null) await send(page, { t: 'tap', step: shot.tapStep });
 }
 
+// One full miss-shot-then-audit exchange for both sides of a match: fire,
+// report the score, and wait for the relay to accept it. Used for every
+// regulation shot and reused verbatim for the sudden-death Lob.
+async function honestShotAndScore(match, tapAbility = true) {
+  const [first, second] = await Promise.all([
+    localMiss(match.honest, tapAbility),
+    localMiss(match.suspect, tapAbility)
+  ]);
+  await Promise.all([
+    sendHonestShot(match.honest, first),
+    sendHonestShot(match.suspect, second)
+  ]);
+  const wait = Math.max(0,
+    (Math.max(first.boundaryStep, second.boundaryStep) - 180) * TUNE.step * 1000 -
+    (Date.now() - match.startedAt) + 100);
+  await match.honest.waitForTimeout(wait);
+  const firstAt = await count(match.honest);
+  const secondAt = await count(match.suspect);
+  await Promise.all([
+    send(match.honest, {
+      t: 'score', step: first.boundaryStep, ammoIndex: first.ammoIndex,
+      score: first.score, digest: first.digest, settled: true
+    }),
+    send(match.suspect, {
+      t: 'score', step: second.boundaryStep, ammoIndex: second.ammoIndex,
+      score: second.score, digest: second.digest, settled: true
+    })
+  ]);
+  await Promise.all([
+    waitMessage(match.honest, 'audit-ok', firstAt),
+    waitMessage(match.suspect, 'audit-ok', secondAt)
+  ]);
+  return { first, second };
+}
+
+// Mirrors relay-audit.js startSuddenDeath()'s call into sim.beginSuddenDeath()
+// on the client's own local replica round, so the extra Lob it fires lines up
+// with the ammo the relay just pushed onto the authoritative bag.
+async function beginLocalSuddenDeath(page) {
+  await page.evaluate(async () => {
+    const sim = await import('./sim.js');
+    if (!sim.beginSuddenDeath(window.__auditRound)) {
+      throw new Error('local sudden death could not be started');
+    }
+  });
+}
+
 function benchmarkReplay() {
   const blocks = [];
   for (let y = 0; y < 5; y++) {
@@ -326,50 +373,84 @@ try {
   ]);
   const shots = honest.honestSiege.bag.length;
   for (let index = 0; index < shots; index++) {
-    const [first, second] = await Promise.all([
-      localMiss(honest.honest, true),
-      localMiss(honest.suspect, true)
-    ]);
-    await Promise.all([
-      sendHonestShot(honest.honest, first),
-      sendHonestShot(honest.suspect, second)
-    ]);
-    const wait = Math.max(0,
-      (Math.max(first.boundaryStep, second.boundaryStep) - 180) * TUNE.step * 1000 -
-      (Date.now() - honest.startedAt) + 100);
-    await honest.honest.waitForTimeout(wait);
-    const firstAt = await count(honest.honest);
-    const secondAt = await count(honest.suspect);
-    await Promise.all([
-      send(honest.honest, {
-        t: 'score', step: first.boundaryStep, ammoIndex: first.ammoIndex,
-        score: first.score, digest: first.digest, settled: true
-      }),
-      send(honest.suspect, {
-        t: 'score', step: second.boundaryStep, ammoIndex: second.ammoIndex,
-        score: second.score, digest: second.digest, settled: true
-      })
-    ]);
-    await Promise.all([
-      waitMessage(honest.honest, 'audit-ok', firstAt),
-      waitMessage(honest.suspect, 'audit-ok', secondAt)
-    ]);
+    await honestShotAndScore(honest, true);
   }
+  // This fixture's local miss shot (sim.launch(round, 0, 0)) never damages a
+  // pig, so both sides' bags always exhaust at an exact score tie: relay-audit.js
+  // resolveRound() (relay-audit.js:107-121) falls through the score check at
+  // line 115 and returns {resolved:false, reason:'sudden-death'}, which
+  // worker.js:1422-1424 routes into beginSuddenDeath() instead of finishRound().
+  // The relay broadcasts a 'sudden-death' message (worker.js:1401-1407), not
+  // 'round-over' -- complete that leg of the protocol rather than dodge it.
+  const [honestSD, suspectSD] = await Promise.all([
+    waitMessage(honest.honest, 'sudden-death'),
+    waitMessage(honest.suspect, 'sudden-death')
+  ]);
+  assert.equal(honestSD.ammo, 'lob');
+  assert.equal(suspectSD.ammo, 'lob');
+  await Promise.all([
+    beginLocalSuddenDeath(honest.honest),
+    beginLocalSuddenDeath(honest.suspect)
+  ]);
+  const suddenDeathShot = await honestShotAndScore(honest, true);
+  // The regulation bag reliably ties at 1200/1200 (diagnosed: sim.launch(round,
+  // 0, 0) always misses, so pig damage is always zero). The sudden-death Lob
+  // is tapped to detonate after a single physics step (localMiss's tapAbility
+  // path), and empirically that single step of drift is NOT always a clean
+  // miss the way the regulation shots are -- sometimes it clips a pig for a
+  // sliver of splash damage on one side and not the other. So there are two
+  // legitimate outcomes of relay-audit.js resolveRound() (relay-audit.js:
+  // 107-133) here, and which one landed is read off the same local round
+  // score the relay itself verified, not assumed:
+  //  - suddenDeathDamage differs -> resolved at relay-audit.js:122-126 with
+  //    reason 'sudden-death-damage', winner = higher-damage side.
+  //  - suddenDeathDamage also ties -> falls to the fortressCost check
+  //    (relay-audit.js:127-132); both blueprints leave fortressCost equal
+  //    too (diagnosed: 6 == 6), so it returns {resolved:false, reason:
+  //    'fortress-cost-tie'}. worker.js:1426-1431 is the only remaining branch
+  //    for an unresolved result: it picks a seeded winner "so even that
+  //    degenerate case cannot stall a room" and finishes with reason
+  //    'seeded-final-tie' (worker.js:1430) -- not 'tie', which no longer
+  //    exists anywhere in the code.
+  // Either way this is the only end-to-end coverage of beginSuddenDeath()
+  // over a live WebSocket; tools/siege-test.mjs only drives resolveRound()
+  // standalone.
+  const suddenDeathTied = suddenDeathShot.first.score === suddenDeathShot.second.score;
+  const expectedReason = suddenDeathTied ? 'seeded-final-tie' : 'sudden-death-damage';
   const [honestOver, otherOver] = await Promise.all([
     waitMessage(honest.honest, 'round-over'),
     waitMessage(honest.suspect, 'round-over')
   ]);
-  assert.equal(honestOver.reason, 'tie');
-  assert.equal(otherOver.reason, 'tie');
-  assert.equal(honestOver.winner, null);
-  assert.equal(otherOver.winner, null);
+  assert.equal(honestOver.reason, expectedReason);
+  assert.equal(otherOver.reason, expectedReason);
+  // Either reason alone doesn't prove the sudden-death Lob drove this result --
+  // the same reasons could in principle fire from a deadline-triggered
+  // resolution too. Pin it to the 'spent' trigger (worker.js:1380
+  // finishIfSpent -> resolveCurrentRound('spent') -> worker.js:1430/1433
+  // finishRound(winner, reason, {trigger}) -> worker.js:1472 this.result
+  // spreads {trigger} into the broadcast), which only fires once both sieges
+  // are spent && settled -- i.e. the pushed Lob was actually fired, scored,
+  // and audited both sides.
+  assert.equal(honestOver.trigger, 'spent');
+  assert.equal(otherOver.trigger, 'spent');
+  if (suddenDeathTied) {
+    const validWinners = [honest.honestWelcome.you, honest.suspectWelcome.you];
+    assert.ok(validWinners.includes(honestOver.winner),
+      `seeded tiebreak winner ${honestOver.winner} was not a match participant`);
+  } else {
+    const expectedWinner = suddenDeathShot.first.score > suddenDeathShot.second.score
+      ? honest.honestWelcome.you : honest.suspectWelcome.you;
+    assert.equal(honestOver.winner, expectedWinner);
+  }
+  assert.equal(honestOver.winner, otherOver.winner);
   for (const page of [honest.honest, honest.suspect]) {
     const messages = await page.evaluate(() => window.__auditClient.messages);
     assert.equal(messages.some((message) =>
       message.t === 'round-over' && message.reason === 'forfeit'), false);
   }
   await closeMatch(honest);
-  console.log(`PASS honest full round: ${shots}/${shots} shots per client audited, no accusation`);
+  console.log(`PASS honest full round: ${shots}/${shots} shots per client audited, no accusation, ` +
+    `sudden death resolved to ${expectedReason}`);
 
   assert.deepEqual(runtimeIssues, [], runtimeIssues.join('\n'));
   const cost = benchmarkReplay();
