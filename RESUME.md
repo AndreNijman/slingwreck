@@ -19,41 +19,112 @@ tool, this one is written by hand.
 4. `docs/WORKLOG.md` — what happened, including what went wrong.
 5. `BUILD_STATE.json` — machine-readable state, the task ledger and the open risks.
 
-## Blocked, as of 2026-08-22
+## Paused mid-flight, 2026-09-01 — read this first
 
-**Every delegation path is unavailable.** See `blockedOn` in `BUILD_STATE.json` and
-`docs/DELEGATION.md`. The short version: Sol is out of quota until 29 August, Kimi's
-membership is inactive, and all three Antigravity models hit a streaming JSON parse bug —
-Gemini also produced an Episode 4 that failed all 13 levels on lint and was reverted.
+**HEAD is `abfd28f`, and the tree is dirty on purpose.** Work was interrupted with three
+delegated jobs in flight. Nothing is lost; everything below is recoverable.
 
-Nothing is broken. The tree is clean, every gate is green, and 39 of 52 levels are done.
-Resume by re-running the committed prompt:
+### The uncommitted tree
+
+| file | what it is | state |
+| --- | --- | --- |
+| `tools/balance.mjs` (+693) | **P7.8** — the `--siege` mode, written by Sol | incomplete, parses, never run |
+| `docs/FILE-PLAN.json` | Sol's budget entry for the above | incomplete |
+| `tools/audit-test.mjs` (+147) | the P6 gate fix | written, **not yet verified** |
+| `tools/prompts/P7.8-siege-balance.md` | the committed spec for P7.8 | complete, untracked |
+
+Two snapshot refs preserve the in-flight state independently of the working tree:
 
 ```bash
-codex exec -m gpt-5.6-sol --skip-git-repo-check "$(cat tools/prompts/P5.5-episode4.md)"
+git for-each-ref refs/snapshots/          # wip-1, wip-2
+git checkout refs/snapshots/wip-2 -- .    # restore if the tree is ever damaged
 ```
 
+To re-snapshot at any point (includes untracked files, which `git stash create` does not,
+and leaves the index and working tree untouched):
+
+```bash
+export GIT_INDEX_FILE=/tmp/snap-index && rm -f "$GIT_INDEX_FILE"
+git read-tree HEAD && git add -A && tree=$(git write-tree) && unset GIT_INDEX_FILE
+git update-ref refs/snapshots/wip-N "$(git commit-tree "$tree" -p HEAD -m 'wip snapshot')"
+```
+
+### What P7.8 actually is
+
+**`node tools/balance.mjs --siege -n 400` had never been implemented.** It is named as the
+P7 gate in `BUILD_STATE.json`, as `balance:siege` in `package.json`, and specified in
+`docs/BUILD_PLAN.md` — but `tools/balance.mjs` accepted only `--campaign` and the gate
+command exited on usage. **P7.8 is a build, not a run.** Do not accept a "just run the
+gate" framing. Resume it with the committed prompt:
+
+```bash
+codex exec -m gpt-5.6-sol -s workspace-write --skip-git-repo-check \
+  "$(cat tools/prompts/P7.8-siege-balance.md)"
+```
+
+Sol's quota is back (it expired 29 August). `tools/balance.mjs` imports
+`bots/data/build/levels/physics/sim/relay-audit` and **not** `game.js`, so client-side
+fixes do not invalidate its measurements.
+
+### Still to do, in this order
+
+1. **Verify `tools/audit-test.mjs`** — run it three times. It was the red P6 gate; the fix
+   is written but unverified.
+2. **`game.js` + gate hardening** — four defects, all confirmed, none started. See
+   "Defects found but not yet fixed" below.
+3. **Finish P7.8**, then P7.9.
+
+Step 2 must land **before** P7.8 is finalised: it changes solo-Siege scrap economics,
+therefore fortress cost, therefore round outcomes.
+
+### Defects found but not yet fixed
+
+- **The Siege build phase throws away its own budget and cards.** `openEditor()` builds the
+  correct siege draft, then unconditionally clobbers it with a bare `makeDraft()` about
+  twenty-five lines later, so the whole `if (editorSiege)` block is dead. The scrap economy
+  never scales with round, deficit or banked time, and drafted cards never unlock a material
+  in the editor. This is the *real* cause of the flat purse that the 2026-08-25 session
+  declared fixed.
+- **Three assertions in `tools/siege-match.mjs` cannot fail.** The banner assertion compares
+  `#siege-scrap` against `#scrap-left` — both rendered from the same `editorDraft.budget`,
+  so it agrees with itself by construction and passed straight through the defect above.
+  Two draft assertions pass vacuously when `draftsSeen === 0`, which happens whenever the
+  player sweeps 3–0 and never drafts.
+- **`tools/siege-match.mjs` is nondeterministic.** Two runs gave different scorelines *and*
+  different assertion counts (23 then 22), because it paces a real-time rAF loop with
+  `page.waitForTimeout(2200)`. Rule 4 below applies.
+- **The bot's drafted cards are inert except budget cards.** `fortressForBudget` never calls
+  `rulesFor`, so an unlock / materialCost / decoyKing / autoPig card drafted by the bot does
+  nothing. Undecided.
+- **Two claims in `docs/WORKLOG.md` are false** and need correcting in place: "there was
+  only ever one calculation" (there were two bugs; that retraction was wrong), and "every
+  one of the four defects would have failed it" (the banner assertion cannot fail).
+
 **Deployment is separately blocked** on rotating the Cloudflare and R2 credentials, which
-were accidentally printed into a transcript on 22 August and must be replaced before any
-deploy. They were not used.
+were accidentally printed into a transcript on 22 August. They were not used.
 
 ## Where things stand
 
-**P0, P1 and P2 are complete with green gates. P3 is in progress.**
+**P0 through P6 are complete with green gates. P7 is at 7/9** — `node tools/progress.mjs
+--full` is authoritative.
 
-The game is playable: title screen, drag-to-aim slingshot with a trajectory preview, a
-two-tower level with a TNT crate, destruction, scoring, win and lose, restart, and
-portrait touch.
+The campaign is complete: 52 authored levels across four episodes, star thresholds set from
+bot play, level select with unlocks and progress sync. Solo Siege plays end to end — build
+phase, lock-in, simultaneous assault, corner preview, round resolution, draft, standings,
+best of five — subject to the scrap-economy defect above.
 
-**Nothing is deployed.** No GitHub repository, no DNS record, no guard registration, no
-relay. `docs/DEPLOY.md` is the runbook.
+**Online Siege has no UI.** `worker.js`, `net.js` and `relay-audit.js` are built, deployed
+and tested, but nothing in the client connects to them.
 
 ## The gates
 
 | command | covers |
 | --- | --- |
 | `npm run check` | data invariants, simulation purity, line budgets, cache stamps, plan-versus-code drift, and it runs the three headless suites |
-| `npm test` | 22 assertions driving the real page in Chromium, desktop and portrait touch |
+| `npm test` | 40 assertions driving the real page in Chromium, desktop and portrait touch |
+| `npm run test:siege` | a full best-of-five of solo Siege in Chromium — see the nondeterminism note above |
+| `npm run test:mp` | the relay end to end: room flow, twin settle digests, simultaneous siege, King-pop resolution |
+| `node tools/audit-test.mjs` | the P6 adversarial audit gate, plus one honest round that must draw no accusation |
 | `npm run test:determinism:all` | **four** JS engines, physics and sim scenarios, via podman |
 | `npm run test:determinism` | three engines; exits non-zero on the missing fourth rather than passing a partial run |
 
