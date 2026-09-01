@@ -227,6 +227,22 @@ export function rankTargets(round, limit = 6) {
 
   for (const balloon of round.balloons) {
     if (balloon.dead || balloon.pigBody.dead || balloon.pigBody.balloon !== balloon) continue;
+    // sim.js gates ALL damage to an airlift-held King on this flag while its balloon
+    // lives (sim.js:826-827, 955-956) and siege only ends on king.dead (sim.js:1597).
+    // That makes popping this balloon a precondition for winning, not a bonus like a
+    // Zeppelin Hog's balloon (whose rider can still be damaged normally while aloft):
+    // every shot spent elsewhere while it lives buys literally zero progress toward the
+    // round's only win condition. A bigger flat number is still a bonus that some
+    // structural score could in principle clear (TNT/spring bonuses alone reach
+    // 2000-2400 before their multipliers) — the target needs to win unconditionally,
+    // so it is scored above anything finite rather than merely raised.
+    if (balloon.pigBody.invulnerableWhileBalloon) {
+      candidates.push({
+        kind: 'balloon', body: balloon, point: { x: balloon.x, y: balloon.y },
+        score: Infinity, reasons: ['pops invulnerability shield'], material: 'balloon'
+      });
+      continue;
+    }
     const bonus = ammoId === 'pebble' && livePigs.length === 1 ? 2600 :
       ammoId === 'pebble' ? 80 : 60;
     candidates.push({
@@ -258,7 +274,13 @@ export function planShot(round, difficulty = 1, random = round?.rng) {
   const ammoId = round.bag[round.shotIndex];
   const targetIsExposed = target.reasons.includes('exposed') ||
     target.reasons.includes('exposed TNT');
-  let arc = ammoId === 'pebble' && target.kind === 'balloon' ||
+  // Any ammo can now be routed at the invulnerability-shield balloon (see rankTargets),
+  // not just pebble. It is small and drifting like a Zeppelin Hog's balloon, so it gets
+  // the same lofted arc pebble already used against balloons — gated on the reason
+  // string, which only exists when invulnerableWhileBalloon fired, so ordinary
+  // Zeppelin Hog balloon targeting (pebble-only 'high' arc) is untouched.
+  const targetIsShieldBalloon = target.reasons.includes('pops invulnerability shield');
+  let arc = ammoId === 'pebble' && target.kind === 'balloon' || targetIsShieldBalloon ||
     ammoId === 'lob' && !targetIsExposed ? 'high' : 'low';
   let point = { ...target.point };
   let activation = 'near';
