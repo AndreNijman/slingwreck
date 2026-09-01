@@ -19,29 +19,61 @@ tool, this one is written by hand.
 4. `docs/WORKLOG.md` — what happened, including what went wrong.
 5. `BUILD_STATE.json` — machine-readable state, the task ledger and the open risks.
 
-## Paused mid-flight, 2026-09-01 — read this first
+## Where P7 actually stands, 2026-09-01 — read this first
 
-**HEAD is `abfd28f`, and the tree is dirty on purpose.** Work was interrupted with three
-delegated jobs in flight. Nothing is lost; everything below is recoverable.
+**HEAD is `b4254b1`. The tree is clean. P7.8 is done; P7.9 is blocked on one thing only.**
 
-### The uncommitted tree
+Every clause of the P7.9 gate is green except `balance --siege`:
 
-| file | what it is | state |
-| --- | --- | --- |
-| `tools/balance.mjs` (+693) | **P7.8** — the `--siege` mode, written by Sol | incomplete, parses, never run |
-| `docs/FILE-PLAN.json` | Sol's budget entry for the above | incomplete |
-| `tools/audit-test.mjs` (+147) | the P6 gate fix | written, **not yet verified** |
-| `tools/prompts/P7.8-siege-balance.md` | the committed spec for P7.8 | complete, untracked |
+| gate | state |
+| --- | --- |
+| `check` · `siege-test` 25/25 · `editor-test` · `physics` · `settle-probe` · level lint 52/52 | green |
+| `npm test` 40/40 · `test:siege` 45/45 (×3) · `test:mp` · `audit-test` (×3) | green |
+| `playtest --all` 774 shots · `determinism:all` four engines at sim digest `2856ed88` | green |
+| `balance --campaign` 52/52, output hash unchanged | green |
+| **`balance --siege -n 400`** | **red by design — see below** |
 
-Two snapshot refs preserve the in-flight state independently of the working tree:
+### The one blocker
 
-```bash
-git for-each-ref refs/snapshots/          # wip-1, wip-2
-git checkout refs/snapshots/wip-2 -- .    # restore if the tree is ever damaged
-```
+`airlift` measures **81.4% [69.6%, 89.3%]** round win rate at parity against a 40–65% band.
+It is the only one of four flagged cards whose interval clears its threshold; `gale` 69.7%,
+`iron-ration` 37.3% and `kingslayer` 33.3% are all flagged on the point estimate, as
+BUILD_PLAN requires, but their intervals straddle at 55–70 rounds per card.
 
-To re-snapshot at any point (includes untracked files, which `git stash create` does not,
-and leaves the index and working tree untouched):
+**Two harness artefacts were found and removed before that number could be trusted**, and
+the history matters if you are tempted to nerf the card:
+
+- the bot did not know to pop an invulnerability shield — worth **1.6** points (`712bb39`)
+- `buildFortress` respent the scrap freed by airlift's flight lane — worth **4.3** points
+
+~16 points above the ceiling remain and belong to the card. `data.js` is untouched.
+
+**The lever is not `lift`, `driftRange` or `balloonHp`.** The balloon already dies on shot 1
+in 120/120 rounds; the King dies 100% of the time with or without the card (mean 1.65 vs
+1.95 shots); and under `--no-lane-respend` the holder already spends 109 fortress scrap
+against the opponent's 145 and still wins. The only remaining lever is the total damage
+immunity, which is the card's printed text and which DESIGN warns against removing.
+
+**And the band may be the wrong instrument.** `CARD_TIER_RULES` makes tier 3 drawable only
+at deficit exactly 2, so a Desperado card can only be held by a player two rounds down
+needing three straight wins — while the parity sweep holds deficit equal by construction.
+It measures tier-3 cards in a state where they cannot be drawn. DESIGN says the band applies
+to Desperado cards *and* that the draw restriction is the guard; both cannot govern tier 3.
+0.814³ ≈ 53% for the comeback airlift's holder actually needs is arguably the point of the
+card.
+
+**The next measurement, and it is a small one:** a per-card **match** comeback rate from the
+natural sweep at the real deficit, rather than a per-round rate at parity. That decides
+whether airlift is broken or working. Do that before touching `data.js`.
+
+Closing P7 therefore needs one of: that measurement, a deliberate `data.js` rebalance, or an
+amendment to how the gate reads tier 3. It is a design decision, not a defect fix.
+
+### Snapshots
+
+`refs/snapshots/wip-1` … `wip-7` hold in-flight trees from this session; all of it is now
+committed, so they are only historical. To take another (includes untracked files, which
+`git stash create` drops, and leaves the index and working tree untouched):
 
 ```bash
 export GIT_INDEX_FILE=/tmp/snap-index && rm -f "$GIT_INDEX_FILE"
@@ -49,13 +81,12 @@ git read-tree HEAD && git add -A && tree=$(git write-tree) && unset GIT_INDEX_FI
 git update-ref refs/snapshots/wip-N "$(git commit-tree "$tree" -p HEAD -m 'wip snapshot')"
 ```
 
-### What P7.8 actually is
+### A note on the gate that was never implemented
 
-**`node tools/balance.mjs --siege -n 400` had never been implemented.** It is named as the
-P7 gate in `BUILD_STATE.json`, as `balance:siege` in `package.json`, and specified in
-`docs/BUILD_PLAN.md` — but `tools/balance.mjs` accepted only `--campaign` and the gate
-command exited on usage. **P7.8 is a build, not a run.** Do not accept a "just run the
-gate" framing. Resume it with the committed prompt:
+`node tools/balance.mjs --siege -n 400` was named as the P7 gate in `BUILD_STATE.json`, as
+`balance:siege` in `package.json`, and specified in `docs/BUILD_PLAN.md` — and the arg
+parser accepted only `--campaign`, so it had never once executed. Worth remembering that a
+command can be named as a gate in three places and still be fiction. Its spec is committed:
 
 ```bash
 codex exec -m gpt-5.6-sol -s workspace-write --skip-git-repo-check \
@@ -66,47 +97,39 @@ Sol's quota is back (it expired 29 August). `tools/balance.mjs` imports
 `bots/data/build/levels/physics/sim/relay-audit` and **not** `game.js`, so client-side
 fixes do not invalidate its measurements.
 
-### Still to do, in this order
+### Fixed on 2026-09-01, listed because the write-ups were wrong before
 
-1. **Verify `tools/audit-test.mjs`** — run it three times. It was the red P6 gate; the fix
-   is written but unverified.
-2. **`game.js` + gate hardening** — four defects, all confirmed, none started. See
-   "Defects found but not yet fixed" below.
-3. **Finish P7.8**, then P7.9.
+- **The Siege build phase threw away its own budget and cards.** `openEditor()` built the
+  correct siege draft and then clobbered it with a bare `makeDraft()` twenty-five lines
+  later, so the whole `if (editorSiege)` block was dead and the scrap economy never reached
+  the build phase. Fixed in `3441964`. This was the *real* cause of the flat purse that the
+  2026-08-25 session declared fixed — that session found a second, genuine bug (the banner
+  sat below `frame()`'s editor early return) and wrote off the original two-numbers
+  diagnosis, which had been closer to correct.
+- **Three assertions in `tools/siege-match.mjs` could not fail.** The banner assertion
+  compared `#siege-scrap` against `#scrap-left`, both rendered from the same
+  `editorDraft.budget` — it agreed with itself by construction and passed straight through
+  the defect above. Two draft assertions passed vacuously whenever `draftsSeen === 0`, i.e.
+  any match the player swept. Fixed in `3441964`; the gate went from 22–23 varying
+  assertions to a fixed 45, deterministic across eight runs.
+- **The P6 gate was red and had been since P7.1**, asserting `reason: 'tie'` — a string
+  retired in `9e6b41f` that appears nowhere in the code. The relay was correct throughout.
+  Fixed in `ff0eb38`, which now also carries the only live coverage of the sudden-death
+  ladder.
+- **The bot could not fight airlift.** Fixed in `712bb39`; see the blocker above.
 
-Step 2 must land **before** P7.8 is finalised: it changes solo-Siege scrap economics,
-therefore fortress cost, therefore round outcomes.
-
-### Defects found but not yet fixed
-
-- **The Siege build phase throws away its own budget and cards.** `openEditor()` builds the
-  correct siege draft, then unconditionally clobbers it with a bare `makeDraft()` about
-  twenty-five lines later, so the whole `if (editorSiege)` block is dead. The scrap economy
-  never scales with round, deficit or banked time, and drafted cards never unlock a material
-  in the editor. This is the *real* cause of the flat purse that the 2026-08-25 session
-  declared fixed.
-- **Three assertions in `tools/siege-match.mjs` cannot fail.** The banner assertion compares
-  `#siege-scrap` against `#scrap-left` — both rendered from the same `editorDraft.budget`,
-  so it agrees with itself by construction and passed straight through the defect above.
-  Two draft assertions pass vacuously when `draftsSeen === 0`, which happens whenever the
-  player sweeps 3–0 and never drafts.
-- **`tools/siege-match.mjs` is nondeterministic.** Two runs gave different scorelines *and*
-  different assertion counts (23 then 22), because it paces a real-time rAF loop with
-  `page.waitForTimeout(2200)`. Rule 4 below applies.
-- **The bot's drafted cards are inert except budget cards.** `fortressForBudget` never calls
-  `rulesFor`, so an unlock / materialCost / decoyKing / autoPig card drafted by the bot does
-  nothing. Undecided.
-- **Two claims in `docs/WORKLOG.md` are false** and need correcting in place: "there was
-  only ever one calculation" (there were two bugs; that retraction was wrong), and "every
-  one of the four defects would have failed it" (the banner assertion cannot fail).
+**Still open:** the bot's drafted cards are inert except budget cards, because
+`fortressForBudget` never calls `rulesFor`, so an unlock / materialCost / decoyKing /
+autoPig card drafted by the bot does nothing. Undecided, and it limits what solo Siege can
+tell you about those cards.
 
 **Deployment is separately blocked** on rotating the Cloudflare and R2 credentials, which
 were accidentally printed into a transcript on 22 August. They were not used.
 
 ## Where things stand
 
-**P0 through P6 are complete with green gates. P7 is at 7/9** — `node tools/progress.mjs
---full` is authoritative.
+**P0 through P6 are complete with green gates. P7 is at 8/9 with P7.9 blocked** — `node
+tools/progress.mjs --full` is authoritative.
 
 The campaign is complete: 52 authored levels across four episodes, star thresholds set from
 bot play, level select with unlocks and progress sync. Solo Siege plays end to end — build

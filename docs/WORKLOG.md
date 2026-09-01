@@ -774,3 +774,96 @@ keypress for) and every other round via the button, so both paths are covered.
 Gates: `node tools/check.mjs`, `node tools/siege-test.mjs` (25/25 cards), `node
 tools/editor-test.mjs`, `npm test` (40/40, no regression to the campaign editor) all pass.
 `npm run test:siege` passed 45/45 on three consecutive runs with an identical scoreline.
+
+### P7.8 — the Siege balance gate, and three explanations for one number — 2026-09-01
+
+`node tools/balance.mjs --siege -n 400` is named as the P7 gate in `BUILD_STATE.json`, as
+`balance:siege` in `package.json`, and specified in `docs/BUILD_PLAN.md`. **It had never
+been implemented.** The arg parser accepted only `--campaign`, so the command exited on
+usage. P7.8 was a build, not a run, and no report had ever said so.
+
+Two sweeps, because one cannot answer both questions the plan asks. The parity sweep gives
+one side exactly the card under test and the other nothing, at equal round index and equal
+budget with the live draft disabled, and mirrors every pairing so a side bias cancels — the
+real draft only ever rewards the round loser, so tallying holders in natural matches would
+have measured the comeback mechanic instead. The natural sweep runs the full rules and is
+what the win-condition rule is measured on.
+
+Result: null control P1 50.0% with both legs in band, 25/25 cards exercised, King-pop share
+90.1% against the 70% points ceiling, and 4/25 cards out of band. Deterministic across
+three `-n 400` runs. Proven able to fail both ways — Hard Hats buffed to `pigHp 1000` was
+flagged and exited 1; suppressing `resolveRound`'s king-pop branch reported
+`points/non-King 100.0% exceeds 70.0%` and exited 1.
+
+    iron-ration  37.3%  [26.7%, 49.3%]  LOW  (CI crosses 40%)
+    gale         69.7%  [57.8%, 79.4%]  HIGH (CI crosses 65%)
+    airlift      87.3%  [76.0%, 93.7%]  HIGH
+    kingslayer   33.3%  [22.9%, 45.6%]  LOW  (CI crosses 40%)
+
+Only airlift's interval clears its threshold. The other three are flagged on the point
+estimate because BUILD_PLAN says to flag on the point estimate, but at 55–70 rounds each
+they are inside the noise, and the rows say so.
+
+#### Airlift took three explanations, and two of them were this harness
+
+**One — the bot could not fight it.** Airlift's King takes no damage until its balloon is
+shot down. `bots.js` scored the balloon at `bonus + balloon.x`, a flat number that never
+reflected the invulnerability, so blocks outranked it for 7 of 8 ammo while the King was
+untouchable. The one super-priority that would have won required `pebble`, which is not in
+`BASE_AMMO` and only arrives via the `armoury` card — so at parity, where the attacker
+holds nothing, it could never fire. The giveaway was the heuristic's own reason string,
+`'drops Zeppelin Hog'`: written for a rider that can still be damaged while aloft.
+
+Fixed by scoring it `Infinity` when `invulnerableWhileBalloon`, above anything finite
+because TNT and spring bonuses reach 2000–2400 before multipliers. **Worth 1.6 points:
+87.3% → 85.7%.** The stated diagnosis — that the number substantially measured a bot defect
+— was wrong. Doing it first was still right: until the bot could play against the card,
+"the card is too strong" was not a testable claim.
+
+**Two — winning on points.** Dead, and backwards. 93.8% of airlift's wins are king-pop and
+only 6.3% score, and the holder *scores less* than the opponent (1,819 vs 2,048) with a
+*lower* unused-ammo term.
+
+**Three — the harness built it a better fortress.** `buildFortress` opens a flight lane by
+deleting every block in x ∈ (10,14), because the authored 1.5-unit drift would otherwise
+carry the balloon through the template's posts. The lane is necessary; respending the freed
+scrap was not, and it meant airlift was measured on a materially tougher structure — the
+opponent destroying 54 of its blocks against 110 of a plain one. `--no-lane-respend`
+withholds the respend. **Worth 4.3 points: 85.7% → 81.4% [69.6%, 89.3%].**
+
+So of the original 87.3%: 1.6 points was the bot, 4.3 was the respend, and ~16 points above
+the ceiling are the card. Under `--no-lane-respend` the holder spends 109 fortress scrap
+against the opponent's 145 — a genuine 36-scrap handicap — and still wins 81.4%.
+
+#### Why the card was not touched
+
+The lever is not `lift`, `driftRange` or `balloonHp`. The balloon already dies on shot 1 in
+120/120 rounds, and the King dies 100% of the time with or without the card (mean 1.65 vs
+1.95 shots). The only remaining lever is the total damage immunity, which is the card's
+printed text.
+
+And the band may be the wrong instrument here. `CARD_TIER_RULES` makes tier 3 drawable only
+at deficit exactly 2, so a Desperado card can only ever be held by a player two rounds down
+needing three straight wins. The parity sweep holds budgets, round index and deficit equal
+by construction, so **it measures tier-3 cards in a state where they cannot be drawn.**
+DESIGN says the 40–65 band applies to Desperado cards, and also that the guard against a
+runaway is the draw restriction; both cannot govern tier 3. At 81.4% per round airlift
+converts to roughly 0.814³ = 53% for the three consecutive wins its holder needs, which is
+arguably what a Desperado card is for.
+
+The measurement that would settle it is a per-card **match** comeback rate from the natural
+sweep at the real deficit, not a per-round rate at parity. That does not exist yet, so
+airlift's flag is well-measured but not yet actionable, and `data.js` is untouched.
+
+DESIGN's recorded fix — mutual exclusion of `airlift` and `gale` in the draw — is
+explicitly conditional on the harness confirming an `airlift + gale + bedrock` lock. The
+harness measured airlift alone, so that precondition was never met and exclusion is not the
+applicable fix. That risk is closed as never-confirmed rather than as fixed.
+
+#### P7 is not closed
+
+Every other clause of the P7.9 gate is green: mp-smoke, audit-test three times,
+`test:siege` 45/45 three times, `npm test` 40/40, editor-test, siege-test 25/25,
+`playtest --all` 774 shots, four-engine determinism at sim digest `2856ed88`, and campaign
+52/52 at an unchanged output hash. The clause "balance --siege green" is red by design.
+Closing P7 needs a `data.js` rebalance or an amendment to how the gate reads tier 3.
