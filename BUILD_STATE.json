@@ -126,9 +126,9 @@
       "note": "Every other clause is green: mp-smoke, audit-test (three runs), test:siege 45/45 three times, npm test 40/40, editor-test, siege-test 25/25, playtest --all 774 shots, four-engine determinism at sim digest 2856ed88, campaign 52/52 at an unchanged output hash. The gate clause \"balance --siege green\" is not, and deliberately so: airlift measures 81.4% [69.6%, 89.3%] at parity against a 65% ceiling. Closing P7 needs either a data.js rebalance or an amendment to how the gate reads tier-3 cards. See knownIssues."
     }
   ],
-  "deployed": false,
-  "guardRegistered": false,
-  "dnsConfigured": false,
+  "deployed": true,
+  "guardRegistered": true,
+  "dnsConfigured": true,
   "openRisks": [
     "RESOLVED 2026-08-22: cross-engine float determinism holds with the FULL solver. V8, SpiderMonkey and JavaScriptCore produce bit-identical digests over 1800 steps with SAT, manifolds, warm starting, impulses, position solve and sleeping all active. The relay audit model in ARCHITECTURE.md section 5 is viable and the lenient fallback is not needed. Re-run with `npm run test:determinism:all` after any change to physics.js or sim.js (podman; WebKit cannot launch on this host directly).",
     "52 authored campaign levels is the largest single time cost in the plan and depends on the editor being pleasant to use, which is why P4 precedes P5.",
@@ -143,18 +143,15 @@
     "Every campaign level gets a screenshot. Run `node tools/level-shots.mjs` after authoring or tuning any level, and review the contact sheet at shots/levels/_contact-sheet.png before calling an episode done."
   ],
   "blockedOn": {
-    "summary": "Every delegation path is unavailable as of 2026-08-22. Work is paused, not broken: the tree is clean and every gate is green at 39/52 levels.",
+    "summary": "Nothing is blocked. This field previously said every delegation path was unavailable as of 2026-08-22 with 39/52 levels done - both obsolete. All 52 levels are authored, and gpt-5.6-sol ran P7.8 successfully on 2026-09-01 after its quota reset.",
     "paths": {
-      "gpt-5.6-sol (codex exec)": "out of quota until 2026-08-29 09:50. Produced P1 through P5.4; by far the best results.",
-      "kimi-code/k3": "402, membership inactive.",
-      "antigravity claude sonnet 4-6 / opus 4-6-thinking": "streaming JSON parse bug, fails on any multi-chunk response.",
-      "antigravity gemini 3.1 pro": "same parse bug once tool calls are in the stream, and its Episode 4 attempt failed all 13 levels on lint. See docs/DELEGATION.md.",
+      "gpt-5.6-sol (codex exec)": "WORKING as of 2026-09-01. Quota reset. Built P7.8. Invoke as: codex exec -m gpt-5.6-sol -s workspace-write --skip-git-repo-check \"$(cat tools/prompts/P7.8-siege-balance.md)\". Note codex exec resume takes -c sandbox_mode=\"workspace-write\" and NOT -s, which fails argument parsing silently in a background launch.",
+      "kimi-code/k3": "402, membership inactive as of 2026-08-22. Not retested.",
+      "antigravity claude / gemini": "streaming JSON parse bug on multi-chunk responses as of 2026-08-22. Not retested. See docs/DELEGATION.md.",
       "openrouter": "configured and probably working, but Andre asked for OAuth paths rather than OpenRouter."
     },
-    "resumeWith": "codex exec -m gpt-5.6-sol --skip-git-repo-check \"$(cat tools/prompts/P5.5-episode4.md)\" once Sol's quota resets on 2026-08-29.",
     "alsoBlocked": [
-      "DEPLOYMENT: the Cloudflare API token and R2 key pair in ~/special.special were accidentally printed into a session transcript on 2026-08-22 and must be rotated before any deploy. They were not used.",
-      "GUARD REGISTRATION: adding slingwreck.andrenijman.com to the shared games-guard Worker affects every other game on that domain. Prepared in docs/DEPLOY.md but wants a human decision."
+      "DEPLOYMENT CREDENTIALS: the Cloudflare API token and R2 key pair in ~/special.special were printed into a session transcript on 2026-08-22 and should still be rotated. They were not used. The site is already deployed and serving, so this blocks future deploys rather than the current one."
     ]
   },
   "knownIssues": [
@@ -164,6 +161,9 @@
     "tools/siege-match.mjs is deterministic across eight consecutive runs (45/45 assertions, scoreline You 3 - 2 Bot every time, some under concurrent CPU load), but one race remains by design rather than by proof: the bot's shot cadence is scheduled off wall-clock performance.now() via siege.botNextShot, not off sim ticks. A sufficiently loaded machine is therefore still a plausible source of scoreline variance. Unobserved so far. The honest fix is to schedule the bot off the fixed step; it was left alone deliberately because it is a change to game behaviour rather than to the gate.",
     "game.js parses ?siege-seed= unconditionally rather than behind ?smoke-test, following the existing ?ammo= precedent. Harmless for solo Siege, where nothing is at stake in the seed. It must NOT reach online Siege: DESIGN.md gives the relay ownership of the match seed, so a client-supplied override there would let a player choose their own draft offers. Check this when the online Siege UI is wired up.",
     "AIRLIFT is a confirmed balance outlier at parity and untouched: 85.7% with the harness default, 81.4% [69.6%, 89.3%] with --no-lane-respend, against a 40-65% band. Two harness artefacts were found and removed first - the bot did not know to pop an invulnerability shield (1.6 points, fixed in 712bb39) and buildFortress respent the scrap freed by airlift's flight lane (4.3 points). Roughly 16 points above the ceiling remain and belong to the card. The lever is NOT lift, driftRange or balloonHp: the balloon already dies on shot 1 in 120/120 rounds, the King dies 100% of the time with or without the card (mean 1.65 vs 1.95 shots), and under --no-lane-respend the holder already spends 109 fortress scrap against the opponent's 145. The only remaining lever is the total damage immunity, which is the card's printed text and identity, and DESIGN warns against nerfing it into pointlessness. Not changed - this is a game-design decision, not a defect fix.",
-    "THE 40/65 BAND AND TIER 3 CONFLICT, and airlift is where it bites. CARD_TIER_RULES makes tier 3 drawable only at deficit exactly 2, so a Desperado card can only ever be held by a player two rounds down who needs three straight wins. The parity sweep holds budgets, round index and deficit equal by definition, so it measures tier-3 cards in a state where they cannot be drawn. DESIGN says the 40-65 band applies to Desperado cards AND that the guard against a runaway is the draw restriction; those two statements cannot both govern tier 3. At 81.4% per round, airlift converts to roughly 0.814^3 = 53% for the three consecutive wins its holder actually needs, which is arguably the intended function of a Desperado card. The measurement that would settle it is a per-card MATCH comeback rate from the natural sweep at the real deficit, not a per-round rate at parity. Until that exists, treat airlift's flag as well-measured but not yet actionable."
-  ]
+    "THE 40/65 BAND AND TIER 3 CONFLICT, and airlift is where it bites. CARD_TIER_RULES makes tier 3 drawable only at deficit exactly 2, so a Desperado card can only ever be held by a player two rounds down who needs three straight wins. The parity sweep holds budgets, round index and deficit equal by definition, so it measures tier-3 cards in a state where they cannot be drawn. DESIGN says the 40-65 band applies to Desperado cards AND that the guard against a runaway is the draw restriction; those two statements cannot both govern tier 3. At 81.4% per round, airlift converts to roughly 0.814^3 = 53% for the three consecutive wins its holder actually needs, which is arguably the intended function of a Desperado card. The measurement that would settle it is a per-card MATCH comeback rate from the natural sweep at the real deficit, not a per-round rate at parity. Until that exists, treat airlift's flag as well-measured but not yet actionable.",
+    "THREE OF THE FOUR FLAGGED CARDS ARE INSIDE THE NOISE and unresolved: gale 69.7% [57.8%, 79.4%], iron-ration 37.3% [26.7%, 49.3%], kingslayer 33.3% [22.9%, 45.6%]. At 55-70 rounds per card the intervals straddle their thresholds, so tuning them on these numbers would be fitting to sampling error. Resolving them means a higher -n: -n 400 gives about +/-12% per card and takes 8 minutes, so -n 2000 for roughly +/-5.5% costs about 40 minutes. Do that before treating any of the three as a real outlier.",
+    "check.mjs does not enforce line budgets for anything under tools/. Its budget loop iterates plan.modules only and never plan.tools, so the budget on any tools/ entry in docs/FILE-PLAN.json - including the ones raised deliberately for tools/balance.mjs - is documentation kept honest by hand rather than a gate. tools/balance.mjs is currently 1138 lines against a documented 1250."
+  ],
+  "deploymentVerified": "2026-09-01: slingwreck.andrenijman.com HTTP 200, games.andrenijman.com HTTP 200, and the relay /health returns {\"ok\":true,\"service\":\"slingwreck-relay\",\"maxPlayers\":2}. These three flags had said false since before the 2026-08-24 deployment recorded in docs/DEPLOY.md; they were stale, not accurate."
 }
