@@ -18,13 +18,31 @@
 // drafts a card at all. With the seed pinned, rounds 1 and 2 are deliberately played with
 // no player shots fired (see `skipFiring` below) so the bot wins both outright, the player
 // drafts twice, and which two cards are on offer is known in advance.
+//
+// A third review found the same defect one level up: `offerSiegeDraft`'s `loser !== 0`
+// branch — the bot drafting for itself when it loses a round — was only ever exercised by
+// a scratch script, never by this suite, because the scripted match never let the player
+// win a round. Once the bot's fortress stopped ignoring most of its own budget (see
+// game.js `buildBotFortress`), the player's naive fixed-angle test shot could no longer
+// crack it in time, and the bot's own attack was always fast enough to pop the player's
+// tiny fixed test fortress first — so every round went the bot's way and the "bot loses,
+// bot drafts" path stayed permanently unreached. `PLAYER_WIN_ROUND` below is the fix:
+// for that one round, the player defends with a fortress it builds for itself (the same
+// declarative pipeline as the bot's own, sized to that round's real budget) and attacks
+// with a real ballistic shot aimed at the bot's King with a high arc, clearing the bot's
+// wall of ground-level pillars instead of driving straight into it. Every other round is
+// untouched — same tiny fixed blueprint, same naive drag — so the bot keeps winning them,
+// and the player's own held-card assertions (rounds 1-2) are unaffected.
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TUNE } from '../data.js';
-import { decode, fromBlueprint, spent, budgetFor } from '../build.js';
+import {
+  decode, encode, fromBlueprint, place, settleTest, spent, toBlueprint, undo, validate, budgetFor
+} from '../build.js';
+import { aim, fortressForBudget } from '../bots.js';
 import { chromium } from 'playwright';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,6 +67,13 @@ const blueprintPieceCount = decodedBlueprint.blocks.length + decodedBlueprint.pi
 const SIEGE_SEED = 1;
 const ROUND1_TARGET_CARD = 'Deep Pockets';
 const ROUND2_TARGET_CARD = 'Heavy Industry';
+// The one round the player is scripted to win outright, to exercise `offerSiegeDraft`'s
+// bot-drafts-for-itself branch (see the header comment). Chosen as round 3 because it is
+// the first round the player could plausibly win at all (rounds 1-2 are the scripted
+// losses that put Deep Pockets and Heavy Industry in the player's hand) and because the
+// round's own existing checks (the Heavy Industry material-unlock probe below) only need
+// one clear grid cell, which the reserved corner of the player's own fortress preserves.
+const PLAYER_WIN_ROUND = 3;
 
 function formatScrap(value) {
   if (!Number.isFinite(value)) return '—';
@@ -181,6 +206,86 @@ async function fireOnce(page, pouch) {
   await page.mouse.up();
 }
 
+// A legal, settled, fully-spent defensive fortress for the player to load on
+// `PLAYER_WIN_ROUND`, built with the same declarative pipeline `bots.js`/`build.js` give
+// the bot itself: seed a template, then fill every remaining scrap with `place`, gated by
+// `validate` at every step. No card effects are needed here — the player never drafts for
+// this blueprint, it is loaded once as a fixture — so this is deliberately a smaller,
+// cards-free cousin of game.js's own `buildBotFortress`, not a copy of it. `reserveMaxX`
+// keeps a strip of the plot's left edge empty regardless of budget, so the round 3 Heavy
+// Industry check below (which needs one clear grid cell) keeps working without having to
+// know where in a fully-spent fortress a gap happened to fall.
+function buildToughFortress(baseBudget, templateIndex, reserveMaxX) {
+  const initial = fortressForBudget(baseBudget, templateIndex);
+  const draft = fromBlueprint(initial.blueprint, { budget: baseBudget });
+  const groundSources = (shape) => {
+    const sources = [];
+    if (shape === 'pillar') {
+      for (const y of [2, 6]) {
+        for (let index = 0; index < TUNE.plotW * 2; index++) {
+          const x = 0.25 + index * 0.5;
+          if (x > reserveMaxX) sources.push({ shape, x, y });
+        }
+      }
+    } else {
+      for (let index = 0; index < TUNE.plotW; index++) {
+        const x = 0.5 + index;
+        if (x > reserveMaxX) sources.push({ shape, x, y: 0.5 });
+      }
+    }
+    return sources;
+  };
+  const placeLegal = (material, shape = 'pillar') => {
+    for (const source of groundSources(shape)) {
+      if (!place(draft, { ...source, material }).ok) continue;
+      if (validate(draft, { mode: 'siege' }).ok) return true;
+      undo(draft);
+    }
+    return false;
+  };
+  for (let guard = 0; spent(draft) < draft.budget && guard < 500; guard++) {
+    const added = ['stone', 'wood', 'glass'].some((material) => placeLegal(material, 'pillar')) ||
+      placeLegal('glass', 'cube');
+    if (!added) break;
+  }
+  const legality = validate(draft, { mode: 'siege' });
+  if (!legality.ok) {
+    throw new Error(`tough fortress rejected: ${legality.errors.map((e) => e.code).join(', ')}`);
+  }
+  const settled = settleTest(draft);
+  if (!settled.ok) {
+    throw new Error(`tough fortress failed settle: moved [${settled.movedPieces.join(',') || 'none'}], ` +
+      `dead pigs [${settled.deadPigs.join(',') || 'none'}]`);
+  }
+  return { blueprint: toBlueprint(draft), spent: spent(draft) };
+}
+
+// `PLAYER_WIN_ROUND`'s shot: a real ballistic solve (the same `aim()` bots.js's own
+// opponent uses) targeting the bot King's live position, with a high arc so the shot
+// drops in from above rather than driving into the wall of ground-level pillars a
+// fully-spent fortress puts up. Converted to a page-space mouse delta by inverting
+// `updateAim` in game.js (`dx = (point.x - startX) / scale`, `dy = (startY - point.y) /
+// scale`) the same way `pouch`'s own coordinates are already derived from the live camera
+// — difficulty 1 makes the aim noise term exactly zero, so the dummy rng below is inert.
+async function fireAtKing(page, pouch) {
+  const state = await fullState(page);
+  // Round 3's bot fortress holds no cards yet (it has not lost a round), so its blueprint
+  // is the stock template's three pigs in their authored order — [runt, king, runt] for
+  // both `bots.js` templates — making index 1 reliably the King. This assumption is
+  // specific to `PLAYER_WIN_ROUND` being the bot's first loss; it would need revisiting if
+  // that constant ever moved to a round where the bot could already hold a decoy-King or
+  // Flak Hog card reordering its pig list.
+  const king = state.pigs[1];
+  const shot = aim({}, { x: king.x, y: king.y }, 1, () => 0, 'high');
+  const x = pouch.x + shot.dx * pouch.scale;
+  const y = pouch.y - shot.dy * pouch.scale;
+  await page.mouse.move(pouch.x, pouch.y);
+  await page.mouse.down();
+  await page.mouse.move(x, y, { steps: 10 });
+  await poll(() => fullState(page), (s) => s?.aim?.active === true, 2000);
+  await page.mouse.up();
+}
+
 const server = serve();
 await new Promise((ready) => server.listen(0, '127.0.0.1', ready));
 const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -211,12 +316,38 @@ try {
     report(`round ${round} opens in the build phase`, opening.phase === 'build',
       `phase ${opening.phase}`);
 
-    await page.locator('#blueprint-input').fill(BLUEPRINT);
+    // `siegeBudget(0)` and the held cards are both live the instant the build phase opens
+    // (`beginSiegeBuild` sets them before the editor ever renders), so they can be read
+    // before deciding — and, on `PLAYER_WIN_ROUND`, before building — which blueprint to
+    // load. `state` is re-read after loading, below, for anything the load itself changes.
+    const cardsHeld = opened.value.siege.cards[0];
+    const composedBudget = budgetFor({ budget: opened.value.siege.rulesBudget, cards: cardsHeld });
+    const isWinRound = round === PLAYER_WIN_ROUND;
+    let blueprintToLoad = BLUEPRINT;
+    let expectedPieceCount = blueprintPieceCount;
+    let blueprintCost = spent(fromBlueprint(decodedBlueprint, { cards: cardsHeld }));
+    if (isWinRound) {
+      // See the header comment and `buildToughFortress`: this is the one round the player
+      // defends with a fortress sized to its own real budget instead of the cheap fixture,
+      // so the bot's attack cannot pop it before the player's own aimed shot lands.
+      //
+      // `IRON_PROBE_RESERVE` scrap is deliberately left unspent: `PLAYER_WIN_ROUND` also
+      // happens to be round 3, which already places one discounted iron block below to
+      // prove Heavy Industry unlocked it (cost 6 for a cube) — a fortress that spent the
+      // entire budget left `over-budget` as the only reason that placement could ever fail.
+      const IRON_PROBE_RESERVE = 20;
+      const tough = buildToughFortress(composedBudget - IRON_PROBE_RESERVE, 0, 4);
+      blueprintToLoad = encode(tough.blueprint);
+      expectedPieceCount = tough.blueprint.blocks.length + tough.blueprint.pigs.length;
+      blueprintCost = tough.spent;
+    }
+
+    await page.locator('#blueprint-input').fill(blueprintToLoad);
     await page.locator('#load-blueprint-button').click();
     const loaded = await poll(() => fullState(page),
-      (state) => state?.editor?.pieceCount === blueprintPieceCount);
-    report(`round ${round} loads the fixed blueprint`, loaded.ok,
-      loaded.ok ? `${loaded.value.editor.pieceCount} pieces` : loaded.detail);
+      (state) => state?.editor?.pieceCount === expectedPieceCount);
+    report(`round ${round} loads the ${isWinRound ? "player's own defensive" : 'fixed'} blueprint`,
+      loaded.ok, loaded.ok ? `${loaded.value.editor.pieceCount} pieces` : loaded.detail);
 
     // The banner and the editor's own meter are two DOM readouts of one number, and until
     // now they were checked against each other — which passes by construction, since both
@@ -228,9 +359,6 @@ try {
     // once via build.js's own `budgetFor`, then reduced by the loaded blueprint's cost
     // computed the same way. Neither side of this check reads `editorDraft.budget`.
     const state = await fullState(page);
-    const cardsHeld = state.siege.cards[0];
-    const composedBudget = budgetFor({ budget: state.siege.rulesBudget, cards: cardsHeld });
-    const blueprintCost = spent(fromBlueprint(decodedBlueprint, { cards: cardsHeld }));
     const expectedLeft = formatScrap(composedBudget - blueprintCost);
     // `updateSiegeBanner` only re-reads the meter on the next requestAnimationFrame tick,
     // so a read straight after `pieceCount` catches up can still see last frame's banner —
@@ -277,7 +405,9 @@ try {
         `iron .locked class present: ${paletteLocked}; cards [${cardsHeld.join(', ')}]`);
       await page.locator('.material-choice[data-material="iron"]').click();
       const beforePlace = await fullState(page);
-      const spot = await editorPoint(page, 2, 2); // clear of the loaded fortress (x 8..16)
+      // Clear of both blueprints this round can load: the fixed fixture occupies x 8..16,
+      // and `buildToughFortress`'s `reserveMaxX` keeps x <= 4 empty on `PLAYER_WIN_ROUND`.
+      const spot = await editorPoint(page, 2, 2);
       await page.mouse.click(spot.x, spot.y);
       const placed = await poll(() => fullState(page),
         (s) => s?.editor?.pieceCount === beforePlace.editor.pieceCount + 1);
@@ -333,7 +463,9 @@ try {
       if (!skipFiring && p?.phase === 'aiming' && p.shot < p.bag) {
         await waitForCameraSettled(page);
         const pouch = await pouchPoint(page);
-        await fireOnce(page, pouch);
+        // `PLAYER_WIN_ROUND` fires a real aimed shot at the bot's King; every other round
+        // keeps the original naive fixed-angle drag, unchanged.
+        if (isWinRound) await fireAtKing(page, pouch); else await fireOnce(page, pouch);
         await poll(() => fullState(page), (s) =>
           s?.siege?.phase !== 'assault' || (s.siege.player && s.siege.player.shot > p.shot));
       } else {
@@ -379,6 +511,14 @@ try {
     rounds.push({ round, title: panel.title.trim(), standings: panel.standings.trim() });
 
     const finishedNow = await fullState(page);
+    // The whole point of `PLAYER_WIN_ROUND`: verify the player actually won it (making the
+    // bot the round's loser), not just that a shot was fired. `opening.wins` was read
+    // before this round played; a win shows up as the player's own tally advancing.
+    if (isWinRound) {
+      report(`round ${round} is won by the player, making the bot the loser who drafts next`,
+        finishedNow?.siege?.wins?.[0] > opening.wins[0],
+        `wins ${opening.wins.join('-')} -> ${finishedNow?.siege?.wins?.join('-')}`);
+    }
     if (finishedNow?.siege?.phase === 'matchover') {
       matchEnd = { title: panel.title.trim(), wins: finishedNow.siege.wins };
       break;
@@ -409,6 +549,16 @@ try {
     } else {
       report(`round ${round} reaches the next build phase`,
         afterContinue.ok, afterContinue.ok ? `phase ${afterContinue.value.siege.phase}` : afterContinue.detail);
+      // No draft screen shown means the bot was the round's loser and drafted for itself,
+      // through `offerSiegeDraft`'s `loser !== 0` branch — this is the path a card the bot
+      // drafts is otherwise never exercised through. Assert the growth of `siege.cards[1]`
+      // itself, not merely that this branch ran, per the header comment.
+      if (isWinRound) {
+        const afterBotDraft = afterContinue.ok ? afterContinue.value : await fullState(page);
+        report(`round ${round}'s loss sends the bot through its own invisible draft`,
+          (afterBotDraft?.siege?.cards?.[1]?.length ?? 0) > 0,
+          `bot cards: [${afterBotDraft?.siege?.cards?.[1]?.join(', ') || 'none'}]`);
+      }
     }
   }
 
@@ -426,6 +576,13 @@ try {
   report('picked cards are held for the rest of the match',
     (finalState?.siege?.cards?.[0]?.length ?? 0) >= 2,
     `player holds ${finalState?.siege?.cards?.[0]?.length ?? 0} card(s) after ${draftsSeen} draft(s)`);
+  // Both draft directions, held to the end of the match: the player's from losing rounds
+  // 1-2, the bot's from losing `PLAYER_WIN_ROUND` — not just that the bot's own draft
+  // branch ran once, but that the card it drew is still on its sheet at the final state.
+  report('the bot also drafted for itself after losing a round, and still holds the card',
+    (finalState?.siege?.cards?.[1]?.length ?? 0) >= 1,
+    `bot holds ${finalState?.siege?.cards?.[1]?.length ?? 0} card(s): ` +
+    `[${finalState?.siege?.cards?.[1]?.join(', ') || 'none'}]`);
   report('a best of five needs at most nine rounds',
     rounds.length <= 9 && rounds.length >= TUNE.winsNeeded,
     `${rounds.length} round(s) played`);

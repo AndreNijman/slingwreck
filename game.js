@@ -2036,6 +2036,156 @@ function siegeBudget(pid) {
   return budgetFor({ round: siege.round, roundsBehind: behind }) + siege.banked[pid];
 }
 
+// Card-aware bot fortress. `bots.js`'s `fortressForBudget` only ever walks a fixed
+// template pricing blocks at raw `MATERIALS[material].cost`, so a drafted card only
+// used to matter to the bot when its effect kind was `budget` (folded in by the old
+// caller's `budgetFor` wrapper). Every other kind — `unlock`, `materialCost`,
+// `decoyKing`, `pigAbility` (Flak Hog) — was inert. This runs the same declarative
+// pipeline the editor and the relay use instead, following `tools/balance.mjs`'s
+// `buildFortress` rather than a second, divergent build path: seed from
+// `fortressForBudget`, replay through `fromBlueprint` (which folds `rulesFor(cards)`
+// into cost and legality via its own `budgetFor` call), place whatever a card
+// obligates (a decoy King, a flak-flagged pig, reserved unlocked-material blocks),
+// spend the rest with a discount-aware fill loop, then `validate` before use.
+//
+// `autoPig` (Conscription) is the one kind that still cannot change what this
+// returns: it spawns extra pigs from `cards` inside `sim.js`'s `instantiate` at round
+// start, never as blueprint pieces, so there is nothing for a draft to place here —
+// `validate`'s own `too-few-pigs` check already credits it without any piece existing
+// (see `automaticOtherPigs` in build.js). Solo Siege does not thread `defenderCards`
+// into `makeRound` for either side yet (a separate, pre-existing gap — neither
+// `siege.playerRound` nor `siege.botRound` below passes `cards`/`defenderCards`), so
+// Conscription's spawn and Flak Hog's actual ability still would not fire in an
+// assault even after this fix; that gap is out of scope here since it is not the
+// blueprint-building defect this function addresses.
+//
+// `kingBalloon` (Airlift) now opens the same flight lane `tools/balance.mjs`'s
+// `buildFortress` does, at the same geometry: clear blocks at x in (10, 14) — the
+// stock templates flank the King with posts there — and keep the fill loop from
+// refilling x in [9.5, 14.5]. Without this, a card-aware build holding Airlift failed
+// `settleTest` 10/10 across the template/budget sweep: the balloon-carried King rose
+// through the un-laned gap and jostled the neighbouring posts enough to exceed the
+// movement tolerance, and the build silently fell back to the plain ~60-scrap
+// template every time — Airlift permanently crippling the one fortress it should be
+// making more interesting to attack.
+//
+// One deliberate divergence from the harness: `buildFortress` has a
+// `--no-lane-respend` flag that keeps the lane open but withholds the scrap it freed,
+// because *spending* that scrap was inflating Airlift's measured parity win rate by
+// 4.3 points — a measurement-fairness fix, not a gameplay one. There is no equivalent
+// here: the fill loop below respends the freed scrap into the rest of the fortress
+// exactly as it would for any other reason a column was unavailable. A human player
+// forced to leave a lane would spend that scrap elsewhere; modelling the bot as
+// declining to spend budget it has would repeat the exact discontinuity this function
+// already removed once (see the no-cards note below). Do not add `--no-lane-respend`
+// symmetry here to make this match the harness — they are answering different
+// questions on purpose.
+//
+// No-cards is not special-cased either, on purpose, even though it changes the bot's
+// strength materially. It used to return `fortressForBudget`'s output directly, which
+// stops adding blocks once the fixed template list is exhausted — about 60 scrap
+// spent regardless of a purse that reaches into the hundreds. That produced a spend
+// discontinuity: 60 scrap with no cards, a full purse the instant the bot held even
+// one card with no fortress effect at all (e.g. Bedrock), so the bot's strength
+// depended on whether it happened to lose a round rather than on the budget it was
+// given. `fortressForBudget` is now always just the seed; the fill loop below always
+// runs, with or without cards, so the budget is always the constraint. This is a
+// deliberate, material difficulty increase to solo Siege — a full-purse bot fortress
+// every round, not just after a draft — left to P8's "three difficulties" to tune
+// rather than undone here.
+function buildBotFortress(baseBudget, templateIndex, cards) {
+  const initial = fortressForBudget(baseBudget, templateIndex);
+  const effects = cards.map((id) => CARDS_BY_ID[id]?.effect).filter(Boolean);
+  // `baseBudget` must be the pre-bonus purse — exactly what was passed to
+  // `fortressForBudget` above, never wrapped in another `budgetFor` call. `fromBlueprint`
+  // -> `makeDraft` -> `budgetFor` folds `rulesFor(cards).budgetBonus` in from `cards`
+  // itself, once. Feeding an already-bonused number back in here would compose it a
+  // second time — the same trap the `editorBudgetBase` comment near the top of this
+  // file documents for the editor's own reload path.
+  const draft = fromBlueprint(initial.blueprint, { round: templateIndex, budget: baseBudget, cards });
+
+  // Airlift's flight lane, cleared before anything else is placed — same order as
+  // `tools/balance.mjs`'s `buildFortress`, and the same geometry (x in (10, 14) for
+  // both stock templates; not template-dependent, since both flank the King with
+  // posts at the same x offsets from centre).
+  const airlift = effects.some((effect) => effect.kind === 'kingBalloon');
+  if (airlift) {
+    draft.pieces = draft.pieces.filter((piece) => piece.kind !== 'block' || piece.x < 10 || piece.x > 14);
+  }
+
+  // Card-obligated pieces are placed best-effort: a reserve that doesn't fit costs the
+  // bot that one piece, not the whole card-aware build. `validate`/`settleTest` below,
+  // not this, decide whether the result is legal enough to use.
+  if (effects.some((effect) => effect.kind === 'decoyKing')) {
+    place(draft, { pig: 'king', decoy: true, x: initial.template === 'low-keep' ? 6 : 9, y: TUNE.plotH });
+  }
+  if (effects.some((effect) => effect.kind === 'pigAbility' && effect.ability === 'flak')) {
+    place(draft, { pig: 'runt', flak: true, x: initial.template === 'low-keep' ? 18 : 15, y: TUNE.plotH });
+  }
+
+  const blockCost = (material, shape) =>
+    (effects.find((effect) => effect.kind === 'materialCost' && effect.material === material)?.cost ??
+      MATERIALS[material].cost) * SHAPES[shape].area;
+  const groundSources = (shape) => {
+    const sources = [];
+    const add = (source) => {
+      if (!airlift || source.x < 9.5 || source.x > 14.5) sources.push(source);
+    };
+    if (shape === 'pillar') {
+      for (const y of [2, 6]) {
+        for (let index = 0; index < TUNE.plotW * 2; index++) add({ shape, x: 0.25 + index * 0.5, y });
+      }
+    } else {
+      for (let index = 0; index < TUNE.plotW; index++) add({ shape, x: 0.5 + index, y: 0.5 });
+    }
+    return sources;
+  };
+  const placeLegal = (material, shape = 'pillar') => {
+    if (spent(draft) + blockCost(material, shape) > draft.budget) return false;
+    for (const source of groundSources(shape)) {
+      if (!place(draft, { ...source, material }).ok) continue;
+      if (validate(draft, { mode: 'siege' }).ok) return true;
+      undo(draft);
+    }
+    return false;
+  };
+
+  // Best-effort too: `perRound` reserves that do not all fit still leave whichever did
+  // in place, same reasoning as the obligations above.
+  for (const effect of effects) {
+    if (effect.kind !== 'unlock') continue;
+    for (let index = 0; index < effect.perRound; index++) {
+      if (!placeLegal(effect.material)) break;
+    }
+  }
+
+  // Prefer whichever material a `materialCost` card just discounted, same as the
+  // harness: otherwise a held Quarryman or Heavy Industry never shows up in the fill
+  // loop's output even though the discount is real.
+  const preferred = effects.some((effect) => effect.kind === 'materialCost' && effect.material === 'iron')
+    ? 'iron'
+    : effects.some((effect) => effect.kind === 'materialCost' && effect.material === 'stone') ? 'stone' : null;
+  for (let guard = 0; spent(draft) < draft.budget && guard < 500; guard++) {
+    const materials = preferred ? [preferred, 'stone', 'wood', 'glass'] : ['stone', 'wood', 'glass'];
+    const candidates = [...materials.map((material) => [material, 'pillar']), ['glass', 'cube']];
+    if (!candidates.some(([material, shape]) => placeLegal(material, shape))) break;
+  }
+
+  // `validate` alone does not catch a piece with nothing under it — that only shows up
+  // once physics runs, which is exactly what `settleTest` (used identically by the
+  // editor's own settle button, and by `tools/balance.mjs`'s harness) is for. Both
+  // gates have to pass, or the bot would be defending a fortress that could collapse
+  // on its own before the assault even starts.
+  const legality = validate(draft, { mode: 'siege' });
+  const settled = legality.ok ? settleTest(draft) : null;
+  if (!legality.ok || !settled.ok) {
+    console.warn('Siege: bot could not fill its fortress legally; falling back to the plain template.',
+      { cards, errors: legality.errors, settled });
+    return initial;
+  }
+  return { blueprint: toBlueprint(draft), template: initial.template, spent: spent(draft) };
+}
+
 function startSiegeMatch() {
   siege.active = true;
   siege.round = 1;
@@ -2110,12 +2260,15 @@ function lockSiegeFortress(expired = false) {
   // `fortressForBudget` returns { blueprint, template, spent } — passing the wrapper
   // straight to makeRound built an empty world, so the player won every round instantly
   // against nothing and `fortressCost` read undefined.
-  // `fortressForBudget` takes a plain number, so the bot's cards have to be priced in
-  // here — this is the one build path that does not go through `makeDraft`.
-  const built = fortressForBudget(
-    budgetFor({ budget: siegeBudget(1), cards: siege.cards[1] }),
-    siege.round + siege.wins[0]
-  );
+  // `buildBotFortress` (above) runs the bot's draft through the same declarative
+  // pipeline the editor and the relay use, so a drafted card actually reaches its
+  // fortress instead of only mattering when its kind is `budget`. `siegeBudget(1)` is
+  // passed through untouched — the pre-bonus purse — because `buildBotFortress` folds
+  // `rulesFor(cards).budgetBonus` in exactly once, from inside `fromBlueprint`'s own
+  // `budgetFor` call; wrapping it in another `budgetFor` here first, as the old code
+  // did to price a plain-number budget for `fortressForBudget`, would compose the
+  // bonus twice.
+  const built = buildBotFortress(siegeBudget(1), siege.round + siege.wins[0], siege.cards[1]);
   siege.botFortress = built.blueprint;
   siege.botSpent = built.spent;
   beginSiegeAssault();
@@ -2128,9 +2281,20 @@ function beginSiegeAssault() {
   const bag = bagForRound(siege.seed, siege.round, siege.cards[0]);
   const botBag = bagForRound(siege.seed, siege.round, siege.cards[1]);
   // Two independent worlds that never interact: you attack theirs, they attack yours.
+  // Each world's attacker is whoever is firing into it; its defender is whoever built
+  // the fortress standing in it. Get this backwards and every defender-side effect
+  // (Conscription's spawn, Flak Hog's ability, Airlift's balloon, pigHp, plotTilt...)
+  // would apply to the wrong side while still "running" without error — this was
+  // previously not wired at all, so none of them fired for either side in solo Siege.
   siege.botPlan = null;
-  siege.playerRound = makeRound({ blueprint: siege.botFortress, bag, seed: siege.seed, mode: 'siege' });
-  siege.botRound = makeRound({ blueprint: siege.playerFortress, bag: botBag, seed: siege.seed ^ 0x9e37, mode: 'siege' });
+  siege.playerRound = makeRound({
+    blueprint: siege.botFortress, bag, seed: siege.seed, mode: 'siege',
+    attackerCards: siege.cards[0], defenderCards: siege.cards[1]
+  });
+  siege.botRound = makeRound({
+    blueprint: siege.playerFortress, bag: botBag, seed: siege.seed ^ 0x9e37, mode: 'siege',
+    attackerCards: siege.cards[1], defenderCards: siege.cards[0]
+  });
   round = siege.playerRound;
   playing = true;
   editing = false;
