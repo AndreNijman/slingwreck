@@ -73,6 +73,11 @@ const Z_95 = 1.959963984540054;
 const REASONS = [
   'king-pop', 'score', 'sudden-death-damage', 'fortress-cost', 'unresolved'
 ];
+// Everything past a plain score comparison, grouped for the per-card explain
+// table: the "sudden-death/fortress-cost tail" the P7.8 spec asks to separate
+// from a clean king-pop or score decision.
+const TAIL_REASONS = ['sudden-death-damage', 'fortress-cost', 'unresolved'];
+const BREAKDOWN_KEYS = ['destroyedBlocks', 'offPlotBlocks', 'pigs', 'unused', 'breach'];
 const fortressCache = new Map();
 
 function usage(message = null) {
@@ -407,6 +412,14 @@ function cardIds(cards) {
   return cards.length ? cards.join(',') : 'none';
 }
 
+function zeroBreakdown() {
+  return Object.fromEntries(BREAKDOWN_KEYS.map((key) => [key, 0]));
+}
+
+function addBreakdown(total, part) {
+  for (const key of BREAKDOWN_KEYS) total[key] += part[key] ?? 0;
+}
+
 function blueprintFailure(label, result) {
   return `${label}: ${result.errors.map((entry) =>
     `${entry.code} [${entry.pieceIds.join(',') || 'no piece ids'}]`).join('; ')}`;
@@ -577,7 +590,13 @@ function playerRoundState(pid, assault, fortress, sudden = false) {
     kingPopped: Boolean(king?.dead),
     suddenDeathDamage: sudden
       ? assault.scoreBreakdown.damage - assault.regulationDamage : undefined,
-    fortressCost: fortress.spent
+    fortressCost: fortress.spent,
+    // Observational only: threads the shot count and score composition already
+    // computed by finalizeSiegeScore out to the reporting layer, so the parity
+    // sweep can explain a win rather than only score it.
+    shotsFired: assault.shotIndex,
+    unusedCount: assault.bag.length - assault.shotIndex,
+    breakdown: { ...assault.scoreBreakdown }
   };
 }
 
@@ -606,19 +625,21 @@ function simulateRound({ matchSeed, round, players, baseBudgets, orientation = 0
   });
   const states = assaults.map(() => ({ plan: null, remoteTriggered: false }));
   driveAssault(assaults, states);
-  let result = resolveRound(assaults.map((assault, index) =>
-    playerRoundState(players[index].pid, assault, fortresses[index])));
+  let playerStates = assaults.map((assault, index) =>
+    playerRoundState(players[index].pid, assault, fortresses[index]));
+  let result = resolveRound(playerStates);
   if (!result.resolved && result.reason === 'sudden-death') {
     for (const assault of assaults) beginSuddenDeath(assault);
     driveAssault(assaults, states, false);
-    result = resolveRound(assaults.map((assault, index) =>
-      playerRoundState(players[index].pid, assault, fortresses[index], true)));
+    playerStates = assaults.map((assault, index) =>
+      playerRoundState(players[index].pid, assault, fortresses[index], true));
+    result = resolveRound(playerStates);
   }
   if (!result.resolved) {
     const winner = players[(matchSeed ^ round) & 1].pid;
     result = { resolved: true, winner, reason: 'unresolved', detail: result.reason };
   }
-  return { result, fortresses };
+  return { result, fortresses, playerStates };
 }
 
 function simulateMatch({ seed, initialCards = [[], []], natural = false, orientation = 0 }) {
@@ -647,7 +668,7 @@ function simulateMatch({ seed, initialCards = [[], []], natural = false, orienta
     const loser = players.find((player) => player.pid !== played.result.winner);
     if (!winner || !loser) throw new Error(`round ${round} returned no valid winner`);
     winner.wins++;
-    rounds.push(played.result);
+    rounds.push({ ...played.result, playerStates: played.playerStates });
     if (natural) {
       winner.bankedScrap += BUDGET.winnerBonus;
       if (matchWinner(players) === null) {
@@ -886,6 +907,45 @@ function printCardRows(rows) {
   }
 }
 
+function printCardConditions(rows) {
+  console.log('\nparity card win-condition breakdown (same rounds counted above)');
+  console.log('card                 rounds  won king/score/tail  lost king/score/tail');
+  for (const row of rows) {
+    const won = `${row.wonBy['king-pop']}/${row.wonBy.score}/${row.wonBy.tail}`;
+    const lost = `${row.lostBy['king-pop']}/${row.lostBy.score}/${row.lostBy.tail}`;
+    console.log(`${row.card.id.padEnd(21)}${String(row.rounds).padStart(6)}  ` +
+      `${won.padStart(19)}  ${lost.padStart(21)}`);
+  }
+}
+
+function printCardShotsScore(rows) {
+  console.log('\nparity card shots and score (means/round; score shown as total(unused-ammo term))');
+  console.log('card                 h.shots  o.shots  h.unused  o.unused     holder score       opp score');
+  for (const row of rows) {
+    const n = row.rounds;
+    const holderScore = `${formatScore(row.holderScore / n)}(${formatScore(row.holderBreakdown.unused / n)})`;
+    const opponentScore = `${formatScore(row.opponentScore / n)}(${formatScore(row.opponentBreakdown.unused / n)})`;
+    console.log(`${row.card.id.padEnd(21)}${(row.holderShots / n).toFixed(2).padStart(7)}  ` +
+      `${(row.opponentShots / n).toFixed(2).padStart(7)}  ${(row.holderUnused / n).toFixed(2).padStart(8)}  ` +
+      `${(row.opponentUnused / n).toFixed(2).padStart(8)}  ${holderScore.padStart(17)}  ` +
+      `${opponentScore.padStart(15)}`);
+  }
+}
+
+function printCardExplain(rows) {
+  if (!rows.length) return;
+  console.log('\nparity card score components (means/round: blocks/off-plot/pigs/breach; unused above)');
+  for (const row of rows) {
+    const n = row.rounds;
+    const hb = row.holderBreakdown;
+    const ob = row.opponentBreakdown;
+    console.log(`${row.card.id}: holder ${formatScore(hb.destroyedBlocks / n)}/` +
+      `${formatScore(hb.offPlotBlocks / n)}/${formatScore(hb.pigs / n)}/${formatScore(hb.breach / n)}` +
+      ` vs opponent ${formatScore(ob.destroyedBlocks / n)}/${formatScore(ob.offPlotBlocks / n)}/` +
+      `${formatScore(ob.pigs / n)}/${formatScore(ob.breach / n)}`);
+  }
+}
+
 function printCoverage(rows) {
   console.log('\ncard coverage');
   console.log('card                 effect             before              after               state');
@@ -919,7 +979,16 @@ async function siege(n) {
   const matchesPerCard = n / CARDS.length;
   const pairingsPerCard = matchesPerCard / 2;
   const naturalMatches = Math.max(50, Math.ceil(n / 4));
-  const cardRows = CARDS.map((card) => ({ card, matches: 0, rounds: 0, wins: 0 }));
+  const cardRows = CARDS.map((card) => ({
+    card, matches: 0, rounds: 0, wins: 0,
+    // Observational breakdown of the same rounds already being counted above —
+    // nothing here feeds back into wins/rounds/rate.
+    wonBy: { 'king-pop': 0, score: 0, tail: 0 },
+    lostBy: { 'king-pop': 0, score: 0, tail: 0 },
+    holderShots: 0, opponentShots: 0, holderUnused: 0, opponentUnused: 0,
+    holderScore: 0, opponentScore: 0,
+    holderBreakdown: zeroBreakdown(), opponentBreakdown: zeroBreakdown()
+  }));
   let parityRounds = 0;
   for (let cardIndex = 0; cardIndex < CARDS.length; cardIndex++) {
     const row = cardRows[cardIndex];
@@ -933,6 +1002,23 @@ async function siege(n) {
         row.rounds += match.rounds.length;
         parityRounds += match.rounds.length;
         row.wins += match.rounds.filter((round) => round.winner === holderPid).length;
+        for (const round of match.rounds) {
+          const holderWon = round.winner === holderPid;
+          const reason = REASONS.includes(round.reason) ? round.reason : 'unresolved';
+          const bucket = TAIL_REASONS.includes(reason) ? 'tail' : reason;
+          (holderWon ? row.wonBy : row.lostBy)[bucket]++;
+          const holderState = round.playerStates?.find((state) => state.pid === holderPid);
+          const opponentState = round.playerStates?.find((state) => state.pid !== holderPid);
+          if (!holderState || !opponentState) continue;
+          row.holderShots += holderState.shotsFired;
+          row.opponentShots += opponentState.shotsFired;
+          row.holderUnused += holderState.unusedCount;
+          row.opponentUnused += opponentState.unusedCount;
+          row.holderScore += holderState.score;
+          row.opponentScore += opponentState.score;
+          addBreakdown(row.holderBreakdown, holderState.breakdown);
+          addBreakdown(row.opponentBreakdown, opponentState.breakdown);
+        }
       }
     }
   }
@@ -979,10 +1065,13 @@ async function siege(n) {
     `(cards=${parityRounds - control.rounds}, control=${control.rounds}); natural=${naturalRounds}`);
   printControl(control);
   printCardRows(cardRows);
+  printCardConditions(cardRows);
+  printCardShotsScore(cardRows);
+  const flagged = cardRows.filter((row) => row.rate > CARD_HIGH || row.rate < CARD_LOW);
+  printCardExplain(cardRows);
   printCoverage(coverageRows);
   const pointsShare = printDistribution(distribution, naturalRounds);
 
-  const flagged = cardRows.filter((row) => row.rate > CARD_HIGH || row.rate < CARD_LOW);
   const unexercised = coverageRows.filter((row) => !row.ok);
   const controlRate = control.p1Wins / control.rounds;
   const sideRates = control.legs.map((leg) => leg.p1Wins / leg.rounds);
