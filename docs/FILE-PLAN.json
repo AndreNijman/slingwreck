@@ -209,7 +209,9 @@
     {
       "path": "tools/balance.mjs",
       "phase": "P5",
-      "job": "--campaign flags unwinnable or trivially three-starred levels. --siege runs bot matches across card combinations and flags outliers."
+      "budget": 1100,
+      "job": "--campaign flags unwinnable or trivially three-starred levels. --siege runs mirrored card-at-parity bot matches, a full-rules natural sweep, legal card-aware builds, effect coverage, confidence intervals and win-condition gates.",
+      "budgetNote": "Raised for P7.8 because the Siege gate is two simulations rather than one: isolated mirrored card measurements and natural drafted best-of-five matches, plus the relay-equivalent build validation and per-effect evidence needed to keep either sweep honest."
     },
     {
       "path": "tools/campaign-shots.mjs",
@@ -220,6 +222,11 @@
       "path": "tools/mp-smoke.mjs",
       "phase": "P6",
       "job": "Two real browsers against a real relay through a full round."
+    },
+    {
+      "path": "tools/siege-match.mjs",
+      "phase": "P7",
+      "job": "Plays a full solo best-of-five in Chromium on a pinned seed and asserts the build banner against an independently composed budget, that the result panel is genuinely the topmost element at screen centre rather than merely not hidden, and that at least two drafts were actually offered and held. The seed pin and the poll-on-state waits are what make it print the same 45 assertions and the same scoreline every run."
     },
     {
       "path": "tools/audit-test.mjs",
