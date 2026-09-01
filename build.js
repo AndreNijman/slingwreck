@@ -681,6 +681,62 @@ function packedCoordinate(value, quantum, max, label) {
     throw new RangeError(`${label} must be on the ${quantum} grid inside the plot`);
   return scaled;
 }
+// When a build timer expires unlocked, DESIGN.md 6.2 says whatever is placed is completed
+// to legality and locked. The ladder below is the candidate order: keep the author's work
+// if it stands on its own, then keep their blocks and seat the pigs they are missing, then
+// keep only their blocks, and finally fall back to a bare legal fortress. It lives here
+// rather than in the relay because the solo client has to do exactly the same thing when
+// nobody is on the other end of a socket, and two ladders would drift apart.
+//
+// This yields candidates only. Each caller validates with the validator it already trusts:
+// the relay with its wire-shaped submission check, the client with `validate`.
+const AUTO_LAYOUTS = [
+  [['runt', 2, 0.296875, 0], ['king', 12, 0.6875, 0], ['runt', 22, 0.296875, 0]],
+  [['runt', 4, 0.296875, 0], ['king', 12, 0.6875, 0], ['runt', 20, 0.296875, 0]],
+  [['runt', 2, 0.296875, 0], ['king', 6, 0.6875, 0], ['runt', 10, 0.296875, 0]],
+  [['runt', 14, 0.296875, 0], ['king', 18, 0.6875, 0], ['runt', 22, 0.296875, 0]]
+];
+
+function realKing(tuple) {
+  return Boolean(PIGS[tuple[0]]?.traits.king) &&
+    ((tuple[3] ?? 0) & PIG_FLAG_DECOY) === 0;
+}
+
+function completePigs(pigs, layout) {
+  const completed = pigs.map((tuple) => tuple.slice());
+  let kings = completed.filter(realKing).length;
+  let others = completed.length - kings;
+  for (const tuple of layout) {
+    if (realKing(tuple)) {
+      if (kings) continue;
+      kings++;
+    } else {
+      if (others >= TUNE.minOtherPigs) continue;
+      others++;
+    }
+    completed.push(tuple.slice());
+  }
+  return completed;
+}
+
+export function autoCompleteCandidates(blueprint) {
+  const candidates = [];
+  if (blueprint && blueprint.ok !== false && Array.isArray(blueprint.blocks)) {
+    const blocks = () => blueprint.blocks.map((tuple) => tuple.slice());
+    candidates.push(blueprint);
+    for (const layout of AUTO_LAYOUTS) candidates.push({
+      v: blueprint.v, blocks: blocks(), pigs: completePigs(blueprint.pigs ?? [], layout)
+    });
+    for (const layout of AUTO_LAYOUTS) candidates.push({
+      v: blueprint.v, blocks: blocks(), pigs: layout.map((tuple) => tuple.slice())
+    });
+  }
+  for (const layout of AUTO_LAYOUTS) candidates.push({
+    v: BLUEPRINT_VERSION, blocks: [], pigs: layout.map((tuple) => tuple.slice())
+  });
+  return candidates;
+}
+
 export function encode(blueprint) {
   const source = blueprintFromLevel(blueprint);
   if (source.blocks.length > TUNE.maxBlocks || source.pigs.length > MAX_PIGS)

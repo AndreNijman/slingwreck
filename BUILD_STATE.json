@@ -156,8 +156,9 @@
     ]
   },
   "knownIssues": [
-    "SIEGE (solo) is playable but NOT finished. Build phase, lock-in, simultaneous assault and the corner preview all work and were verified in a browser. Two defects remain: (1) the siege banner's scrap readout stays at the full budget after a fortress is loaded, while the editor's own meter beside it is correct \u2014 the two numbers come from different places and one is wrong; (2) siegeRoundFinished() does not fire, so a round never resolves into the result panel, draft or standings even after both bags are spent. Everything downstream of it - resolveRound, rollDraft, the card UI, standings, best-of-five - is written and unit-tested in tools/siege-test.mjs but has never been reached through the UI.",
+    "SIEGE (solo) plays end to end. A full best-of-five runs through the UI - build, lock-in, simultaneous assault, corner preview, round resolution, draft, standings, match end and replay - and is asserted by `npm run test:siege` (tools/siege-match.mjs, 22 assertions in Chromium). The eight defects that were between 'unit-tested' and 'playable' are written up in docs/WORKLOG.md under P7.6/P7.7 defects.",
     "SIEGE (online) has no UI at all. worker.js, net.js and relay-audit.js are built, deployed and tested, but nothing in the client connects to them.",
-    "Next diagnostic step for the round-resolution bug: instrument siegeRoundFinished() and log both rounds' shotIndex, bag.length and phase each frame. The suspicion is that the bot's round stalls in 'settling' rather than returning to 'aiming', so `both.every(done)` never becomes true - but that is a hypothesis, not a finding, and it should be measured before anything is changed."
+    "The bot loses most rounds against a fortress it cannot out-shoot. tools/siege-match.mjs finished 3-1 and 3-0 on consecutive runs against a deliberately cheap blueprint. That is a balance question for P7.8, not a defect, but the difficulty of the ballistic aimer at 0.82 has never been measured against a human.",
+    "DESIGN.md 6.2 gives Space to early lock-in; game.js binds Space to editor panning and the `onLock` callback threaded into openEditor is never invoked. The #siege-lock button covers the case, so this is drift between the design and the code rather than a missing feature, but one of the two should give."
   ]
 }

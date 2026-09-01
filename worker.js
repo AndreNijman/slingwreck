@@ -10,8 +10,7 @@
 //   GET /lobbies  - public lobby directory
 //   GET /ws?room= - websocket, first message must be create or join
 
-import { BUDGET, CARDS_BY_ID, PIGS, SCORE, TUNE } from './data.js';
-import { PIG_FLAG_DECOY } from './sim.js';
+import { BUDGET, CARDS_BY_ID, SCORE, TUNE } from './data.js';
 import {
   AUDIT_STEP_BUDGET,
   SETTLE_STEPS,
@@ -37,6 +36,7 @@ import {
   validationMode
 } from './relay-audit.js';
 import {
+  autoCompleteCandidates,
   budgetFor,
   decode,
   earlyLockScrap,
@@ -209,60 +209,14 @@ export function validateBlueprintSubmission(source, options = {}) {
   }
 }
 
-const AUTO_LAYOUTS = [
-  [['runt', 2, 0.296875, 0], ['king', 12, 0.6875, 0], ['runt', 22, 0.296875, 0]],
-  [['runt', 4, 0.296875, 0], ['king', 12, 0.6875, 0], ['runt', 20, 0.296875, 0]],
-  [['runt', 2, 0.296875, 0], ['king', 6, 0.6875, 0], ['runt', 10, 0.296875, 0]],
-  [['runt', 14, 0.296875, 0], ['king', 18, 0.6875, 0], ['runt', 22, 0.296875, 0]]
-];
-
-function realKing(tuple) {
-  return Boolean(PIGS[tuple[0]]?.traits.king) &&
-    ((tuple[3] ?? 0) & PIG_FLAG_DECOY) === 0;
-}
-
-function completePigs(pigs, layout) {
-  const completed = pigs.map((tuple) => tuple.slice());
-  let kings = completed.filter(realKing).length;
-  let others = completed.length - kings;
-  for (const tuple of layout) {
-    if (realKing(tuple)) {
-      if (kings) continue;
-      kings++;
-    } else {
-      if (others >= TUNE.minOtherPigs) continue;
-      others++;
-    }
-    completed.push(tuple.slice());
-  }
-  return completed;
-}
-
 // Timer expiry first tries to preserve the authored draft, then its blocks, and
 // finally uses the smallest deterministic legal fortress. It never invents a
 // settled pose: every candidate is still an authored blueprint and is tested by
-// the exact same validation path as an explicit lock-in.
+// the exact same validation path as an explicit lock-in. The candidate ladder is
+// build.js's, shared with the solo client so the two cannot drift.
 export function autoCompleteBlueprint(source, options = {}) {
   const decoded = decode(source);
-  const candidates = [];
-  if (decoded?.ok !== false) {
-    candidates.push(decoded);
-    for (const layout of AUTO_LAYOUTS) candidates.push({
-      v: decoded.v,
-      blocks: decoded.blocks.map((tuple) => tuple.slice()),
-      pigs: completePigs(decoded.pigs, layout)
-    });
-    for (const layout of AUTO_LAYOUTS) candidates.push({
-      v: decoded.v,
-      blocks: decoded.blocks.map((tuple) => tuple.slice()),
-      pigs: layout.map((tuple) => tuple.slice())
-    });
-  }
-  for (const layout of AUTO_LAYOUTS) candidates.push({
-    v: 1,
-    blocks: [],
-    pigs: layout.map((tuple) => tuple.slice())
-  });
+  const candidates = autoCompleteCandidates(decoded?.ok === false ? null : decoded);
 
   const tried = new Set();
   for (const candidate of candidates) {

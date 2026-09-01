@@ -1231,10 +1231,43 @@ body.editing #game {
   }
 }
 
-/* The new-critter card. Shown once per critter, the first time a campaign bag contains it. */
-.critter-intro { position: absolute; inset: 0; display: grid; place-items: center; z-index: 40; }
-.critter-intro[hidden] { display: none; }
-.critter-intro .panel-card { text-align: center; max-width: 22rem; }
+/* Overlay panels that sit above the canvas: the new-critter card, the Siege round result
+   and the Siege draft. These classes were written into index.html and never given a rule,
+   so all three sections laid out in normal flow at the top of the page, underneath the
+   canvas — visible to a screen reader and to Playwright, and unclickable to everyone,
+   because the canvas swallowed the pointer. */
+.screen-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgba(43, 33, 28, 0.34);
+}
+.screen-panel[hidden] { display: none; }
+
+.panel-card {
+  width: min(30rem, calc(100vw - var(--space-5)));
+  max-height: calc(100vh - var(--space-5));
+  overflow: auto;
+  padding: var(--space-4);
+  border: 3px solid var(--ink);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: 9px 10px 0 var(--shadow);
+}
+.panel-card h2 {
+  margin: var(--space-1) 0 var(--space-2);
+  font: 800 clamp(1.6rem, 5vw, 2.4rem)/1 var(--font-display);
+  letter-spacing: -0.03em;
+}
+.panel-card .muted { margin: 0 0 var(--space-3); color: var(--ink-soft); }
+.panel-card .row { display: flex; gap: var(--space-2); justify-content: center; flex-wrap: wrap; }
+
+/* The new-critter card. Shown once per critter, the first time a campaign bag contains it.
+   Layout comes from .screen-panel; only what differs belongs here. */
+.critter-intro .panel-card { text-align: center; width: min(22rem, calc(100vw - var(--space-5))); }
 .critter-intro-art { width: 104px; height: 104px; display: block; margin: 0 auto var(--space-2); }
 .critter-intro-tip { margin: 0 0 var(--space-3); color: var(--ink-soft, #5A4C42); }
 
@@ -1295,7 +1328,8 @@ body.editing #game {
 .siege-card .tier { font: 700 10px var(--mono, ui-monospace, monospace); color: var(--accent, #B23B2E); text-transform: uppercase; }
 .siege-card .card-name { font-weight: 700; margin: 2px 0 4px; }
 .siege-card .card-text { font-size: 12px; line-height: 1.35; color: #4A3E35; }
-.panel-card.wide { max-width: 46rem; }
+.panel-card.wide { width: min(46rem, calc(100vw - var(--space-5))); }
+.siege-result .panel-card, .siege-draft .panel-card { text-align: center; }
 .siege-standings { font: 600 14px var(--mono, ui-monospace, monospace); margin: var(--space-2) 0; }
 @media (max-width: 640px) {
   .siege-preview { width: 168px; }

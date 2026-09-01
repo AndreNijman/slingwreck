@@ -1,4 +1,5 @@
-import { AMMO_BY_ID, BUDGET, CARDS, MATERIALS, PIGS, SCORE, SHAPES, TUNE } from './data.js?v=20260822-1';
+import { AMMO_BY_ID, BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SCORE, SHAPES, TUNE }
+  from './data.js?v=20260822-1';
 import {
   finalizeSiegeScore,
   isRoundOver,
@@ -28,6 +29,7 @@ import {
   unlock as unlockAudio
 } from './audio.js?v=20260822-1';
 import {
+  autoCompleteCandidates,
   budgetFor,
   decode,
   encode,
@@ -47,6 +49,7 @@ import { LEVELS } from './levels.js?v=20260822-1';
 import { fortressForBudget, planShot, shouldTap } from './bots.js?v=20260822-1';
 import {
   bagForRound,
+  defaultDraftPick,
   matchWinner,
   resolveRound,
   rollDraft
@@ -1595,6 +1598,11 @@ function updateEditorCamera() {
 function frame(now) {
   const elapsed = Math.min(250, Math.max(0, now - last));
   last = now;
+  // Before the editor's early return, not after it. The build phase *is* editor mode, so
+  // the banner update used to sit on an unreachable line: the clock stayed at 1:30 for the
+  // whole ninety seconds, the scrap readout kept showing the full purse, and the expiry
+  // auto-lock inside it never ran once.
+  if (siege.active && siege.phase === 'build') updateSiegeBanner();
   if (editing) {
     updateEditorCamera();
     let displayRound = settleDisplayRound ?? editorRound;
@@ -1635,7 +1643,6 @@ function frame(now) {
     drawSiegePreview(now);
     if (siegeRoundFinished()) endSiegeRound();
   }
-  if (siege.active && siege.phase === 'build') updateSiegeBanner();
   if (playing && !isRoundOver(round)) {
     accumulator = Math.min(
       accumulator + elapsed / 1000,
@@ -1652,7 +1659,11 @@ function frame(now) {
       steps++;
     }
     updateHud();
-    if (isRoundOver(round)) showRoundOver();
+    // Siege resolves its own rounds in `endSiegeRound`. `round` is the player's siege world
+    // during an assault, so without this guard the campaign's result dialog opened over the
+    // siege panel, recorded a campaign star for a fortress that is not a level, and took
+    // the clicks meant for "Next round".
+    if (isRoundOver(round) && !siege.active) showRoundOver();
   } else {
     accumulator = 0;
   }
@@ -1891,6 +1902,17 @@ if (new URLSearchParams(window.location.search).has('smoke-test')) {
         stars: [...currentLevel.stars]
       },
       campaign: campaignUI.snapshot(),
+      siege: siege.active ? {
+        phase: siege.phase, round: siege.round, wins: [...siege.wins],
+        cards: siege.cards.map((c) => [...c]),
+        player: siege.playerRound ? { phase: siege.playerRound.phase,
+          shot: siege.playerRound.shotIndex, bag: siege.playerRound.bag.length,
+          over: isRoundOver(siege.playerRound) } : null,
+        bot: siege.botRound ? { phase: siege.botRound.phase,
+          shot: siege.botRound.shotIndex, bag: siege.botRound.bag.length,
+          over: isRoundOver(siege.botRound) } : null,
+        finished: siege.playerRound && siege.botRound ? siegeRoundFinished() : null
+      } : null,
       editor: editing ? {
         group: editorGroup,
         material: editorMaterial,
@@ -1940,6 +1962,7 @@ const siege = {
   active: false, phase: 'idle', round: 1, seed: 0,
   wins: [0, 0], cards: [[], []], banked: [0, 0],
   playerRound: null, botRound: null, botFortress: null, playerFortress: null,
+  playerSpent: 0, botSpent: 0, botPlan: null, lastWinner: 1,
   botNextShot: 0, deadline: 0, lastPreview: 0
 };
 
@@ -1967,6 +1990,9 @@ const siegeContinue = document.querySelector('#siege-continue');
 const siegeQuit = document.querySelector('#siege-quit');
 const siegeButton = document.querySelector('#siege-button');
 
+// The base purse, deliberately without the card bonus: `makeDraft`, `validate` and
+// `contextFor` all run this through `budgetFor` again with the cards, so adding it here
+// would pay `deep-pockets` twice.
 function siegeBudget(pid) {
   const behind = Math.max(0, siege.wins[1 - pid] - siege.wins[pid]);
   return budgetFor({ round: siege.round, roundsBehind: behind }) + siege.banked[pid];
@@ -1978,6 +2004,10 @@ function startSiegeMatch() {
   siege.wins = [0, 0];
   siege.cards = [[], []];
   siege.banked = [0, 0];
+  siege.lastWinner = 1;
+  siege.playerSpent = 0;
+  siege.botSpent = 0;
+  siege.botPlan = null;
   // One seed for the whole match: bag composition and the draft are both derived from it,
   // so a match is reproducible and — when this is wired to the relay — auditable.
   siege.seed = (Date.now() ^ 0x5109) >>> 0;
@@ -2010,25 +2040,46 @@ function updateSiegeBanner() {
   siegeScrapLabel.textContent = `${(scrapLeftLabel?.textContent ?? '').trim() || '—'} scrap`;
   const remaining = Math.max(0, (siege.deadline - performance.now()) / 1000);
   siegeClock.textContent = `${Math.floor(remaining / 60)}:${String(Math.floor(remaining % 60)).padStart(2, '0')}`;
-  if (remaining <= 0) lockSiegeFortress();
+  if (remaining <= 0) lockSiegeFortress(true);
 }
 
-function lockSiegeFortress() {
+function lockSiegeFortress(expired = false) {
   if (siege.phase !== 'build') return;
-  const blueprint = toBlueprint(editorDraft);
-  const check = validate(blueprint, { mode: 'siege', budget: siegeBudget(0), cards: siege.cards[0] });
+  const rules = { mode: 'siege', budget: siegeBudget(0), cards: siege.cards[0] };
+  let blueprint = toBlueprint(editorDraft);
+  let check = validate(blueprint, rules);
   if (!check.ok) {
     // Same rules the relay enforces. Surfacing them here rather than silently repairing
     // the draft keeps the solo mode honest about what online will accept.
-    renderValidation();
-    return;
+    if (!expired) { renderValidation(); return; }
+    // Unless the timer ran out, in which case DESIGN.md 6.2 says complete it and lock.
+    // Same candidate ladder the relay walks, so an expired solo build and an expired
+    // online build produce the same fortress from the same draft.
+    blueprint = autoCompleteCandidates(blueprint)
+      .find((candidate) => validate(candidate, rules).ok) ?? blueprint;
+    check = validate(blueprint, rules);
+    if (!check.ok) { renderValidation(); quitSiege(); return; }
+    // The draft has to follow the blueprint, or `spent` below prices the fortress the
+    // player abandoned rather than the one they are about to defend.
+    editorDraft = fromBlueprint(blueprint, editorOptions());
   }
   // Bank the unspent time, per DESIGN.md: locking in early is the only reason to stop
   // fiddling with a fortress.
   const remaining = Math.max(0, (siege.deadline - performance.now()) / 1000);
   siege.banked[0] += Math.floor(remaining / 10) * BUDGET.earlyLockPer10s;
+  siege.playerSpent = spent(editorDraft);
   siege.playerFortress = blueprint;
-  siege.botFortress = fortressForBudget(siegeBudget(1), siege.round + siege.wins[0]);
+  // `fortressForBudget` returns { blueprint, template, spent } — passing the wrapper
+  // straight to makeRound built an empty world, so the player won every round instantly
+  // against nothing and `fortressCost` read undefined.
+  // `fortressForBudget` takes a plain number, so the bot's cards have to be priced in
+  // here — this is the one build path that does not go through `makeDraft`.
+  const built = fortressForBudget(
+    budgetFor({ budget: siegeBudget(1), cards: siege.cards[1] }),
+    siege.round + siege.wins[0]
+  );
+  siege.botFortress = built.blueprint;
+  siege.botSpent = built.spent;
   beginSiegeAssault();
 }
 
@@ -2039,6 +2090,7 @@ function beginSiegeAssault() {
   const bag = bagForRound(siege.seed, siege.round, siege.cards[0]);
   const botBag = bagForRound(siege.seed, siege.round, siege.cards[1]);
   // Two independent worlds that never interact: you attack theirs, they attack yours.
+  siege.botPlan = null;
   siege.playerRound = makeRound({ blueprint: siege.botFortress, bag, seed: siege.seed, mode: 'siege' });
   siege.botRound = makeRound({ blueprint: siege.playerFortress, bag: botBag, seed: siege.seed ^ 0x9e37, mode: 'siege' });
   round = siege.playerRound;
@@ -2069,17 +2121,21 @@ function stepSiegeOpponent(elapsed, now) {
   siege.botAccumulator = acc;
   if (bot.phase === 'aiming' && now >= siege.botNextShot && bot.shotIndex < bot.bag.length) {
     const plan = planShot(bot, 0.82, bot.rng);
-    if (plan) {
-      launch(bot, plan.dx, plan.dy);
-      if (shouldTap(bot, plan)) siege.botTapAt = bot.stepCount + (plan.tapStep ?? 30);
+    if (plan?.aim) {
+      // The draw vector is on `plan.aim`, not on the plan itself. Reading `plan.dx`
+      // passed undefined to launch, so the bot stood there for the whole round and its
+      // shot counter never moved off zero.
+      launch(bot, plan.aim.dx, plan.aim.dy);
+      siege.botPlan = plan;
     } else {
       launch(bot, -TUNE.slingRadius * 0.8, -TUNE.slingRadius * 0.4);
     }
     siege.botNextShot = now + 4200;
   }
-  if (siege.botTapAt && bot.stepCount >= siege.botTapAt) {
+  // Ability timing is bots.js's call, checked each step while the shot is in the air.
+  if (siege.botPlan && bot.phase === 'flying' && shouldTap(bot, siege.botPlan)) {
     tap(bot);
-    siege.botTapAt = 0;
+    siege.botPlan = null;
   }
 }
 
@@ -2088,7 +2144,7 @@ function drawSiegePreview(now) {
   siege.lastPreview = now;
   const ctx = siegePreviewCanvas.getContext('2d');
   drawPreview(ctx, siege.botRound, siegePreviewCanvas.width, siegePreviewCanvas.height);
-  const king = siege.botRound.pigs.find((pig) => pig.king ?? PIGS[pig.id]?.traits?.king);
+  const king = siege.botRound.pigs.find((pig) => pig.isKing);
   siegePreviewKing.classList.toggle('dead', Boolean(king?.dead));
   siegeTheirScore.textContent = scoreFormat.format(Math.round(finalizeSiegeScore(siege.botRound)));
   siegeTheirAmmo.textContent = `${siege.botRound.bag.length - siege.botRound.shotIndex} left`;
@@ -2097,27 +2153,33 @@ function drawSiegePreview(now) {
 function siegePlayerState(pid) {
   const r = pid === 0 ? siege.playerRound : siege.botRound;
   const fortress = pid === 0 ? siege.playerFortress : siege.botFortress;
-  const king = r.pigs.find((pig) => pig.king ?? PIGS[pig.id]?.traits?.king);
+  const king = r.pigs.find((pig) => pig.isKing);
   return {
     pid,
     score: finalizeSiegeScore(r),
     kingPopped: Boolean(king?.dead),
     wins: siege.wins[pid],
-    fortressCost: fortress.blocks.length,
+    // Scrap spent, not block count: DESIGN.md's last tie-break rewards the cheaper
+    // fortress, and two fortresses can share a block count at very different prices.
+    fortressCost: pid === 0 ? (siege.playerSpent ?? 0) : (siege.botSpent ?? 0),
     suddenDeathDamage: undefined
   };
 }
 
 function siegeRoundFinished() {
   const both = [siege.playerRound, siege.botRound];
-  const kingDown = both.some((r) =>
-    r.pigs.some((pig) => (pig.king ?? PIGS[pig.id]?.traits?.king) && pig.dead));
+  // `isKing` is the flag sim.js sets, and it already excludes a Decoy King. The earlier
+  // version read `pig.king` and looked `pig.id` up in PIGS — but `pig.id` is a numeric
+  // body id, so it was always undefined and no King pop was ever detected.
+  const kingDown = both.some((r) => r.pigs.some((pig) => pig.isKing && pig.dead));
   if (kingDown) return true;
   // Otherwise the round ends when neither side has anything left to throw and both worlds
   // have come to rest. `isRoundOver` covers a side that has already won or lost outright;
   // an empty bag sitting in `aiming` is the ordinary case.
+  // sim.js already knows the siege win condition — `makeRound({ mode: 'siege' })` ends a
+  // round on the King, not on all pigs — so `isRoundOver` is authoritative here.
   const done = (r) => isRoundOver(r) ||
-    (r.shotIndex >= r.bag.length && (r.phase === 'aiming' || r.phase === 'won' || r.phase === 'lost'));
+    (r.shotIndex >= r.bag.length && r.phase === 'aiming');
   return both.every(done);
 }
 
@@ -2134,6 +2196,7 @@ function endSiegeRound() {
   const winner = outcome.resolved ? outcome.winner
     : (players[0].fortressCost <= players[1].fortressCost ? 0 : 1);
   siege.wins[winner]++;
+  siege.lastWinner = winner;
   const iWon = winner === 0;
   siegeResultEyebrow.textContent = `Round ${siege.round}`;
   siegeResultTitle.textContent = iWon ? 'You took the round' : 'They took the round';
@@ -2160,10 +2223,24 @@ function endSiegeRound() {
 }
 
 function offerSiegeDraft() {
-  const loser = siege.wins[0] > siege.wins[1] ? 1 : 0;
-  if (loser !== 0) { siege.round++; beginSiegeBuild(); return; }
-  const deficit = siege.wins[1] - siege.wins[0];
-  const choices = rollDraft(siege.seed, siege.round, deficit, siege.cards[0], 0);
+  // DESIGN.md 6.4: the loser *of the round* drafts. Deriving the loser from the running
+  // win totals instead handed the player a draft at one-all — after a round they had just
+  // won — and never gave the bot a card at all.
+  const loser = 1 - siege.lastWinner;
+  const deficit = siege.wins[1 - loser] - siege.wins[loser];
+  const ids = rollDraft(siege.seed, siege.round, deficit, siege.cards[loser], loser);
+  if (loser !== 0) {
+    // The bot drafts too, or the deficit tiers only ever work in the player's favour and
+    // no card is ever seen from the receiving end. It takes the relay's default pick.
+    const pick = defaultDraftPick(ids);
+    if (pick) siege.cards[1].push(pick);
+    siege.round++;
+    beginSiegeBuild();
+    return;
+  }
+  // `rollDraft` returns card *ids*. Rendering them as if they were card records is why the
+  // draft screen showed three blank buttons and `siege.cards[0]` collected `undefined`.
+  const choices = ids.map((id) => CARDS_BY_ID[id]).filter(Boolean);
   if (!choices.length) { siege.round++; beginSiegeBuild(); return; }
   siege.phase = 'draft';
   siegeDraftEyebrow.textContent = deficit >= 2 ? 'Two rounds down — take something unfair'
@@ -2212,7 +2289,9 @@ function quitSiege() {
 }
 
 siegeButton.addEventListener('click', startSiegeMatch);
-siegeLock.addEventListener('click', lockSiegeFortress);
+// Not a bare reference: the click event would arrive as the `expired` argument and every
+// manual lock-in would silently auto-complete an illegal fortress instead of saying so.
+siegeLock.addEventListener('click', () => lockSiegeFortress(false));
 siegeQuit.addEventListener('click', quitSiege);
 siegeContinue.addEventListener('click', () => {
   siegeResultScreen.hidden = true;

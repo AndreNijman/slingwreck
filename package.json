@@ -16,6 +16,7 @@
     "test:editor": "node tools/editor-test.mjs",
     "test:abilities": "node tools/playtest.mjs --all",
     "test:mp": "node tools/mp-smoke.mjs",
+    "test:siege": "node tools/siege-match.mjs",
     "test:audit": "node tools/audit-test.mjs",
     "test:worker": "node --test tools/worker-test.mjs",
     "balance": "node tools/balance.mjs",

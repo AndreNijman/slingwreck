@@ -600,3 +600,64 @@ since P2.1 and is the first task.
 - 2026-08-24 `P7.6` **done** — Siege UI — build phase HUD, corner preview window, draft screen, match standings, results. Solo Siege playable end to end: build phase reuses the editor with a scrap budget, timer, early-lock banking and the same siege validation the relay enforces; bot builds via bots.js templates; both worlds step simultaneously in one frame loop; corner preview shows your own fortress under attack with their score and ammo; round resolution, draft of three cards to the loser, standings, best of five.
 
 - 2026-08-24 `P7.7` **done** — Solo Siege vs bot using bots.js fortress templates and the ballistic aimer. Solo Siege playable end to end: build phase reuses the editor with a scrap budget, timer, early-lock banking and the same siege validation the relay enforces; bot builds via bots.js templates; both worlds step simultaneously in one frame loop; corner preview shows your own fortress under attack with their score and ammo; round resolution, draft of three cards to the loser, standings, best of five.
+
+### P7.6/P7.7 defects — 2026-08-25
+
+Solo Siege was marked done and was not. `BUILD_STATE.json` recorded two known defects; a
+browser driving a whole best-of-five found six, and the two that had been written down
+were not the two that mattered most.
+
+The uncommitted tree at resume already held four fixes, all correct and all verified
+here before anything was added to them: `fortressForBudget` returns a wrapper and was
+being passed whole to `makeRound`, so the player attacked an empty plot and won every
+round instantly; the bot's draw vector is on `plan.aim`, so `plan.dx` launched `undefined`
+and the bot never fired a shot all round; King detection read `pig.king` and looked
+`pig.id` up in `PIGS`, but `pig.id` is a numeric body id, so no King pop was ever seen;
+and the round-end tie-break compared block *counts* rather than scrap spent.
+
+The four found here:
+
+- **The build banner sat on an unreachable line.** `updateSiegeBanner()` was called after
+  `frame()`'s editor early return — and the build phase *is* editor mode. So the ninety
+  second clock never moved off 1:30, the scrap readout kept showing the full purse over a
+  fortress that had already spent 60, and the expiry auto-lock inside it never ran once.
+  This is the "banner shows a full purse" defect in `BUILD_STATE.json`, and the earlier
+  diagnosis — two independent calculations of one number — was wrong. There was only ever
+  one calculation. It was not running.
+- **The campaign's result dialog opened over the siege panel.** `round` is the player's
+  siege world during an assault, so `if (isRoundOver(round)) showRoundOver()` fired,
+  recorded a campaign star for a fortress that is not a level, and took the clicks meant
+  for "Next round".
+- **`.screen-panel` and `.panel-card` had no CSS at all.** Both classes were written into
+  `index.html` and never given a rule, so the siege result, the siege draft and the
+  new-critter card laid out in normal flow at the top of the page, underneath the canvas.
+  Visible to a screen reader and to Playwright; unclickable to everyone, because the
+  canvas swallowed the pointer.
+- **The draft rendered card ids as if they were card records.** `rollDraft` returns ids.
+  `card.name`, `card.text` and `card.tierName` were all undefined, so the draft screen
+  showed three blank buttons, and `siege.cards[0].push(card.id)` collected `undefined` —
+  the entire 25-card system was unreachable in solo play, however well it unit-tested.
+  The draft was also being offered to whoever was behind on *wins* rather than to the
+  loser of the round, which handed the player a card at one-all right after they had won,
+  and never gave the bot a card at all.
+
+Two smaller things fell out of fixing those. The bot now drafts as well, taking the
+relay's `defaultDraftPick`, because deficit tiers that only ever work in the player's
+favour cannot be evaluated. And `fortressForBudget` takes a plain number, so it is the
+one build path that does not pass through `makeDraft` — the bot's cards had to be priced
+in explicitly, while `siegeBudget` deliberately stays free of the card bonus because
+`makeDraft`, `validate` and `contextFor` each run it through `budgetFor` again.
+
+DESIGN.md 6.2 says an expired build timer completes whatever is placed and locks it. That
+path was dead code, so nothing had ever exercised it; fixing the banner made it live, and
+an illegal draft at expiry would have spun `renderValidation()` every frame forever. The
+relay already had the candidate ladder, so it moved to `build.js` as
+`autoCompleteCandidates` and both sides now walk the same one, each validating with the
+validator it already trusts. `PIG_FLAG_DECOY` left `worker.js` with it.
+
+**`tools/siege-match.mjs` is the new gate**, wired as `npm run test:siege`. It plays a
+full best-of-five in Chromium and asserts 22 things, including that the result panel is
+genuinely the top element at the centre of the screen — `elementFromPoint`, not
+`hidden === false`. Every one of the four defects above would have failed it. None of
+them were visible in `tools/siege-test.mjs`, which passes 25/25 cards and passed
+throughout.
