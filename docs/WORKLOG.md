@@ -624,6 +624,18 @@ The four found here:
   This is the "banner shows a full purse" defect in `BUILD_STATE.json`, and the earlier
   diagnosis — two independent calculations of one number — was wrong. There was only ever
   one calculation. It was not running.
+
+  **Correction, 2026-09-01:** that correction was itself wrong. There were two bugs, not
+  one. This one — the banner call sitting past the editor's early return — was real and is
+  fixed above. But `openEditor` (`game.js`) built the correct Siege draft from `siegeBudget`
+  and the held cards, then seven lines later, unconditionally, rebuilt `editorDraft` plain
+  — `makeDraft()` with no budget and no cards — throwing both away before the build phase
+  ever rendered. `tools/siege-match.mjs` printed `"50 scrap"` identically in every round
+  because the budget never moved off the flat default and a card that unlocked or
+  discounted a material was unplaceable however correctly it was drafted. The original
+  "two independent calculations of one number" instinct was closer to right than the
+  correction that replaced it — the two calculations just were not where that instinct
+  placed them. See "Defect 1 and its knock-on effects" below.
 - **The campaign's result dialog opened over the siege panel.** `round` is the player's
   siege world during an assault, so `if (isRoundOver(round)) showRoundOver()` fired,
   recorded a campaign star for a fortress that is not a level, and took the clicks meant
@@ -661,3 +673,104 @@ genuinely the top element at the centre of the screen — `elementFromPoint`, no
 `hidden === false`. Every one of the four defects above would have failed it. None of
 them were visible in `tools/siege-test.mjs`, which passes 25/25 cards and passed
 throughout.
+
+**Correction, 2026-09-01:** "every one of the four defects above would have failed it" is
+false for the scrap banner specifically. The assertion at the time compared `#siege-scrap`
+against `#scrap-left` — but both render from the same `editorDraft.budget`
+(`updateSiegeBanner` and `updateBudgetMeter`), so they agreed by construction whether or
+not that budget was ever correct. It passed straight through the defect described in the
+correction above — the one it existed to catch — for the entire time this file called it
+the gate. See "Defect 1 and its knock-on effects" below for the replacement.
+
+### Defect 1 and its knock-on effects — 2026-09-01
+
+A second review of commit `abfd28f` found the defect the two corrections above both point
+at, plus three problems in `tools/siege-match.mjs` that let it ship anyway, plus the
+Space/`onLock` drift `BUILD_STATE.json` had been carrying as a known issue.
+
+**The clobber.** `openEditor` (`game.js`) built the right Siege draft —
+`makeDraft({ budget: editorSiege.budget, cards: editorSiege.cards })` — then, seven lines
+later inside the same function, unconditionally rebuilt it plain: `editorDraft =
+makeDraft();`, no budget, no cards. The `if (editorSiege)` block above it was dead code.
+Before the fix, `editorDraft.budget` measured 110 in every round of a solo match
+regardless of round number, deficit or banked scrap, and `editorDraft.cards` was always
+`[]`, so a card that unlocked or discounted a material could be drafted and held and would
+still be unplaceable. The fix merges the two blocks into one conditional assignment at the
+point `editorSiege` is set, instead of building the draft twice.
+
+That fix alone would have introduced a second bug. `editorOptions()` and
+`cloneEditorDraft()` defaulted their `budget` parameter to `editorDraft.budget` — but that
+field already has `rulesFor(cards).budgetBonus` folded in once, and both functions feed it
+into `makeDraft`/`fromBlueprint`, which fold the same bonus in again. Invisible with no
+cards (bonus 0, so 0 added twice is still 0), this would have composed the bonus twice the
+moment a `budget`-effect card (Deep Pockets, +30) was held and the player reloaded a
+blueprint — which `tools/siege-match.mjs` does every round. A module-level
+`editorBudgetBase` now tracks the pre-bonus purse (`siegeBudget(pid)` in Siege, `undefined`
+— the existing round-1 default — in the ordinary workshop editor) separately from
+`editorDraft.budget`, and `editorOptions`/`cloneEditorDraft` default to that instead.
+
+Measured in round 2 of a solo match (round 1 has several zero terms — no deficit, no
+banked scrap, no cards — that would have hidden this): `editorDraft.budget` and
+`siegeBudget(0)` (the number `lockSiegeFortress` composes into `rules.budget` at
+`game.js` where it validates) are two independently-computed numbers, and before the fix
+they disagreed — the editor showed a flat 110 while the validator's own arithmetic said
+166 plus whatever Deep Pockets was worth. After the fix, with Deep Pockets held:
+`editorDraft.budget` 196, `siegeBudget(0)` 166, composed once with the held cards via
+`budgetFor` 196 — equal. Confirmed separately that a card which unlocks or discounts a
+material now does what it drafts as doing: with Heavy Industry held, the material palette
+no longer marks iron `.locked`, and an iron block is actually placeable (`pieceCount` 15 →
+16, `spent` 60 → 66, at the discounted 6/block rather than the base 12).
+
+**Three assertions in `tools/siege-match.mjs` could not fail.**
+- The scrap banner assertion compared `#siege-scrap` against `#scrap-left`. Both render
+  from `editorDraft.budget`, so it passed straight through the defect above the whole time
+  — see the correction to the P7.6/P7.7 entry. It now compares both DOM nodes against a
+  value computed independently of either: `siegeBudget(0)` (freshly exposed on the smoke
+  probe as `siege.rulesBudget`) composed once with the held cards via `build.js`'s own
+  `budgetFor`, minus the loaded blueprint's cost computed the same way via `spent` and
+  `fromBlueprint`. Proven able to fail by temporarily reintroducing the clobber and
+  re-running: round 1 still passed (110 == 110, the zero-terms coincidence), round 2 did
+  not —
+  `FAIL 11. round 2 scrap banner and editor meter match the independently-computed budget:
+  expected 136 scrap (siegeBudget(0) 166 + card bonus = 196, blueprint costs 60); banner
+  "106 scrap"; meter "106"; cards [deep-pockets]` — restored immediately after.
+- Two draft assertions passed vacuously whenever the player swept a match without losing a
+  round (`draftsSeen` only increments when the *player* is offered a draft, and the loser
+  drafts — a common outcome, since the bot loses most rounds per the known issue below).
+  `draftsSeen === 0 || ...` was an explicit escape hatch around this. The match seed is now
+  pinned (`SIEGE_SEED = 1`, passed through a new `?siege-seed=` override on `game.js`,
+  following the existing `?ammo=` pattern) and rounds 1 and 2 are deliberately played with
+  no player shots fired, so the bot wins both outright and the player drafts twice,
+  deterministically, rather than however the loser happened to fall out. `draftsSeen >= 2`
+  and `cards[0].length >= 2` are now real floors, not escape hatches, and which two cards
+  are on offer (Deep Pockets in round 1, Heavy Industry in round 2, both found by
+  brute-forcing `relay-audit.js`'s pure `rollDraft` offline against the pinned seed) is what
+  makes the round 2 and round 3 measurements above possible at all.
+
+**Determinism.** Two more races were fixed alongside the ones above: `pouchPoint` was read
+once per round and reused for every shot, though the camera zooms per shot (the code
+comment already said so); it now reads fresh before each shot, after polling the camera
+against its own target for convergence. Every `page.waitForTimeout` is gone, replaced with
+`poll()` against `window.__SLINGWRECK_SMOKE__()` — the same polling idiom
+`tools/smoke.mjs` already uses — waiting on phase transitions, shot counts and DOM state
+rather than guessing at durations. Combined with the pinned seed, three consecutive runs
+of `npm run test:siege` now print the identical assertion count (45) and the identical
+five-round scoreline (bot wins rounds 1–2, player wins rounds 3–5, 3–2). This was not a
+given going in: the two siege worlds run independently of each other, but the bot's own
+shot cadence (`siege.botNextShot`) is scheduled off wall-clock `performance.now()`, not
+sim ticks, so a genuinely loaded machine remains a plausible source of residual
+non-determinism that this fix does not remove. It did not surface in six consecutive runs
+made today, three of them with a concurrent CPU load from another process on this host.
+
+**Space locks in early.** DESIGN.md 6.2 assigns Space to locking in during Siege's build
+phase; `game.js` bound it to editor panning in every editor mode, and `editorSiege.onLock`
+was stored but never called — only the `#siege-lock` button and timer expiry reached
+`lockSiegeFortress`. Space now checks `editorSiege` first and calls `onLock(false)` when
+it is set, falling back to panning otherwise, so the workshop editor's own use of Space is
+unaffected. `tools/siege-match.mjs` now locks round 1 via `Space` (after moving focus off
+the blueprint input, which the editor's own typing guard would otherwise swallow the
+keypress for) and every other round via the button, so both paths are covered.
+
+Gates: `node tools/check.mjs`, `node tools/siege-test.mjs` (25/25 cards), `node
+tools/editor-test.mjs`, `npm test` (40/40, no regression to the campaign editor) all pass.
+`npm run test:siege` passed 45/45 on three consecutive runs with an identical scoreline.

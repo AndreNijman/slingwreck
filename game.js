@@ -64,6 +64,16 @@ import {
 const requestedAmmo = new URLSearchParams(window.location.search).get('ammo');
 const pinnedAmmo = requestedAmmo && AMMO_BY_ID[requestedAmmo] ? requestedAmmo : null;
 
+// `siege.seed` is otherwise `Date.now() ^ 0x5109` — reproducible for the length of one
+// match, per DESIGN.md, but different on every page load, which makes a browser-driven
+// siege test unable to target a specific bag, draft or bot line-up. tools/siege-match.mjs
+// pins this so the match it drives — who loses round 1, which cards are offered — is the
+// same test on every run instead of whatever the clock hands it.
+const requestedSiegeSeed = new URLSearchParams(window.location.search).get('siege-seed');
+const pinnedSiegeSeed = requestedSiegeSeed !== null && Number.isFinite(Number(requestedSiegeSeed))
+  ? Number(requestedSiegeSeed) >>> 0
+  : null;
+
 const GRAB_RADIUS = 2;
 const MAX_CAMERA_ZOOM = 4;
 const MIN_USER_ZOOM = -0.45;
@@ -166,6 +176,13 @@ let fortressFeedbackTime = 0;
 let editing = false;
 let editorDraft = makeDraft();
 let editorSiege = null;
+// The round/deficit/banked purse, deliberately without the card bonus. `editorOptions`
+// hands this to `makeDraft`/`fromBlueprint`, which each run it through `budgetFor` and add
+// the bonus themselves — so if this instead tracked `editorDraft.budget` (already bonused
+// once), reloading a blueprint while holding a `budget`-effect card would compose the
+// bonus a second time, and the editor would show more scrap than `lockSiegeFortress`'s
+// validator, composing it once from `siegeBudget`, will accept.
+let editorBudgetBase;
 let editorRound = null;
 let editorBodyPieceIds = new Map();
 let editorGroup = 'materials';
@@ -202,7 +219,14 @@ const placementErrors = new Set([
   'locked-material', 'locked-piece', 'piece-limit'
 ]);
 
-function editorOptions(budget = editorDraft.budget) {
+// Defaults to the pre-bonus base, not `editorDraft.budget`: that field already has
+// `rulesFor(cards).budgetBonus` folded in once (by the `makeDraft` call that built it), and
+// `makeDraft`/`fromBlueprint` below fold the same bonus in again from `cards`. Feeding the
+// already-bonused number back in as the new base would double it — invisible with no cards,
+// live the moment a `budget`-effect card (Deep Pockets) is held, and it would show more
+// scrap in the editor than `lockSiegeFortress`'s validator, composing it once from
+// `siegeBudget`, would accept.
+function editorOptions(budget = editorBudgetBase) {
   return { budget, cards: editorDraft.cards };
 }
 
@@ -225,7 +249,7 @@ function rebuildEditorRound() {
   editorBodyPieceIds = mapEditorBodies(editorRound);
 }
 
-function cloneEditorDraft(budget = editorDraft.budget, excludedId = null) {
+function cloneEditorDraft(budget = editorBudgetBase, excludedId = null) {
   const clone = fromBlueprint(toBlueprint(editorDraft), editorOptions(budget));
   if (excludedId !== null) {
     const index = editorDraft.pieces.findIndex((piece) => piece.id === excludedId);
@@ -251,7 +275,7 @@ function ghostBodyFor(piece) {
 
 function probePlacement(x, y, excludedId = null) {
   const source = selectedSource(x, y);
-  const real = cloneEditorDraft(editorDraft.budget, excludedId);
+  const real = cloneEditorDraft(editorBudgetBase, excludedId);
   const placed = place(real, source);
   let candidate = placed.piece ?? null;
   let reason = placed.reason;
@@ -908,11 +932,17 @@ async function pasteBlueprint() {
 // second one is the whole reason it was built before the campaign.
 function openEditor(siegeCtx = null) {
   editorSiege = siegeCtx && typeof siegeCtx.onLock === 'function' ? siegeCtx : null;
-  if (editorSiege) {
-    editorDraft = makeDraft({ budget: editorSiege.budget, cards: editorSiege.cards });
-    editorHighlightIds = new Set();
-    editorHighlightCode = null;
-  }
+  // The one and only place `editorDraft` is built for this session. It used to be built
+  // here for Siege and then unconditionally rebuilt plain twenty-five lines down, which
+  // threw away the budget and cards this function was passed — Siege's build phase never
+  // saw its own scrap economy or drafted cards, however correctly `siegeBudget` computed
+  // them upstream.
+  editorBudgetBase = editorSiege ? editorSiege.budget : undefined;
+  editorDraft = editorSiege
+    ? makeDraft({ budget: editorSiege.budget, cards: editorSiege.cards })
+    : makeDraft();
+  editorHighlightCode = null;
+  editorHighlightIds = new Set();
   playing = false;
   editing = true;
   accumulator = 0;
@@ -935,9 +965,6 @@ function openEditor(siegeCtx = null) {
   canvas.tabIndex = 0;
   canvas.setAttribute('aria-label', editorCanvasLabel);
   canvas.setAttribute('aria-describedby', 'editor-controls-hint');
-  editorDraft = makeDraft();
-  editorHighlightCode = null;
-  editorHighlightIds = new Set();
   clearSettleDisplay('Test the tower to watch three seconds of settling.');
   renderPalette();
   setEditorGroup('materials');
@@ -1772,6 +1799,11 @@ document.addEventListener('keydown', (event) => {
     if (typing) return;
     if (event.code === 'Space') {
       event.preventDefault();
+      // DESIGN.md 6.2: in Siege's build phase Space locks in early and banks the unspent
+      // time as scrap. `editorSiege.onLock` has carried this callback since Siege's build
+      // phase was wired up, but nothing ever called it — the ordinary workshop editor's own
+      // use of Space, for panning, is only correct outside Siege.
+      if (editorSiege) { editorSiege.onLock(false); return; }
       editorSpacePan = true;
       return;
     }
@@ -1905,6 +1937,12 @@ if (new URLSearchParams(window.location.search).has('smoke-test')) {
       siege: siege.active ? {
         phase: siege.phase, round: siege.round, wins: [...siege.wins],
         cards: siege.cards.map((c) => [...c]),
+        banked: [...siege.banked],
+        // The pre-bonus purse exactly as `lockSiegeFortress` composes it into `rules.budget`
+        // at the moment it validates (game.js `lockSiegeFortress`). Exposed so a test can
+        // check `editor.budget` against this independently of the DOM, rather than checking
+        // the banner against the meter it is itself sourced from.
+        rulesBudget: siegeBudget(0),
         player: siege.playerRound ? { phase: siege.playerRound.phase,
           shot: siege.playerRound.shotIndex, bag: siege.playerRound.bag.length,
           over: isRoundOver(siege.playerRound) } : null,
@@ -2010,7 +2048,7 @@ function startSiegeMatch() {
   siege.botPlan = null;
   // One seed for the whole match: bag composition and the draft are both derived from it,
   // so a match is reproducible and — when this is wired to the relay — auditable.
-  siege.seed = (Date.now() ^ 0x5109) >>> 0;
+  siege.seed = pinnedSiegeSeed ?? (Date.now() ^ 0x5109) >>> 0;
   beginSiegeBuild();
 }
 
