@@ -209,9 +209,9 @@
     {
       "path": "tools/balance.mjs",
       "phase": "P5",
-      "budget": 1100,
+      "budget": 1250,
       "job": "--campaign flags unwinnable or trivially three-starred levels. --siege runs mirrored card-at-parity bot matches, a full-rules natural sweep, legal card-aware builds, effect coverage, confidence intervals and win-condition gates.",
-      "budgetNote": "Raised for P7.8 because the Siege gate is two simulations rather than one: isolated mirrored card measurements and natural drafted best-of-five matches, plus the relay-equivalent build validation and per-effect evidence needed to keep either sweep honest."
+      "budgetNote": "Raised for P7.8 because the Siege gate is two simulations rather than one: isolated mirrored card measurements and natural drafted best-of-five matches, plus the relay-equivalent build validation and per-effect evidence needed to keep either sweep honest. Raised again for the --no-lane-respend diagnostic flag that isolates airlift's balloon from the harness's lane respend, plus the fortress-scrap-spent reporting it prints. This file is under tools, not modules, so npm's check.mjs line-budget gate never enforces this number — it stays documentation, kept honest by hand."
     },
     {
       "path": "tools/campaign-shots.mjs",

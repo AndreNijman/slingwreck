@@ -83,7 +83,11 @@ const fortressCache = new Map();
 function usage(message = null) {
   if (message) console.error(message);
   console.error('usage: node tools/balance.mjs --campaign [--import]');
-  console.error('       node tools/balance.mjs --siege [-n N]');
+  console.error('       node tools/balance.mjs --siege [-n N] [--no-lane-respend]');
+  console.error('       --no-lane-respend: airlift still opens its King-balloon flight');
+  console.error('       lane, but the harness does not respend the scrap that lane frees.');
+  console.error('       Omitting it is byte-identical to today. Diagnostic only — it does');
+  console.error('       not change 40/65/70 or which run exits non-zero.');
   process.exitCode = 2;
 }
 
@@ -425,8 +429,9 @@ function blueprintFailure(label, result) {
     `${entry.code} [${entry.pieceIds.join(',') || 'no piece ids'}]`).join('; ')}`;
 }
 
-function buildFortress({ round, baseBudget, cards, templateIndex, seed }) {
-  const key = `${round}|${baseBudget}|${cards.join(',')}|${templateIndex}`;
+function buildFortress({ round, baseBudget, cards, templateIndex, seed, noLaneRespend = false }) {
+  const key = `${round}|${baseBudget}|${cards.join(',')}|${templateIndex}|` +
+    (noLaneRespend ? 'no-respend' : 'respend');
   const cached = fortressCache.get(key);
   if (cached) return cached;
 
@@ -437,9 +442,15 @@ function buildFortress({ round, baseBudget, cards, templateIndex, seed }) {
   // The stock templates flank the King with posts. Airlift's authored 1.5-unit
   // drift would drive the balloon-carried King through them, so its card-aware
   // version opens that flight lane before spending the released scrap elsewhere.
+  // --no-lane-respend (below) keeps the lane open but withholds that respend, so
+  // the harness can measure whether the respend — not the balloon — was carrying
+  // the card's parity numbers.
+  let laneCredit = 0;
   if (effects.some((effect) => effect.kind === 'kingBalloon')) {
+    const beforeLane = spent(draft);
     draft.pieces = draft.pieces.filter((piece) =>
       piece.kind !== 'block' || piece.x < 10 || piece.x > 14);
+    if (noLaneRespend) laneCredit = beforeLane - spent(draft);
   }
   const addPig = (source, label) => {
     const result = place(draft, source);
@@ -499,6 +510,14 @@ function buildFortress({ round, baseBudget, cards, templateIndex, seed }) {
       }
     }
   }
+  // Withhold the lane's freed scrap from the filler only — after the King-balloon
+  // card's own obligatory placements (decoy/flak pigs, unlocked-material reserves)
+  // have already spent against the untouched budget, exactly as they would without
+  // this flag. Only the discretionary top-up below is denied the credit. Clamped so
+  // a combo whose mandatory placements already exceed the reduced target cannot
+  // manufacture a spurious over-budget rejection; with the flag off laneCredit is
+  // always 0 and this is a no-op.
+  draft.budget = Math.max(spent(draft), draft.budget - laneCredit);
   const preferred = effects.some((effect) =>
     effect.kind === 'materialCost' && effect.material === 'iron') ? 'iron' :
     effects.some((effect) => effect.kind === 'materialCost' && effect.material === 'stone')
@@ -600,7 +619,8 @@ function playerRoundState(pid, assault, fortress, sudden = false) {
   };
 }
 
-function simulateRound({ matchSeed, round, players, baseBudgets, orientation = 0 }) {
+function simulateRound({ matchSeed, round, players, baseBudgets, orientation = 0,
+  noLaneRespend = false }) {
   const fortresses = players.map((player, index) => {
     const physical = orientation ? 1 - index : index;
     const templateSeed = seedWord(matchSeed, round * 31 + physical);
@@ -609,7 +629,8 @@ function simulateRound({ matchSeed, round, players, baseBudgets, orientation = 0
       baseBudget: baseBudgets[index],
       cards: player.cards,
       templateIndex: templateSeed & 1,
-      seed: templateSeed
+      seed: templateSeed,
+      noLaneRespend
     });
   });
   const assaults = players.map((player, index) => {
@@ -642,7 +663,8 @@ function simulateRound({ matchSeed, round, players, baseBudgets, orientation = 0
   return { result, fortresses, playerStates };
 }
 
-function simulateMatch({ seed, initialCards = [[], []], natural = false, orientation = 0 }) {
+function simulateMatch({ seed, initialCards = [[], []], natural = false, orientation = 0,
+  noLaneRespend = false }) {
   const players = [1, 2].map((pid, index) => ({
     pid, wins: 0, cards: [...initialCards[index]], bankedScrap: 0
   }));
@@ -662,7 +684,7 @@ function simulateMatch({ seed, initialCards = [[], []], natural = false, orienta
       for (const player of players) player.bankedScrap += earlyLockScrap(TUNE.buildSeconds);
     }
     const played = simulateRound({
-      matchSeed: seed, round, players, baseBudgets, orientation
+      matchSeed: seed, round, players, baseBudgets, orientation, noLaneRespend
     });
     const winner = players.find((player) => player.pid === played.result.winner);
     const loser = players.find((player) => player.pid !== played.result.winner);
@@ -946,6 +968,17 @@ function printCardExplain(rows) {
   }
 }
 
+function printCardFortressSpend(rows) {
+  console.log('\nparity card fortress scrap spent (means/round; --no-lane-respend only — this is ' +
+    'the "genuine cost" the respend used to hide)');
+  console.log('card                 holder spent  opponent spent');
+  for (const row of rows) {
+    const n = row.rounds;
+    console.log(`${row.card.id.padEnd(21)}${formatScore(row.holderFortressSpent / n).padStart(12)}  ` +
+      `${formatScore(row.opponentFortressSpent / n).padStart(14)}`);
+  }
+}
+
 function printCoverage(rows) {
   console.log('\ncard coverage');
   console.log('card                 effect             before              after               state');
@@ -974,7 +1007,7 @@ function printDistribution(distribution, rounds) {
   return pointsShare;
 }
 
-async function siege(n) {
+async function siege(n, { noLaneRespend = false } = {}) {
   const started = performance.now();
   const matchesPerCard = n / CARDS.length;
   const pairingsPerCard = matchesPerCard / 2;
@@ -987,6 +1020,10 @@ async function siege(n) {
     lostBy: { 'king-pop': 0, score: 0, tail: 0 },
     holderShots: 0, opponentShots: 0, holderUnused: 0, opponentUnused: 0,
     holderScore: 0, opponentScore: 0,
+    // Total scrap actually spent on each side's fortress, printed only under
+    // --no-lane-respend — otherwise both sides always spend their full budget
+    // and the number says nothing.
+    holderFortressSpent: 0, opponentFortressSpent: 0,
     holderBreakdown: zeroBreakdown(), opponentBreakdown: zeroBreakdown()
   }));
   let parityRounds = 0;
@@ -997,7 +1034,7 @@ async function siege(n) {
       for (let leg = 0; leg < 2; leg++) {
         const holderPid = leg + 1;
         const cards = leg === 0 ? [[row.card.id], []] : [[], [row.card.id]];
-        const match = simulateMatch({ seed, initialCards: cards });
+        const match = simulateMatch({ seed, initialCards: cards, noLaneRespend });
         row.matches++;
         row.rounds += match.rounds.length;
         parityRounds += match.rounds.length;
@@ -1016,6 +1053,8 @@ async function siege(n) {
           row.opponentUnused += opponentState.unusedCount;
           row.holderScore += holderState.score;
           row.opponentScore += opponentState.score;
+          row.holderFortressSpent += holderState.fortressCost;
+          row.opponentFortressSpent += opponentState.fortressCost;
           addBreakdown(row.holderBreakdown, holderState.breakdown);
           addBreakdown(row.opponentBreakdown, opponentState.breakdown);
         }
@@ -1031,7 +1070,7 @@ async function siege(n) {
   for (let pairing = 0; pairing < pairingsPerCard; pairing++) {
     const seed = seedWord(PARITY_SEED, 0x4000 + pairing);
     for (let leg = 0; leg < 2; leg++) {
-      const match = simulateMatch({ seed, orientation: leg });
+      const match = simulateMatch({ seed, orientation: leg, noLaneRespend });
       const bucket = control.legs[leg];
       bucket.rounds += match.rounds.length;
       bucket.p1Wins += match.rounds.filter((round) => round.winner === 1).length;
@@ -1045,7 +1084,7 @@ async function siege(n) {
   let naturalRounds = 0;
   for (let index = 0; index < naturalMatches; index++) {
     const seed = seedWord(NATURAL_SEED, index);
-    const match = simulateMatch({ seed, natural: true });
+    const match = simulateMatch({ seed, natural: true, noLaneRespend });
     for (const round of match.rounds) {
       distribution[REASONS.includes(round.reason) ? round.reason : 'unresolved']++;
       naturalRounds++;
@@ -1054,6 +1093,10 @@ async function siege(n) {
   const coverageRows = CARDS.map(cardCoverage);
 
   console.log('siege balance configuration');
+  if (noLaneRespend) {
+    console.log('--no-lane-respend: airlift opens its King-balloon lane but keeps the ' +
+      'freed scrap unspent instead of respending it elsewhere on the fortress');
+  }
   console.log(`n=${n} parity card matches (${n / 2} mirrored pairings) + ` +
     `${control.matches} null/control matches; natural=${naturalMatches} matches`);
   console.log(`seeds parity=0x${PARITY_SEED.toString(16)} natural=0x${NATURAL_SEED.toString(16)}; ` +
@@ -1069,6 +1112,7 @@ async function siege(n) {
   printCardShotsScore(cardRows);
   const flagged = cardRows.filter((row) => row.rate > CARD_HIGH || row.rate < CARD_LOW);
   printCardExplain(cardRows);
+  if (noLaneRespend) printCardFortressSpend(cardRows);
   printCoverage(coverageRows);
   const pointsShare = printDistribution(distribution, naturalRounds);
 
@@ -1109,14 +1153,23 @@ async function siege(n) {
 }
 
 async function main(args) {
-  const siegeN = parseSiegeN(args);
+  // Pulled out before parseSiegeN/campaign validation runs, so the flag's presence
+  // or absence never changes how the rest of args is parsed — the flag-absent path
+  // below is untouched, byte for byte, from before this flag existed.
+  const noLaneRespend = args.includes('--no-lane-respend');
+  const rest = noLaneRespend ? args.filter((arg) => arg !== '--no-lane-respend') : args;
+  const siegeN = parseSiegeN(rest);
   if (Number.isFinite(siegeN)) {
-    await siege(siegeN);
+    await siege(siegeN, { noLaneRespend });
     return;
   }
-  if (args[0] === '--siege') {
+  if (rest[0] === '--siege') {
     usage(`-n must be a positive multiple of ${CARDS.length * 2} so all card matches ` +
       'have complete mirrors');
+    return;
+  }
+  if (noLaneRespend) {
+    usage('--no-lane-respend only applies to --siege');
     return;
   }
   const writeStars = args.includes('--import');
