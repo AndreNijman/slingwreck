@@ -92,3 +92,52 @@ Reverted with `git checkout -- levels.js`. One change was kept because it was co
 command, nothing reached a commit, and the recovery was a single checkout — because the
 last commit was green and the standard is machine-checked. That is the whole argument for
 committing only at green gates and for `tools/level-audit.mjs` existing.
+
+## Subagents cannot wait for a long run — 2026-09-01
+
+Recorded after three separate agents in one session each burned their whole context
+reporting nothing.
+
+A delegated agent launches its long commands in background shells that **die when its turn
+ends**. So any task whose payoff is a 10-to-60-minute measurement comes back with "still
+running, I'll wait for the notification" and no result, wakes up, reports the same thing,
+and repeats. One reached 280k tokens saying it before being stopped with `TaskStop`.
+
+**The split that works:** delegate the *writing* and the fast self-verification, then run
+the long measurement yourself. That costs nothing once determinism is established, because
+the numbers are identical whoever runs them — the `--siege` sweep hashed the same across
+three separate runs, two machines states and a reboot.
+
+Concretely, for this repo:
+
+- Give the agent the harness change, the failure-injection proofs, and any check that
+  finishes inside a minute or two.
+- Take `--siege -n 2000`, `--comeback`, `playtest --all` and `determinism:all` yourself.
+- If an agent's report says "still running", its background children are already dead.
+  Check the tree for what it wrote, then run the measurement yourself. Do not resume it to
+  wait — resuming restarts the same cycle.
+
+## Two invocation traps that cost real time — 2026-09-01
+
+**`codex exec resume` does not accept `-s`.** The subcommand takes sandbox mode as
+`-c sandbox_mode="workspace-write"`. Passing `-s` makes it exit on argument parsing, which
+in a `nohup ... &` launch looks exactly like a running job — the process is simply gone.
+Sol sat idle for an interval before this was noticed. Always tail the log after launching a
+backgrounded delegation, before reporting it as started.
+
+**`pgrep -f <pattern>` matches its own shell.** A wait loop written as
+`until ! pgrep -f "gpt-5.6-sol"; do sleep 15; done` never exits, because the shell running
+it has that string in its own command line. Use a bracket to break the self-match
+(`grep -c '[c]odex-linux-x64'`) or match on something the waiter does not contain. This was
+hit three times in one session before being written down.
+
+## Long-run output belongs on durable storage — 2026-09-01
+
+Sweep output was written to the session scratchpad under `/tmp`. The machine rebooted
+overnight, systemd cleared `/tmp`, and several hours of results went with it. The code was
+never at risk — it was committed — but the measurements were, and they were the expensive
+part.
+
+Write anything that has to outlive the session to `~/.cache/slingwreck-balance/` or another
+durable path. The scratchpad is documented as session-specific; long unattended runs are
+precisely the case it does not cover.

@@ -867,3 +867,69 @@ Every other clause of the P7.9 gate is green: mp-smoke, audit-test three times,
 `playtest --all` 774 shots, four-engine determinism at sim digest `2856ed88`, and campaign
 52/52 at an unchanged output hash. The clause "balance --siege green" is red by design.
 Closing P7 needs a `data.js` rebalance or an amendment to how the gate reads tier 3.
+
+### Solo Siege's cards, and which balance flags were real — 2026-09-01/02
+
+Four defects in the bot's use of cards, each found by fixing the one before it.
+
+**The bot's drafted cards did nothing.** `fortressForBudget` takes a plain number and walks
+a fixed template at raw `MATERIALS` cost, never calling `rulesFor`, so a card only mattered
+if its effect kind was `budget`. `unlock`, `materialCost`, `decoyKing` and `pigAbility` were
+inert. The bot now builds through `build.js`'s declarative pipeline, following
+`tools/balance.mjs`'s `buildFortress` rather than a second card-aware path. Measured at
+budget 260: `heavy-industry` puts 16 iron blocks in a fortress that had none, `understudy`
+adds a decoy King, `flak-hog` adds a flagged pig. Budget composes once — 260 against 290
+with `deep-pockets`, a delta of 30 not 60.
+
+**Fixing that made the bot's strength jump on drafting anything.** The first pass preserved
+the no-cards path exactly, on instruction, giving 60 scrap with no cards and 260 with one
+irrelevant one — the bot was weak until it happened to lose a round. The seed is now purely
+a seed and the budget is always the constraint, so `[]` and `['bedrock']` build identical
+structures. A real difficulty increase, accepted deliberately; P8 owns difficulty tiers.
+
+**Most of the card system was still unreachable.** Neither `siege.playerRound` nor
+`siege.botRound` passed cards into `makeRound`, so every in-simulation effect was dead in
+solo play for both sides. Threaded, and verified in the right direction rather than by
+reading the code — swapping the lists would apply every card to the wrong side and still
+appear to work.
+
+**Which made a fourth defect live.** With the balloon real, a card-aware airlift build
+failed `settleTest` 10/10 and fell back to the plain template: the balloon rose through the
+un-laned gap and jostled the central posts, `maxMovement 0.0864`. The lane is built here
+too and now passes 10/10, eight of ten at `maxMovement 0.00000`. One divergence from the
+harness is commented in place — the harness can withhold the scrap that lane frees because
+respending inflated a measured rate by 4.3 points, but that is measurement fairness, not
+gameplay, so the game respends it.
+
+`tools/siege-match.mjs` regained the coverage the stronger bot cost it. The
+bot-loses-bot-drafts path was reachable only from a scratch script. On round 3 the scripted
+player now builds a real fortress and fires a real ballistic solve at a high arc — 60/60
+seeds win headlessly against 0/60 for a naive drag or a low arc. The naive shot was losing
+because the bot popped the test's throwaway blueprint in 0.78 s before the player's harder
+task mattered, not because the game is unwinnable. 41/41 across three identical runs.
+
+#### Which card flags were real
+
+`--shard i/k` splits the parity sweep across processes. It is exact, not approximate:
+allocation and every seed derive from the full `CARDS.length` and from `cardIndex`, so a
+shard changes which rows print and nothing in them — checked by reproducing one card's row
+byte-for-byte. `-n 2000` dropped from ~50 minutes serial to ~10 across 13 shards, which is
+what made the following affordable. All 25 cards at ~330 rounds each:
+
+    airlift       82.5%  [77.6%, 86.5%]  HIGH                  (was 85.7% at n=400)
+    gale          70.2%  [64.8%, 75.0%]  HIGH (crosses 65%)    (was 69.7%)
+    iron-ration   35.5%  [30.5%, 40.8%]  LOW  (crosses 40%)    (was 37.3%)
+    kingslayer    43.7%  [38.3%, 49.2%]  —                     (was 33.3%)
+
+**Kingslayer was sampling error** and is no longer flagged. Tuning all four cards on the
+`-n 400` numbers would have buffed a card that was fine, and the gate would have gone green
+afterwards — which is how that mistake hides. The other three tightened away from the band
+rather than toward it, which is what a real effect does under more samples.
+
+22 of 25 cards land between 41.7% and 61.6% clustered near 50%, and `smokescreen` sits at
+exactly 50.0%, correct for an effect that cannot touch a headless bot sim. Note
+`bombardier` is unflagged at 61.6% but its interval reaches 66.6%, so it is not clear of
+the ceiling either.
+
+Three outliers across 25 declarative card effects, in a system that had no way of being
+measured before P7.8 existed.

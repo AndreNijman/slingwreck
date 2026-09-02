@@ -14,7 +14,7 @@
       "path": "physics.js",
       "phase": "P1",
       "budget": 1100,
-      "budgetNote": "Raised from 900 after P1. The solver landed at 898 lines against a 900 budget, which is not a coincidence \u2014 blank lines between functions had been squeezed out to fit. A budget that buys itself by deleting the comments explaining a sequential-impulse solver is a bad trade.",
+      "budgetNote": "Raised from 900 after P1. The solver landed at 898 lines against a 900 budget, which is not a coincidence — blank lines between functions had been squeezed out to fit. A budget that buys itself by deleting the comments explaining a sequential-impulse solver is a bad trade.",
       "imports": [
         "data.js"
       ],
@@ -44,7 +44,7 @@
     {
       "path": "game.js",
       "phase": "P2",
-      "budget": 2400,
+      "budget": 2600,
       "imports": [
         "data.js",
         "sim.js",
@@ -57,7 +57,7 @@
         "bots.js"
       ],
       "job": "Game-world input, HUD, camera, fixed-step accumulator, editor flow, campaign round flow, and siege match flow. Campaign selection and progress DOM live in campaign-ui.js.",
-      "budgetNote": "Raised from 1800 for the Siege flow. Siege reuses the editor for its build phase, the round loop for its assault and the renderer's corner preview, and it needs direct access to `round`, the camera, the frame accumulator and the editor's draft. Exporting all of that to a separate module purely to satisfy a line count would have made it harder to follow, not easier."
+      "budgetNote": "Raised from 1800 for the Siege flow. Siege reuses the editor for its build phase, the round loop for its assault and the renderer's corner preview, and it needs direct access to `round`, the camera, the frame accumulator and the editor's draft. Exporting all of that to a separate module purely to satisfy a line count would have made it harder to follow, not easier. Raised again from 2400 to 2600 in P7 for the card-aware bot fortress: solo Siege now builds the bot's blueprint through build.js's declarative pipeline (seed, fromBlueprint, place, validate) including airlift's flight lane, and threads attackerCards/defenderCards into both assault worlds. Before this, only a card whose effect kind was `budget` did anything to the bot, and every in-simulation card effect was dead in solo play for both sides. The alternative to the lines was a fifth module holding one function that needs siege, the editor draft and bots.js at once. Note check.mjs only enforces budgets under `modules`, so this number is a real gate, unlike the ones on `tools` entries."
     },
     {
       "path": "campaign-ui.js",
