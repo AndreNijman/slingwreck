@@ -1,5 +1,7 @@
-import { AMMO_BY_ID, BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SCORE, SHAPES, TUNE }
-  from './data.js?v=20260902-1';
+import {
+  AMMO_BY_ID, BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SCORE, SHAPES,
+  SIEGE_DIFFICULTIES, SIEGE_DIFFICULTY_DEFAULT, TUNE
+} from './data.js?v=20260902-1';
 import {
   finalizeSiegeScore,
   isRoundOver,
@@ -1054,6 +1056,23 @@ function markCritterSeen(id) {
   try { localStorage.setItem(SEEN_CRITTERS_KEY, JSON.stringify([...seen])); } catch { /* private mode */ }
 }
 
+// Solo Siege's bot difficulty, persisted the same way campaign-ui.js persists progress:
+// one localStorage key, read once at load, written on every change, tolerant of a
+// private-mode browser that throws. See data.js's SIEGE_DIFFICULTIES for what a tier id
+// actually changes and how the three were measured apart.
+const SIEGE_DIFFICULTY_KEY = 'slingwreck.siege.difficulty.v1';
+
+function loadSiegeDifficulty() {
+  try {
+    const stored = localStorage.getItem(SIEGE_DIFFICULTY_KEY);
+    return SIEGE_DIFFICULTIES[stored] ? stored : SIEGE_DIFFICULTY_DEFAULT;
+  } catch { return SIEGE_DIFFICULTY_DEFAULT; }
+}
+
+function saveSiegeDifficulty(id) {
+  try { localStorage.setItem(SIEGE_DIFFICULTY_KEY, id); } catch { /* private mode */ }
+}
+
 function showCritterIntro(ammo, onDone) {
   critterIntroName.textContent = ammo.name;
   critterIntroTip.textContent = ammo.tutorial ?? '';
@@ -1944,6 +1963,13 @@ if (new URLSearchParams(window.location.search).has('smoke-test')) {
         // check `editor.budget` against this independently of the DOM, rather than checking
         // the banner against the meter it is itself sourced from.
         rulesBudget: siegeBudget(0),
+        // The tier id chosen on the title screen and the numeric profile it actually
+        // resolves to — the same object `buildBotFortress` and `stepSiegeOpponent` read
+        // from, not a restatement, so a test reading this cannot drift from what the bot
+        // does. `botSpent` lets a test see `budgetFraction` land on the actual fortress.
+        difficulty: siege.difficulty,
+        difficultyProfile: siegeDifficultyProfile(),
+        botSpent: siege.botSpent,
         player: siege.playerRound ? { phase: siege.playerRound.phase,
           shot: siege.playerRound.shotIndex, bag: siege.playerRound.bag.length,
           over: isRoundOver(siege.playerRound) } : null,
@@ -2003,8 +2029,32 @@ const siege = {
   wins: [0, 0], cards: [[], []], banked: [0, 0],
   playerRound: null, botRound: null, botFortress: null, playerFortress: null,
   playerSpent: 0, botSpent: 0, botPlan: null, lastWinner: 1,
-  botNextShot: 0, deadline: 0, lastPreview: 0
+  botNextShot: 0, deadline: 0, lastPreview: 0,
+  // Chosen on the title screen, before startSiegeMatch(), and left alone for the rest of
+  // the match — the draft can hand either side a scrap bonus mid-match, but the bot's own
+  // aim and how much of its purse it bothers spending stay at whatever the player picked.
+  difficulty: loadSiegeDifficulty()
 };
+
+function siegeDifficultyProfile() {
+  return SIEGE_DIFFICULTIES[siege.difficulty] ?? SIEGE_DIFFICULTIES[SIEGE_DIFFICULTY_DEFAULT];
+}
+
+const siegeDifficultyButtons = [...document.querySelectorAll('.difficulty-choice')];
+
+function setSiegeDifficulty(id) {
+  if (!SIEGE_DIFFICULTIES[id]) return;
+  siege.difficulty = id;
+  saveSiegeDifficulty(id);
+  for (const button of siegeDifficultyButtons) {
+    button.setAttribute('aria-pressed', String(button.dataset.difficulty === id));
+  }
+}
+
+for (const button of siegeDifficultyButtons) {
+  button.addEventListener('click', () => setSiegeDifficulty(button.dataset.difficulty));
+}
+setSiegeDifficulty(siege.difficulty);
 
 const siegeBanner = document.querySelector('#siege-banner');
 const siegeRoundLabel = document.querySelector('#siege-round');
@@ -2093,9 +2143,13 @@ function siegeBudget(pid) {
 // given. `fortressForBudget` is now always just the seed; the fill loop below always
 // runs, with or without cards, so the budget is always the constraint. This is a
 // deliberate, material difficulty increase to solo Siege — a full-purse bot fortress
-// every round, not just after a draft — left to P8's "three difficulties" to tune
-// rather than undone here.
-function buildBotFortress(baseBudget, templateIndex, cards) {
+// every round, not just after a draft. P8 tunes it with `budgetFraction`: the fill loop
+// below stops at that fraction of `draft.budget` rather than always at the full purse,
+// so `straw`'s bot deliberately leaves scrap on the table the way the old ~60-scrap
+// template used to, `bricks` spends every scrap exactly as this function always has, and
+// `sticks` sits between them. `draft.budget` itself — the real legality ceiling `validate`
+// checks against — is untouched; only the fill loop's own stopping point moves.
+function buildBotFortress(baseBudget, templateIndex, cards, budgetFraction = 1) {
   const initial = fortressForBudget(baseBudget, templateIndex);
   const effects = cards.map((id) => CARDS_BY_ID[id]?.effect).filter(Boolean);
   // `baseBudget` must be the pre-bonus purse — exactly what was passed to
@@ -2105,6 +2159,11 @@ function buildBotFortress(baseBudget, templateIndex, cards) {
   // second time — the same trap the `editorBudgetBase` comment near the top of this
   // file documents for the editor's own reload path.
   const draft = fromBlueprint(initial.blueprint, { round: templateIndex, budget: baseBudget, cards });
+  // The fill loop's own stopping point, not the legality ceiling `validate` uses below —
+  // see the function comment. Not clamped against `spent(draft)`: at a low enough
+  // `budgetFraction` this can sit below what the seed template already costs, and that is
+  // fine — `placeLegal` below just adds nothing, `straw`'s bot fields the bare template.
+  const targetSpend = draft.budget * budgetFraction;
 
   // Airlift's flight lane, cleared before anything else is placed — same order as
   // `tools/balance.mjs`'s `buildFortress`, and the same geometry (x in (10, 14) for
@@ -2143,7 +2202,7 @@ function buildBotFortress(baseBudget, templateIndex, cards) {
     return sources;
   };
   const placeLegal = (material, shape = 'pillar') => {
-    if (spent(draft) + blockCost(material, shape) > draft.budget) return false;
+    if (spent(draft) + blockCost(material, shape) > targetSpend) return false;
     for (const source of groundSources(shape)) {
       if (!place(draft, { ...source, material }).ok) continue;
       if (validate(draft, { mode: 'siege' }).ok) return true;
@@ -2167,7 +2226,7 @@ function buildBotFortress(baseBudget, templateIndex, cards) {
   const preferred = effects.some((effect) => effect.kind === 'materialCost' && effect.material === 'iron')
     ? 'iron'
     : effects.some((effect) => effect.kind === 'materialCost' && effect.material === 'stone') ? 'stone' : null;
-  for (let guard = 0; spent(draft) < draft.budget && guard < 500; guard++) {
+  for (let guard = 0; spent(draft) < targetSpend && guard < 500; guard++) {
     const materials = preferred ? [preferred, 'stone', 'wood', 'glass'] : ['stone', 'wood', 'glass'];
     const candidates = [...materials.map((material) => [material, 'pillar']), ['glass', 'cube']];
     if (!candidates.some(([material, shape]) => placeLegal(material, shape))) break;
@@ -2270,7 +2329,8 @@ function lockSiegeFortress(expired = false) {
   // `budgetFor` call; wrapping it in another `budgetFor` here first, as the old code
   // did to price a plain-number budget for `fortressForBudget`, would compose the
   // bonus twice.
-  const built = buildBotFortress(siegeBudget(1), siege.round + siege.wins[0], siege.cards[1]);
+  const built = buildBotFortress(siegeBudget(1), siege.round + siege.wins[0], siege.cards[1],
+    siegeDifficultyProfile().budgetFraction);
   siege.botFortress = built.blueprint;
   siege.botSpent = built.spent;
   beginSiegeAssault();
@@ -2324,7 +2384,7 @@ function stepSiegeOpponent(elapsed, now) {
   }
   siege.botAccumulator = acc;
   if (bot.phase === 'aiming' && now >= siege.botNextShot && bot.shotIndex < bot.bag.length) {
-    const plan = planShot(bot, 0.82, bot.rng);
+    const plan = planShot(bot, siegeDifficultyProfile().accuracy, bot.rng);
     if (plan?.aim) {
       // The draw vector is on `plan.aim`, not on the plan itself. Reading `plan.dx`
       // passed undefined to launch, so the bot stood there for the whole round and its

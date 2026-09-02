@@ -38,7 +38,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TUNE } from '../data.js?v=20260902-1';
+import { SIEGE_DIFFICULTIES, SIEGE_DIFFICULTY_DEFAULT, TUNE } from '../data.js?v=20260902-1';
 import {
   decode, encode, fromBlueprint, place, settleTest, spent, toBlueprint, undo, validate, budgetFor
 } from '../build.js?v=20260902-1';
@@ -304,6 +304,71 @@ try {
     if (message.type() === 'error') runtimeIssues.push(`console: ${message.text()}`);
   });
   await page.goto(`${baseUrl}/?smoke-test&siege-seed=${SIEGE_SEED}`, { waitUntil: 'networkidle' });
+
+  // --- P8's difficulty selector: chosen on the title screen, persisted like campaign
+  // progress (see campaign-ui.js's own localStorage pattern), and threaded through to the
+  // bot's real aim accuracy and fortress budget fraction (data.js's SIEGE_DIFFICULTIES,
+  // game.js's siegeDifficultyProfile/buildBotFortress/stepSiegeOpponent). ---
+  const difficultyButton = (id) => page.locator(`.difficulty-choice[data-difficulty="${id}"]`);
+
+  const defaultPressed = await page.evaluate((id) =>
+    document.querySelector(`.difficulty-choice[data-difficulty="${id}"]`)?.getAttribute('aria-pressed'),
+    SIEGE_DIFFICULTY_DEFAULT);
+  report(`the difficulty picker defaults to ${SIEGE_DIFFICULTY_DEFAULT} with nothing stored`,
+    defaultPressed === 'true', `aria-pressed="${defaultPressed}"`);
+
+  await difficultyButton('straw').click();
+  const strawState = await page.evaluate(() => ({
+    pressed: [...document.querySelectorAll('.difficulty-choice')]
+      .map((b) => [b.dataset.difficulty, b.getAttribute('aria-pressed')]),
+    stored: localStorage.getItem('slingwreck.siege.difficulty.v1')
+  }));
+  report('picking Straw presses only the Straw button and persists it to localStorage',
+    strawState.pressed.every(([id, pressed]) => pressed === String(id === 'straw')) &&
+    strawState.stored === 'straw',
+    `pressed [${strawState.pressed.map(([id, p]) => `${id}:${p}`).join(', ')}]; stored "${strawState.stored}"`);
+
+  await page.reload({ waitUntil: 'networkidle' });
+  const afterReload = await page.evaluate(() =>
+    document.querySelector('.difficulty-choice[data-difficulty="straw"]')?.getAttribute('aria-pressed'));
+  report('the choice survives a reload, the same way campaign progress does',
+    afterReload === 'true', `aria-pressed="${afterReload}" after reload`);
+
+  // Every tier actually reaching the bot: cycle through all three, lock in round 1's build
+  // phase immediately (no player shots needed — the bot's own fortress is built the moment
+  // the player locks in, before any assault happens), and read the numbers game.js exposes
+  // straight from the profile stepSiegeOpponent/buildBotFortress themselves read from, not
+  // a restatement of it.
+  const spentByTier = {};
+  for (const tierId of Object.keys(SIEGE_DIFFICULTIES)) {
+    await difficultyButton(tierId).click();
+    await page.locator('#siege-button').click();
+    await poll(() => fullState(page), (state) => state?.siege?.phase === 'build');
+    await page.locator('#blueprint-input').fill(BLUEPRINT);
+    await page.locator('#load-blueprint-button').click();
+    await poll(() => fullState(page), (state) => state?.editor?.pieceCount === blueprintPieceCount);
+    await page.locator('#siege-lock').click();
+    const locked = await poll(() => fullState(page), (state) => state?.siege?.phase !== 'build');
+    const state = locked.value;
+    report(`${tierId} tier is actually in effect once a match starts`,
+      state?.siege?.difficulty === tierId &&
+      state.siege.difficultyProfile.accuracy === SIEGE_DIFFICULTIES[tierId].accuracy &&
+      state.siege.difficultyProfile.budgetFraction === SIEGE_DIFFICULTIES[tierId].budgetFraction,
+      `difficulty "${state?.siege?.difficulty}"; profile ${JSON.stringify(state?.siege?.difficultyProfile)}; ` +
+      `expected ${JSON.stringify(SIEGE_DIFFICULTIES[tierId])}`);
+    spentByTier[tierId] = state?.siege?.botSpent;
+    await page.locator('#siege-quit').click();
+    await poll(() => fullState(page), (state) => !state?.siege);
+  }
+  const tierIds = Object.keys(SIEGE_DIFFICULTIES);
+  report('a lower budgetFraction tier actually spends less scrap on its round-1 fortress, in tier order',
+    tierIds.every((id, index) => index === 0 || spentByTier[tierIds[index - 1]] < spentByTier[id]),
+    tierIds.map((id) => `${id}=${spentByTier[id]}`).join(', '));
+
+  // The scripted match below is pinned to the bot's original, unreduced behaviour (accuracy
+  // 0.82, full purse) so its scoreline and card draws stay exactly what they always were —
+  // `bricks` is that behaviour byte for byte, see data.js's SIEGE_DIFFICULTIES comment.
+  await difficultyButton('bricks').click();
   await page.locator('#siege-button').click();
 
   // Five wins can take at most nine rounds; the loop stops on the match ending.
