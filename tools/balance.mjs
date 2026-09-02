@@ -824,28 +824,56 @@ function playComebackMatch({ seed, band, cardId, leg }) {
   return match.winner === holderPid;
 }
 
-function sweepComeback(band, cardId, matches, salt) {
+// Every pairing's seed is `salt * 100000 + pairing`, independent of every other pairing, so
+// a shard can take a stride of them and the union of k shards is exactly the serial sweep.
+// That is stronger than --siege's card-level sharding: here the control bands shard too, so
+// wall-clock really is 1/k rather than being floored by the controls, which at low -n cost
+// more than the cards do. A shard returns partial counts; summing wins and matches across
+// shards reconstructs the whole. Proven by running 0/2 + 1/2 and diffing the totals against
+// an unsharded run of the same -n.
+function sweepComeback(band, cardId, matches, salt, shard = null) {
   const pairings = matches / 2;
   let wins = 0;
+  let played = 0;
   for (let pairing = 0; pairing < pairings; pairing++) {
+    if (shard && pairing % shard.of !== shard.index) continue;
     const seed = seedWord(COMEBACK_SEED, salt * 100000 + pairing);
     for (let leg = 0; leg < 2; leg++) {
       if (playComebackMatch({ seed, band, cardId, leg })) wins++;
+      played++;
     }
   }
-  return { wins, matches: pairings * 2 };
+  return { wins, matches: played };
 }
 
-async function comeback(n) {
+async function comeback(n, { shard = null } = {}) {
   const started = performance.now();
   const bands = { 1: bandForTier(1), 2: bandForTier(2), 3: bandForTier(3) };
   const controlMatches = n * COMEBACK_CONTROL_MULTIPLIER;
-  console.log('comeback balance configuration');
-  console.log(`matches/card=${n} (${n / 2} mirrored pairings); control matches/band=` +
-    `${controlMatches} (${COMEBACK_CONTROL_MULTIPLIER}x); seed=0x${COMEBACK_SEED.toString(16)}`);
+  if (!shard) {
+    console.log('comeback balance configuration');
+    console.log(`matches/card=${n} (${n / 2} mirrored pairings); control matches/band=` +
+      `${controlMatches} (${COMEBACK_CONTROL_MULTIPLIER}x); seed=0x${COMEBACK_SEED.toString(16)}`);
+  }
 
   const controls = {};
-  for (const tier of [1, 2, 3]) controls[tier] = sweepComeback(bands[tier], null, controlMatches, tier - 3);
+  for (const tier of [1, 2, 3]) {
+    controls[tier] = sweepComeback(bands[tier], null, controlMatches, tier - 3, shard);
+  }
+  // A shard emits raw counts only. Rates and intervals are meaningless on a stride of the
+  // samples, and printing them would invite someone to read a shard as an answer.
+  if (shard) {
+    for (const tier of [1, 2, 3]) {
+      console.log(`CONTROL\t${tier}\t${controls[tier].wins}\t${controls[tier].matches}`);
+    }
+    for (const card of CARDS) {
+      const result = sweepComeback(bands[card.tier], card.id, n, CARDS.indexOf(card) + 1, shard);
+      console.log(`CARD\t${card.id}\t${card.tier}\t${result.wins}\t${result.matches}`);
+    }
+    console.log(`SHARD\t${shard.index}/${shard.of}\tn=${n}\t` +
+      `${((performance.now() - started) / 1000).toFixed(1)}s`);
+    return;
+  }
 
   console.log('\nband definitions (derived from CARD_TIER_RULES via draftTiers, not hardcoded ' +
     'per tier)');
@@ -1400,8 +1428,8 @@ async function main(args) {
     await siege(siegeN, { noLaneRespend, shard });
     return;
   }
-  if (shard) {
-    usage('--shard only applies to --siege');
+  if (shard && rest[0] !== '--comeback') {
+    usage('--shard only applies to --siege or --comeback');
     return;
   }
   if (rest[0] === '--siege') {
@@ -1413,12 +1441,14 @@ async function main(args) {
     usage('--no-lane-respend only applies to --siege');
     return;
   }
-  const comebackN = parseComebackN(args);
+  // `rest` rather than `args` so a --shard i/k that was lifted out above does not make the
+  // -n length check reject a legitimate invocation.
+  const comebackN = parseComebackN(rest);
   if (Number.isFinite(comebackN)) {
-    await comeback(comebackN);
+    await comeback(comebackN, { shard });
     return;
   }
-  if (args[0] === '--comeback') {
+  if (rest[0] === '--comeback') {
     usage('-n must be a positive even integer so both mirrored legs are complete');
     return;
   }
