@@ -38,11 +38,11 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TUNE } from '../data.js';
+import { TUNE } from '../data.js?v=20260902-1';
 import {
   decode, encode, fromBlueprint, place, settleTest, spent, toBlueprint, undo, validate, budgetFor
-} from '../build.js';
-import { aim, fortressForBudget } from '../bots.js';
+} from '../build.js?v=20260902-1';
+import { aim, fortressForBudget } from '../bots.js?v=20260902-1';
 import { chromium } from 'playwright';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');

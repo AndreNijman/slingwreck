@@ -8,7 +8,7 @@ import {
   SCORE,
   SHAPES,
   TUNE
-} from '../data.js';
+} from '../data.js?v=20260902-1';
 import {
   budgetFor,
   earlyLockScrap,
@@ -16,8 +16,8 @@ import {
   place,
   spent,
   validate
-} from '../build.js';
-import { removeBody } from '../physics.js';
+} from '../build.js?v=20260902-1';
+import { removeBody } from '../physics.js?v=20260902-1';
 import {
   PIG_FLAG_DECOY,
   PIG_FLAG_FLAK,
@@ -28,7 +28,7 @@ import {
   scoreRound,
   stepRound,
   tap
-} from '../sim.js';
+} from '../sim.js?v=20260902-1';
 import {
   bagForRound,
   defaultDraftPick,
@@ -37,7 +37,7 @@ import {
   previewInterval,
   resolveRound,
   rollDraft
-} from '../relay-audit.js';
+} from '../relay-audit.js?v=20260902-1';
 
 let failures = 0;
 const cardRows = [];

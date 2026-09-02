@@ -10,8 +10,8 @@ import {
   rng,
   rngInt,
   step
-} from '../physics.js';
-import { SHAPES, TUNE } from '../data.js';
+} from '../physics.js?v=20260902-1';
+import { SHAPES, TUNE } from '../data.js?v=20260902-1';
 
 let failures = 0;
 

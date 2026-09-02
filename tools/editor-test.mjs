@@ -7,9 +7,9 @@ import {
   PIGS,
   SHAPES,
   TUNE
-} from '../data.js';
-import { isSettled, rng, rngInt } from '../physics.js';
-import { digestRound, makeRound, stepRound } from '../sim.js';
+} from '../data.js?v=20260902-1';
+import { isSettled, rng, rngInt } from '../physics.js?v=20260902-1';
+import { digestRound, makeRound, stepRound } from '../sim.js?v=20260902-1';
 import {
   assertNoMotifCollision,
   bridge,
@@ -19,7 +19,7 @@ import {
   scaffold,
   stack,
   tower
-} from '../motifs.js';
+} from '../motifs.js?v=20260902-1';
 import {
   burialDepth,
   budgetFor,
@@ -41,7 +41,7 @@ import {
   toBlueprint,
   undo,
   validate
-} from '../build.js';
+} from '../build.js?v=20260902-1';
 
 let failures = 0;
 

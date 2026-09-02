@@ -16,8 +16,8 @@
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import { AMMO } from '../data.js';
-import { LEVELS } from '../levels.js';
+import { AMMO } from '../data.js?v=20260902-1';
+import { LEVELS } from '../levels.js?v=20260902-1';
 
 mkdirSync('shots', { recursive: true });
 const server = spawn('npx', ['serve', '.', '-l', '4173'], { stdio: 'ignore', detached: true });

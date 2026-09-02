@@ -1,10 +1,10 @@
-import { EPISODES as DATA_EPISODES } from './data.js';
+import { EPISODES as DATA_EPISODES } from './data.js?v=20260902-1';
 import {
   bunker,
   composeMotifs,
   stack,
   tower
-} from './motifs.js';
+} from './motifs.js?v=20260902-1';
 
 export const EPISODES = DATA_EPISODES;
 

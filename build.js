@@ -1,7 +1,7 @@
-import { BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SHAPES, TUNE } from './data.js';
-import { fromDegrees, makeWorld, maxPenetration, raycast } from './physics.js';
+import { BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SHAPES, TUNE } from './data.js?v=20260902-1';
+import { fromDegrees, makeWorld, maxPenetration, raycast } from './physics.js?v=20260902-1';
 import { BLUEPRINT_VERSION, PIG_FLAG_DECOY, PIG_FLAG_FLAK, PIG_FLAGS,
-  blockRayDepth, blueprintFromLevel, instantiate, makeRound, stepRound } from './sim.js';
+  blockRayDepth, blueprintFromLevel, instantiate, makeRound, stepRound } from './sim.js?v=20260902-1';
 const HISTORY_LIMIT = 64;
 const LEGACY_CODEC_VERSION = 1;
 const FLAGS_CODEC_VERSION = 2;

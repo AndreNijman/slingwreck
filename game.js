@@ -1,5 +1,5 @@
 import { AMMO_BY_ID, BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SCORE, SHAPES, TUNE }
-  from './data.js?v=20260822-1';
+  from './data.js?v=20260902-1';
 import {
   finalizeSiegeScore,
   isRoundOver,
@@ -7,7 +7,7 @@ import {
   makeRound,
   stepRound,
   tap
-} from './sim.js?v=20260822-1';
+} from './sim.js?v=20260902-1';
 import {
   PALETTE,
   TRAJECTORY_STEP,
@@ -21,13 +21,13 @@ import {
   panTo,
   pushEvents,
   screenToWorld
-} from './render.js?v=20260822-1';
+} from './render.js?v=20260902-1';
 import {
   makeAudio,
   pushEvents as pushAudioEvents,
   setMuted as setAudioMuted,
   unlock as unlockAudio
-} from './audio.js?v=20260822-1';
+} from './audio.js?v=20260902-1';
 import {
   autoCompleteCandidates,
   budgetFor,
@@ -44,22 +44,22 @@ import {
   toBlueprint,
   undo,
   validate
-} from './build.js?v=20260822-1';
-import { LEVELS } from './levels.js?v=20260822-1';
-import { fortressForBudget, planShot, shouldTap } from './bots.js?v=20260822-1';
+} from './build.js?v=20260902-1';
+import { LEVELS } from './levels.js?v=20260902-1';
+import { fortressForBudget, planShot, shouldTap } from './bots.js?v=20260902-1';
 import {
   bagForRound,
   defaultDraftPick,
   matchWinner,
   resolveRound,
   rollDraft
-} from './relay-audit.js?v=20260822-1';
+} from './relay-audit.js?v=20260902-1';
 import {
   createCampaignUI,
   starResultText,
   starsForScore
-} from './campaign-ui.js?v=20260822-1';
-import { createOnlineSiege } from './siege-online.js?v=20260822-1';
+} from './campaign-ui.js?v=20260902-1';
+import { createOnlineSiege } from './siege-online.js?v=20260902-1';
 
 // Practice links may pin one critter without changing the authored level or normal play.
 const requestedAmmo = new URLSearchParams(window.location.search).get('ammo');
