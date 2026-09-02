@@ -46,6 +46,7 @@ import {
 import {
   bagForRound,
   defaultDraftPick,
+  draftTiers,
   matchWinner,
   previewInterval,
   resolveRound,
@@ -64,6 +65,12 @@ const SIEGE_N_DEFAULT = 400;
 const SIEGE_BOT_DIFFICULTY = 0.82;
 const PARITY_SEED = 0x51a9c0de;
 const NATURAL_SEED = 0x9e375eed;
+// Its own seed, independent of PARITY_SEED — at large -n the parity sweep's card
+// salts (0..999) and buildCoveragePair's (700+) already overlap that range, and this
+// sweep's matches must be statistically independent of both.
+const COMEBACK_SEED = 0x6a09e667;
+const COMEBACK_N_DEFAULT = 200;
+const COMEBACK_CONTROL_MULTIPLIER = 3;
 const CONTROL_LOW = 0.45;
 const CONTROL_HIGH = 0.55;
 const CARD_LOW = 0.40;
@@ -79,6 +86,12 @@ const REASONS = [
 const TAIL_REASONS = ['sudden-death-damage', 'fortress-cost', 'unresolved'];
 const BREAKDOWN_KEYS = ['destroyedBlocks', 'offPlotBlocks', 'pigs', 'unused', 'breach'];
 const fortressCache = new Map();
+// Counts times buildFortress's discretionary filler ran out of its own fixed grid
+// of candidate slots before the budget was fully spent — see the comment at its
+// throw-turned-break site. Reset per CLI invocation (module state, one process
+// per run) and printed in both --siege and --comeback so a harness limitation
+// stays visible instead of silently changing what "fortress cost" means.
+let fortressFillShortfalls = 0;
 
 function usage(message = null) {
   if (message) console.error(message);
@@ -88,6 +101,11 @@ function usage(message = null) {
   console.error('       lane, but the harness does not respend the scrap that lane frees.');
   console.error('       Omitting it is byte-identical to today. Diagnostic only — it does');
   console.error('       not change 40/65/70 or which run exits non-zero.');
+  console.error('       node tools/balance.mjs --comeback [-n N]');
+  console.error('       --comeback: per-card MATCH win rate for a player holding the card at');
+  console.error('       the deficit band that card\'s tier is actually drawable in (derived from');
+  console.error('       CARD_TIER_RULES), against a card-less control at the same band.');
+  console.error('       Diagnostic only — always exits 0, never changes 40/65/70.');
   process.exitCode = 2;
 }
 
@@ -534,8 +552,20 @@ function buildFortress({ round, baseBudget, cards, templateIndex, seed, noLaneRe
       if (placeLegal(material, shape)) { added = true; break; }
     }
     if (!added) {
-      throw new Error(`harness could not spend ${draft.budget - spent(draft)} scrap for ` +
-        `[${cardIds(cards)}]`);
+      // groundSources() only ever offers a fixed grid of pillar/cube coordinates —
+      // two 48-slot rows plus one 24-slot row, minus whatever the template already
+      // occupies there — not an exhaustive search of the plot (no slab, beam,
+      // plank, post or arbitrary offset is ever tried). A large enough budget (a
+      // multi-round natural continuation stacking deficit bonus, banked scrap and
+      // a cost-reducing card like quarryman all at once) can fill every one of
+      // those exact coordinates before the scrap runs out, with the plot itself
+      // nowhere near TUNE.maxBlocks. That is a ceiling on this heuristic, not on
+      // the fortress, so the remaining scrap is left unspent — exactly what a real
+      // builder would have happen, being offered the same fixed palette slots —
+      // rather than the harness crashing on a state parity's shallower round-3
+      // budgets never reached.
+      fortressFillShortfalls++;
+      break;
     }
   }
 
@@ -664,12 +694,22 @@ function simulateRound({ matchSeed, round, players, baseBudgets, orientation = 0
 }
 
 function simulateMatch({ seed, initialCards = [[], []], natural = false, orientation = 0,
-  noLaneRespend = false }) {
+  noLaneRespend = false, startRound = 1, initialWins = [0, 0] }) {
+  // startRound/initialWins let the comeback sweep drop a match into an engineered
+  // mid-match state (e.g. 0-2 entering round 3) instead of always starting fresh at
+  // round 1, 0-0. The assertion below is the guard against a band-table typo
+  // producing a state the real round loop below could never actually reach: after
+  // (startRound - 1) real rounds, the two win counts must sum to exactly that.
+  // Defaults reduce to the original behaviour byte for byte.
+  if (initialWins[0] + initialWins[1] !== startRound - 1) {
+    throw new Error(`simulateMatch: initial wins [${initialWins}] must sum to ` +
+      `startRound ${startRound} - 1 for that state to be reachable`);
+  }
   const players = [1, 2].map((pid, index) => ({
-    pid, wins: 0, cards: [...initialCards[index]], bankedScrap: 0
+    pid, wins: initialWins[index], cards: [...initialCards[index]], bankedScrap: 0
   }));
   const rounds = [];
-  for (let round = 1; round <= TUNE.maxRounds && matchWinner(players) === null; round++) {
+  for (let round = startRound; round <= TUNE.maxRounds && matchWinner(players) === null; round++) {
     const leadingWins = Math.max(...players.map((player) => player.wins));
     const baseBudgets = players.map((player) => {
       const carry = natural ? player.bankedScrap : 0;
@@ -704,6 +744,147 @@ function simulateMatch({ seed, initialCards = [[], []], natural = false, orienta
   const winner = matchWinner(players);
   if (winner === null) throw new Error(`match failed to terminate after ${rounds.length} rounds`);
   return { winner, rounds, players };
+}
+
+// ---------------------------------------------------------- match comeback sweep
+//
+// The parity sweep above holds round index, budget and deficit equal by
+// construction, which measures a card at a state its own tier may never legally be
+// drawn in (CARD_TIER_RULES gates tier 3 to deficit 2 only). This sweep instead
+// measures each card in the one match state its tier can actually be drafted into,
+// derived from the real draftTiers()/CARD_TIER_RULES rule engine rather than
+// hardcoded, and asks the real question: does a player in that state who holds the
+// card go on to win the match more often than an equally-placed player holding
+// nothing at all.
+
+// Every post-round draft offer the real match loop in simulateMatch can reach,
+// found by mirroring its own bookkeeping (winner.wins++, then
+// rollDraft(..., winner.wins - loser.wins, ...)) rather than reading
+// CARD_TIER_RULES by hand. "round" here is the round just finished, matching the
+// `round` argument simulateMatch actually passes to rollDraft/draftTiers.
+function reachableDraftStates() {
+  const states = [];
+  for (let round = 1; round < TUNE.maxRounds; round++) {
+    for (let a = 0; a < TUNE.winsNeeded; a++) {
+      const b = round - 1 - a;
+      if (b < 0 || b >= TUNE.winsNeeded) continue;
+      for (const [winnerBefore, loserBefore] of [[a, b], [b, a]]) {
+        const winnerAfter = winnerBefore + 1;
+        if (winnerAfter >= TUNE.winsNeeded) continue; // match already over, no draft fires
+        const loserAfter = loserBefore;
+        const deficit = winnerAfter - loserAfter;
+        const gap = Math.max(1, Math.floor(deficit));
+        const tiers = draftTiers(gap, round);
+        if (tiers.length) states.push({ round, holderWins: loserAfter, opponentWins: winnerAfter, deficit, tiers });
+      }
+    }
+  }
+  return states;
+}
+
+// The state with the largest true deficit is a tier's characteristic "real draw
+// condition" — the worst-case comeback the design names it for. Ties broken toward
+// the earliest round. This is not guaranteed to be "down N" for every tier: see the
+// printed band table, where tier 2 turns out to top out at deficit 0 (tied),
+// because any state that is genuinely one round down and at round 4 or later has
+// already ended the match one way or the other (see the report for the arithmetic).
+function bandForTier(tier) {
+  const candidates = reachableDraftStates().filter((state) => state.tiers.includes(tier));
+  if (!candidates.length) throw new Error(`tier ${tier} has no reachable draft state`);
+  candidates.sort((x, y) => y.deficit - x.deficit || x.round - y.round);
+  const best = candidates[0];
+  return {
+    tier, deficit: best.deficit, startRound: best.round + 1,
+    initialWins: [best.holderWins, best.opponentWins]
+  };
+}
+
+function bandLabel(band) {
+  const [holder, opponent] = band.initialWins;
+  return band.deficit >= 1
+    ? `down ${band.deficit} (${holder}-${opponent}) entering round ${band.startRound}`
+    : `tied ${holder}-${opponent} entering round ${band.startRound}`;
+}
+
+// Isolated like the parity sweep's before/after pairs: the holder carries exactly
+// this one card (or none, for the control) and the opponent carries none. That is
+// exactly the true state for the tier-1 and tier-3 bands, where the opponent has
+// not lost a round yet to have anything to draft. It understates the tier-2 band,
+// where the real opponent (having been behind at some point to be part of a tied
+// 2-2 series) has almost certainly drafted an earlier card of their own — see the
+// report.
+function playComebackMatch({ seed, band, cardId, leg }) {
+  const holderCards = cardId ? [cardId] : [];
+  const initialCards = leg === 0 ? [holderCards, []] : [[], holderCards];
+  const initialWins = leg === 0 ? band.initialWins : [band.initialWins[1], band.initialWins[0]];
+  const match = simulateMatch({
+    seed, initialCards, natural: true, startRound: band.startRound, initialWins
+  });
+  const holderPid = leg === 0 ? 1 : 2;
+  return match.winner === holderPid;
+}
+
+function sweepComeback(band, cardId, matches, salt) {
+  const pairings = matches / 2;
+  let wins = 0;
+  for (let pairing = 0; pairing < pairings; pairing++) {
+    const seed = seedWord(COMEBACK_SEED, salt * 100000 + pairing);
+    for (let leg = 0; leg < 2; leg++) {
+      if (playComebackMatch({ seed, band, cardId, leg })) wins++;
+    }
+  }
+  return { wins, matches: pairings * 2 };
+}
+
+async function comeback(n) {
+  const started = performance.now();
+  const bands = { 1: bandForTier(1), 2: bandForTier(2), 3: bandForTier(3) };
+  const controlMatches = n * COMEBACK_CONTROL_MULTIPLIER;
+  console.log('comeback balance configuration');
+  console.log(`matches/card=${n} (${n / 2} mirrored pairings); control matches/band=` +
+    `${controlMatches} (${COMEBACK_CONTROL_MULTIPLIER}x); seed=0x${COMEBACK_SEED.toString(16)}`);
+
+  const controls = {};
+  for (const tier of [1, 2, 3]) controls[tier] = sweepComeback(bands[tier], null, controlMatches, tier - 3);
+
+  console.log('\nband definitions (derived from CARD_TIER_RULES via draftTiers, not hardcoded ' +
+    'per tier)');
+  for (const tier of [1, 2, 3]) {
+    const control = controls[tier];
+    const [lo, hi] = wilson95(control.wins, control.matches);
+    console.log(`tier ${tier}: ${bandLabel(bands[tier])}; null control ${control.wins}/` +
+      `${control.matches} = ${percentage(control.wins / control.matches)} ` +
+      `[${percentage(lo)}, ${percentage(hi)}]`);
+  }
+
+  const rows = CARDS.map((card) => {
+    const band = bands[card.tier];
+    const salt = CARDS.indexOf(card) + 1;
+    const result = sweepComeback(band, card.id, n, salt);
+    return { card, band, ...result };
+  });
+
+  console.log('\nper-card MATCH comeback rate (holder alone vs the null control at the same band)');
+  console.log('card                 tier  band                                matches  ' +
+    'comeback rate   95% CI          control rate');
+  for (const row of rows) {
+    const rate = row.wins / row.matches;
+    const [lo, hi] = wilson95(row.wins, row.matches);
+    const controlRate = controls[row.card.tier].wins / controls[row.card.tier].matches;
+    console.log(`${row.card.id.padEnd(21)}${String(row.card.tier).padStart(4)}  ` +
+      `${bandLabel(row.band).padEnd(36)}${String(row.matches).padStart(7)}  ` +
+      `${percentage(rate).padStart(13)}  ${`[${percentage(lo)}, ${percentage(hi)}]`.padEnd(15)}  ` +
+      `${percentage(controlRate)}`);
+  }
+
+  console.log(`\nfortress filler grid exhausted before budget: ${fortressFillShortfalls} ` +
+    'construction(s) left scrap unspent (see buildFortress) — expected here, where deep ' +
+    'natural continuations stack far larger budgets than the round-3 parity sweep ever builds');
+  const elapsed = (performance.now() - started) / 1000;
+  const totalMatches = Object.values(controls).reduce((sum, c) => sum + c.matches, 0) +
+    rows.reduce((sum, row) => sum + row.matches, 0);
+  console.log(`\nthroughput: ${(totalMatches / elapsed).toFixed(1)} matches/s ` +
+    `(${elapsed.toFixed(2)} s elapsed)`);
 }
 
 function buildCoveragePair(card, support = []) {
@@ -895,6 +1076,15 @@ function parseSiegeN(args) {
     ? value : NaN;
 }
 
+function parseComebackN(args) {
+  if (args[0] !== '--comeback') return null;
+  if (args.length === 1) return COMEBACK_N_DEFAULT;
+  if (args.length !== 3 || args[1] !== '-n' || !/^\d+$/.test(args[2])) return NaN;
+  const value = Number(args[2]);
+  // Both mirrored legs (holder as P1, holder as P2) must be complete.
+  return Number.isSafeInteger(value) && value > 0 && value % 2 === 0 ? value : NaN;
+}
+
 function printControl(control) {
   const rate = control.p1Wins / control.rounds;
   console.log('\nnull/control pairing');
@@ -1007,10 +1197,23 @@ function printDistribution(distribution, rounds) {
   return pointsShare;
 }
 
-async function siege(n, { noLaneRespend = false } = {}) {
+// --shard i/k splits the per-card parity work across k processes so a large -n finishes in
+// wall-clock proportional to 1/k. It is exact rather than approximate: `matchesPerCard`,
+// `pairingsPerCard` and every seed below derive from the FULL CARDS.length and from
+// `cardIndex`, never from how many cards this process happens to simulate, so a shard
+// reproduces its cards' rows bit-identically to the unsharded run. Sharding therefore
+// changes only which rows a process prints, never a number in them — verified by diffing a
+// shard's row against the same card's row from a full run.
+//
+// A shard prints ONLY its card rows. The null control and the natural sweep are not
+// per-card, so running them in every shard would be k times the work for k identical
+// answers; take those from an unsharded run. That also means a shard cannot decide the
+// gate, which is why it always exits 0 and says so.
+async function siege(n, { noLaneRespend = false, shard = null } = {}) {
   const started = performance.now();
   const matchesPerCard = n / CARDS.length;
   const pairingsPerCard = matchesPerCard / 2;
+  const inShard = (cardIndex) => !shard || cardIndex % shard.of === shard.index;
   const naturalMatches = Math.max(50, Math.ceil(n / 4));
   const cardRows = CARDS.map((card) => ({
     card, matches: 0, rounds: 0, wins: 0,
@@ -1028,6 +1231,7 @@ async function siege(n, { noLaneRespend = false } = {}) {
   }));
   let parityRounds = 0;
   for (let cardIndex = 0; cardIndex < CARDS.length; cardIndex++) {
+    if (!inShard(cardIndex)) continue;
     const row = cardRows[cardIndex];
     for (let pairing = 0; pairing < pairingsPerCard; pairing++) {
       const seed = seedWord(PARITY_SEED, cardIndex * pairingsPerCard + pairing);
@@ -1067,7 +1271,7 @@ async function siege(n, { noLaneRespend = false } = {}) {
     legs: [{ name: 'unmirrored leg A', rounds: 0, p1Wins: 0 },
       { name: 'mirrored leg B', rounds: 0, p1Wins: 0 }]
   };
-  for (let pairing = 0; pairing < pairingsPerCard; pairing++) {
+  for (let pairing = 0; pairing < pairingsPerCard && !shard; pairing++) {
     const seed = seedWord(PARITY_SEED, 0x4000 + pairing);
     for (let leg = 0; leg < 2; leg++) {
       const match = simulateMatch({ seed, orientation: leg, noLaneRespend });
@@ -1082,13 +1286,25 @@ async function siege(n, { noLaneRespend = false } = {}) {
 
   const distribution = Object.fromEntries(REASONS.map((reason) => [reason, 0]));
   let naturalRounds = 0;
-  for (let index = 0; index < naturalMatches; index++) {
+  for (let index = 0; index < naturalMatches && !shard; index++) {
     const seed = seedWord(NATURAL_SEED, index);
     const match = simulateMatch({ seed, natural: true, noLaneRespend });
     for (const round of match.rounds) {
       distribution[REASONS.includes(round.reason) ? round.reason : 'unresolved']++;
       naturalRounds++;
     }
+  }
+  if (shard) {
+    const mine = cardRows.filter((row, cardIndex) => inShard(cardIndex));
+    console.log(`shard ${shard.index}/${shard.of} of n=${n}: ` +
+      `${mine.length}/${CARDS.length} card(s), ${parityRounds} parity round(s); ` +
+      `allocation ${matchesPerCard} matches/card taken from the full card list, so these ` +
+      'rows are bit-identical to an unsharded run');
+    console.log('no control and no natural sweep in a shard — take those from a full run');
+    printCardRows(mine);
+    console.log(`shard throughput: ${(parityRounds /
+      ((performance.now() - started) / 1000)).toFixed(1)} rounds/s`);
+    return;
   }
   const coverageRows = CARDS.map(cardCoverage);
 
@@ -1143,6 +1359,8 @@ async function siege(n, { noLaneRespend = false } = {}) {
       `exceeds ${percentage(POINTS_HIGH)} (${naturalRounds - distribution['king-pop']}/` +
       `${naturalRounds})`);
   }
+  console.log(`fortress filler grid exhausted before budget: ${fortressFillShortfalls} ` +
+    'construction(s) left scrap unspent (see buildFortress)');
   const elapsed = (performance.now() - started) / 1000;
   const totalRounds = parityRounds + naturalRounds;
   console.log(`throughput: ${(totalRounds / elapsed).toFixed(1)} rounds/s ` +
@@ -1157,10 +1375,33 @@ async function main(args) {
   // or absence never changes how the rest of args is parsed — the flag-absent path
   // below is untouched, byte for byte, from before this flag existed.
   const noLaneRespend = args.includes('--no-lane-respend');
-  const rest = noLaneRespend ? args.filter((arg) => arg !== '--no-lane-respend') : args;
+  const withoutLane = noLaneRespend ? args.filter((arg) => arg !== '--no-lane-respend') : args;
+  // Same treatment for --shard i/k: lifted out before the -n and campaign validation so
+  // its absence leaves that parsing byte-identical to before it existed.
+  const shardArgIndex = withoutLane.indexOf('--shard');
+  let shard = null;
+  if (shardArgIndex !== -1) {
+    const spec = withoutLane[shardArgIndex + 1] ?? '';
+    const [indexText, ofText] = spec.split('/');
+    const index = Number(indexText);
+    const of = Number(ofText);
+    if (!Number.isInteger(index) || !Number.isInteger(of) || of < 1 || index < 0 || index >= of) {
+      usage('--shard takes i/k with integers 0 <= i < k, for example --shard 0/12');
+      return;
+    }
+    shard = { index, of };
+  }
+  const rest = shard
+    ? withoutLane.filter((arg, position) =>
+      position !== shardArgIndex && position !== shardArgIndex + 1)
+    : withoutLane;
   const siegeN = parseSiegeN(rest);
   if (Number.isFinite(siegeN)) {
-    await siege(siegeN, { noLaneRespend });
+    await siege(siegeN, { noLaneRespend, shard });
+    return;
+  }
+  if (shard) {
+    usage('--shard only applies to --siege');
     return;
   }
   if (rest[0] === '--siege') {
@@ -1170,6 +1411,15 @@ async function main(args) {
   }
   if (noLaneRespend) {
     usage('--no-lane-respend only applies to --siege');
+    return;
+  }
+  const comebackN = parseComebackN(args);
+  if (Number.isFinite(comebackN)) {
+    await comeback(comebackN);
+    return;
+  }
+  if (args[0] === '--comeback') {
+    usage('-n must be a positive even integer so both mirrored legs are complete');
     return;
   }
   const writeStars = args.includes('--import');
