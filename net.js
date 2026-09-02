@@ -62,7 +62,12 @@ export function createNet(handlers = {}) {
         t: action,
         room,
         name: options.name || 'Wrecker',
-        password: options.password || ''
+        password: options.password || '',
+        // Only meaningful for action === 'reconnect' (see worker.js's reconnectHandshake);
+        // create/join ignore unknown fields, so sending them unconditionally is harmless and
+        // keeps this one open() entry point for all three handshake kinds.
+        pid: options.pid,
+        token: options.token
       });
       handlers.onOpen?.();
     };

@@ -641,6 +641,32 @@ export const CARDS = [
     // that movement, and a second, different drift to learn would be difficulty rather
     // than depth. The balloon is a separate 1 hp body, so it pops to anything, and the
     // King then falls — which on a tall fortress often finishes the job by itself.
+    //
+    // AIRLIFT IS A CONFIRMED BALANCE OUTLIER AND IS DELIBERATELY UNCHANGED. Measured
+    // 2026-09-02 with the P7.8 gate: 82.5% [77.6%, 86.5%] round win rate at parity against
+    // a 40-65% band, and a 48.3% MATCH comeback from 0-2 down against an 11.7% control —
+    // x4.14, intervals not overlapping. Two harness artefacts were found and removed before
+    // that was the card's own doing (a bot that did not know to pop the shield, 1.6 points;
+    // a fortress builder respending the scrap the flight lane freed, 4.3 points).
+    //
+    // `invulnerableUntilPopped: false` was tried and REVERTED, because it is not the lever:
+    //
+    //   immunity on,  bot clears balloon   parity 82.5%   comeback 48.3%  x4.14
+    //   immunity off, bot ignores balloon  parity 87.9%   comeback 61.7%  x5.29
+    //   immunity off, bot clears balloon   parity 81.9%   comeback 45.0%  x3.85
+    //
+    // Rows one and three overlap on both measurements, so removing the immunity buys
+    // nothing while costing the card its printed text. The middle row is the instructive
+    // one: it looked like a nerf and played as a buff, because bots.js gated its balloon
+    // priority on `invulnerableWhileBalloon`, so clearing the flag also removed the bot's
+    // reason to shoot the balloon. That gate is now widened to any King's balloon.
+    //
+    // The remaining suspect is the kinematic pin: sim.js's positionBalloons overwrites a
+    // ballooned pig's x, y, vx, vy and av every step, so the King cannot be crushed,
+    // shoved, buried or carried off the plot however the fortress collapses. Nothing in
+    // this file reaches that, and changing it means re-running the four-engine determinism
+    // gate. Left as measured evidence for a deliberate sim change rather than guessed at a
+    // fourth time.
     effect: {
       kind: 'kingBalloon', invulnerableUntilPopped: true,
       driftRange: 1.5, driftSeconds: 5, balloonHp: 1, balloonRadius: 0.42, lift: 0.9

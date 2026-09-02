@@ -1331,6 +1331,47 @@ body.editing #game {
 .panel-card.wide { width: min(46rem, calc(100vw - var(--space-5))); }
 .siege-result .panel-card, .siege-draft .panel-card { text-align: center; }
 .siege-standings { font: 600 14px var(--mono, ui-monospace, monospace); margin: var(--space-2) 0; }
+/* ---- Online Siege ---------------------------------------------------------
+   The lobby only: the match itself reuses .siege-banner/.siege-preview/
+   .siege-draft/.siege-result above, since it is the same mode with the relay
+   driving it instead of a bot. */
+.online-lobby .panel-card { text-align: left; }
+.online-form { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); }
+.online-form label {
+  margin-top: var(--space-2);
+  color: var(--ink-soft);
+  font: 700 0.64rem/1 var(--font-chrome);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.online-form input {
+  border: 2px solid var(--paper-edge);
+  border-radius: var(--radius-sm);
+  background: var(--cream);
+  color: var(--ink);
+  padding: var(--space-2);
+  font: 600 0.85rem/1.2 var(--font-chrome);
+}
+.online-form .row { margin-top: var(--space-2); justify-content: flex-start; }
+.online-room-state { margin-bottom: var(--space-3); }
+.online-room-state .row { justify-content: flex-start; }
+.online-lobby-list-block { margin-bottom: var(--space-3); }
+.online-lobby-list-head { display: flex; align-items: center; justify-content: space-between; }
+.online-lobby-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; max-height: 9rem; overflow: auto; }
+.online-lobby-list li { border-bottom: 1px solid var(--paper-edge); }
+.online-lobby-row { width: 100%; text-align: left; padding: var(--space-1) 0; }
+
+.online-connection-banner {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--space-2);
+  background: var(--terracotta, #B23B2E); color: var(--cream, #F5EAD2);
+  border: 3px solid var(--ink, #2B211C); border-top: none;
+  border-radius: 0 0 14px 14px; padding: 0.5rem 1rem; z-index: 50;
+  font: 700 12px var(--font-chrome);
+}
+.online-connection-banner[hidden] { display: none; }
+.online-connection-banner .text-button { color: var(--cream, #F5EAD2); text-decoration: underline; }
+
 @media (max-width: 640px) {
   .siege-preview { width: 168px; }
   .siege-preview canvas { width: 168px; height: 97px; }

@@ -32,6 +32,7 @@
           <button id="play-button" class="button primary" type="button">Campaign</button>
           <button id="editor-button" class="button secondary" type="button">Fortress Workshop</button>
           <button id="siege-button" class="button secondary" type="button">Siege a Bot</button>
+          <button id="siege-online-button" class="button secondary" type="button">Siege Online</button>
         </div>
         <p id="controls-hint" class="controls-hint"><b>Drag</b> to aim · <b>release</b> to fire · <b>R</b> restart · <b>M</b> mute</p>
       </div>
@@ -141,6 +142,53 @@
     <!-- Shown once, the first time a campaign bag hands the player a critter they have not
          used. A playtester cleared level after level without ever noticing that different
          birds did different things, because nothing said so and they all looked alike. -->
+    <!-- Online Siege: the lobby to create/join a room before the relay ever gets involved.
+         Reuses #siege-banner, #siege-preview, #siege-draft and #siege-result below for the
+         match itself, exactly like solo Siege — only the lobby and connection state are new
+         surface here. -->
+    <section id="online-lobby" class="screen-panel online-lobby" aria-labelledby="online-lobby-title" hidden>
+      <div class="panel-card wide">
+        <p class="eyebrow">Online Siege</p>
+        <h2 id="online-lobby-title">Find an opponent</h2>
+        <p id="online-status" class="muted" role="status" aria-live="polite">Not connected.</p>
+
+        <div class="online-form">
+          <label for="online-name">Your name</label>
+          <input id="online-name" type="text" maxlength="16" value="Wrecker" autocomplete="off">
+          <label for="online-room">Room code</label>
+          <input id="online-room" type="text" maxlength="24" autocomplete="off" placeholder="e.g. acorn-siege">
+          <label for="online-password">Password (optional)</label>
+          <input id="online-password" type="password" maxlength="32" autocomplete="off">
+          <div class="row">
+            <button id="online-create" class="button primary" type="button">Create room</button>
+            <button id="online-join" class="button secondary" type="button">Join room</button>
+          </div>
+        </div>
+
+        <div id="online-room-state" class="online-room-state" hidden>
+          <p id="online-players" class="muted"></p>
+          <div class="row">
+            <button id="online-start" class="button primary" type="button" hidden>Start match</button>
+          </div>
+        </div>
+
+        <div class="online-lobby-list-block">
+          <div class="online-lobby-list-head">
+            <p class="eyebrow">Open rooms</p>
+            <button id="online-refresh" class="text-button" type="button">Refresh</button>
+          </div>
+          <ul id="online-lobby-list" class="online-lobby-list" aria-label="Open rooms"></ul>
+        </div>
+
+        <button id="online-back" class="text-button" type="button">← Back to title</button>
+      </div>
+    </section>
+
+    <div id="online-connection-banner" class="online-connection-banner" role="status" aria-live="assertive" hidden>
+      <span id="online-connection-text"></span>
+      <button id="online-connection-reconnect" class="text-button" type="button" hidden>Reconnect</button>
+    </div>
+
     <!-- Siege: build a fortress, then both sides attack at once. The corner window is the
          mode's whole hook — you watch your own fortress coming apart while you work. -->
     <div id="siege-banner" class="siege-banner" hidden>

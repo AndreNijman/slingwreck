@@ -236,10 +236,17 @@ export function rankTargets(round, limit = 6) {
     // structural score could in principle clear (TNT/spring bonuses alone reach
     // 2000-2400 before their multipliers) — the target needs to win unconditionally,
     // so it is scored above anything finite rather than merely raised.
-    if (balloon.pigBody.invulnerableWhileBalloon) {
+    // Gated on `invulnerableWhileBalloon` alone until 2026-09-02, and that was too narrow.
+    // Airlift's damage immunity was removed to weaken the card, and the win rate went UP
+    // (parity 82.5% -> 87.9%, comeback 48.3% -> 61.7%) precisely because this gate stopped
+    // firing: the bot went back to shooting blocks while `positionBalloons` still pinned
+    // the King rigid and out of a collapse's reach. The immunity was never the whole
+    // shield — the pin is — so what makes the balloon a precondition is that a King is
+    // hanging from it at all, not whether a flag also grants immunity.
+    if (balloon.pigBody.invulnerableWhileBalloon || balloon.pigBody.isKing) {
       candidates.push({
         kind: 'balloon', body: balloon, point: { x: balloon.x, y: balloon.y },
-        score: Infinity, reasons: ['pops invulnerability shield'], material: 'balloon'
+        score: Infinity, reasons: ['pops the King\'s balloon'], material: 'balloon'
       });
       continue;
     }
@@ -274,13 +281,14 @@ export function planShot(round, difficulty = 1, random = round?.rng) {
   const ammoId = round.bag[round.shotIndex];
   const targetIsExposed = target.reasons.includes('exposed') ||
     target.reasons.includes('exposed TNT');
-  // Any ammo can now be routed at the invulnerability-shield balloon (see rankTargets),
-  // not just pebble. It is small and drifting like a Zeppelin Hog's balloon, so it gets
-  // the same lofted arc pebble already used against balloons — gated on the reason
-  // string, which only exists when invulnerableWhileBalloon fired, so ordinary
-  // Zeppelin Hog balloon targeting (pebble-only 'high' arc) is untouched.
-  const targetIsShieldBalloon = target.reasons.includes('pops invulnerability shield');
-  let arc = ammoId === 'pebble' && target.kind === 'balloon' || targetIsShieldBalloon ||
+  // Any ammo can be routed at a King's balloon (see rankTargets), not just pebble. It is
+  // small and drifting like a Zeppelin Hog's balloon, so it gets the same lofted arc
+  // pebble already used against balloons — gated on the reason string, which only exists
+  // for a King's balloon, so ordinary Zeppelin Hog targeting (pebble-only 'high' arc) is
+  // untouched. The string used to say "invulnerability shield"; it was renamed once the
+  // immunity flag stopped being what made the balloon worth shooting.
+  const targetIsKingBalloon = target.reasons.includes("pops the King's balloon");
+  let arc = ammoId === 'pebble' && target.kind === 'balloon' || targetIsKingBalloon ||
     ammoId === 'lob' && !targetIsExposed ? 'high' : 'low';
   let point = { ...target.point };
   let activation = 'near';

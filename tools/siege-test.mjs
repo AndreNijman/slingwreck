@@ -379,11 +379,28 @@ function cardMeasurement(card) {
     return { before, after, ok: after / before === effect.multiplier };
   }
   if (effect.kind === 'kingBalloon') {
-    const before = roundFor().balloons.length;
+    // Airlift's immunity was briefly removed on 2026-09-02 to weaken the card and then
+    // restored, because measurement showed it is not what makes the card strong: parity
+    // 82.5% with it versus 81.9% without, comeback 48.3% versus 45.0%, both pairs
+    // overlapping. See the note on the card in data.js.
+    //
+    // The assertion kept the extra measurements that experiment added rather than
+    // reverting to what it checked before. It used to prove only that a balloon appeared
+    // and that immunity was set; it now also proves the King drifts and is held at its
+    // seat height, which is the mobility half of the effect and was never covered.
+    const plain = roundFor();
+    const before = plain.balloons.length;
     const afterRound = roundFor({ defenderCards: [card.id] });
     const after = afterRound.balloons.length;
-    return { before, after, ok: before === 0 && after === 1 &&
-      afterRound.pigs[0].invulnerableWhileBalloon };
+    const king = afterRound.pigs.find((pig) => pig.isKing);
+    const seatY = king.y;
+    const startX = king.x;
+    for (let step = 0; step < 120; step++) stepRound(afterRound, TUNE.step);
+    const drift = Math.abs(king.x - startX);
+    const held = king.y === seatY;
+    return { before, after,
+      ok: before === 0 && after === 1 && king.invulnerableWhileBalloon === true &&
+        drift > 0.1 && held };
   }
   if (effect.kind === 'remoteTnt') {
     const blueprint = withBlocks([['cube', 'tnt', 5, 0.5, 0]]);

@@ -59,6 +59,7 @@ import {
   starResultText,
   starsForScore
 } from './campaign-ui.js?v=20260822-1';
+import { createOnlineSiege } from './siege-online.js?v=20260822-1';
 
 // Practice links may pin one critter without changing the authored level or normal play.
 const requestedAmmo = new URLSearchParams(window.location.search).get('ammo');
@@ -1690,7 +1691,7 @@ function frame(now) {
     // during an assault, so without this guard the campaign's result dialog opened over the
     // siege panel, recorded a campaign star for a fortress that is not a level, and took
     // the clicks meant for "Next round".
-    if (isRoundOver(round) && !siege.active) showRoundOver();
+    if (isRoundOver(round) && !siege.active && !onlineSiege.isActive()) showRoundOver();
   } else {
     accumulator = 0;
   }
@@ -1951,6 +1952,7 @@ if (new URLSearchParams(window.location.search).has('smoke-test')) {
           over: isRoundOver(siege.botRound) } : null,
         finished: siege.playerRound && siege.botRound ? siegeRoundFinished() : null
       } : null,
+      online: onlineSiege.snapshot(),
       editor: editing ? {
         group: editorGroup,
         material: editorMaterial,
@@ -2490,12 +2492,40 @@ function quitSiege() {
   titleScreen.hidden = false;
 }
 
+// Online Siege reuses the editor's build phase and the solo result/draft/preview DOM the
+// same way `siege` above reuses them against a bot — see siege-online.js's header comment.
+// It is constructed with accessors rather than the raw `round`/`playing` bindings because
+// those are `let`s in this module's scope, not values a factory called once could close
+// over and see change later.
+const onlineSiege = createOnlineSiege({
+  openEditor,
+  closeEditor,
+  showTitle,
+  getEditorDraft: () => editorDraft,
+  renderValidation,
+  getRound: () => round,
+  setRound: (value) => { round = value; },
+  setPlaying: (value) => { playing = value; },
+  resetCameraState,
+  updateHud
+});
+document.querySelector('#siege-online-button').addEventListener('click', () => {
+  void unlockAudio(audio);
+  onlineSiege.open();
+});
+
 siegeButton.addEventListener('click', startSiegeMatch);
 // Not a bare reference: the click event would arrive as the `expired` argument and every
 // manual lock-in would silently auto-complete an illegal fortress instead of saying so.
-siegeLock.addEventListener('click', () => lockSiegeFortress(false));
-siegeQuit.addEventListener('click', quitSiege);
+// Goes through `editorSiege.onLock` (set by whichever caller passed a siegeCtx to
+// openEditor) rather than calling `lockSiegeFortress` directly — that direct call was a
+// latent bug: it always ran solo's own lock function regardless of which mode's build
+// phase was open, so the online build phase's lock-in button was inert (Space already used
+// the correct `editorSiege.onLock` hook a few lines below, which is how this was found).
+siegeLock.addEventListener('click', () => editorSiege?.onLock(false));
+siegeQuit.addEventListener('click', () => { if (!onlineSiege.isActive()) quitSiege(); });
 siegeContinue.addEventListener('click', () => {
+  if (onlineSiege.isActive()) return;
   siegeResultScreen.hidden = true;
   if (siege.phase === 'matchover') { startSiegeMatch(); return; }
   offerSiegeDraft();
