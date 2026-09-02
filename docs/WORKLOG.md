@@ -933,3 +933,61 @@ the ceiling either.
 
 Three outliers across 25 declarative card effects, in a system that had no way of being
 measured before P7.8 existed.
+
+### P8 solo bot difficulties, and a correction to 2faad27's commit message — 2026-09-02
+
+**Correction first.** `2faad27` committed the correct code and described it with superseded
+numbers. Its message quotes an earlier candidate table — accuracy/budgetFraction 0.5/0.55,
+0.6/0.65 — and a 300-round measurement against an accuracy-1.0 reference reading
+78.7/70.0/51.7. Neither the parameters nor the figures are what shipped. The committed
+`data.js` has always had the final table, and the comment beside it has always had the
+final method, so the code and its documentation are right and only the commit message is
+wrong. It is already pushed; recording the correction here rather than rewriting published
+history.
+
+What actually shipped, measured against a reference bot playing **bricks's own numbers**
+rather than a perfect accuracy-1.0 opponent — the latter saturated the easy tiers near
+100% and hid their separation:
+
+    tier    accuracy budgetFraction   round win rate         match win rate
+    straw   0.30     0.45             78.5% [72.3%, 83.6%]   89.0% [81.4%, 93.7%]
+    sticks  0.55     0.75             68.5% [61.8%, 74.5%]   75.0% [65.7%, 82.5%]
+    bricks  0.82     1.00             41.5% [34.9%, 48.4%]   57.0% [47.2%, 66.3%]
+
+200 seeded parity rounds and 100 seeded best-of-five matches per tier, reporting the
+reference's win rate, so higher means the tier lost more. Every adjacent pair is a
+two-proportion z-test at or above 2.2 at both grains. A bricks-vs-bricks mirror reading
+near 50% is the check that the harness is not thumbing the scale.
+
+#### The finding worth keeping: round separation is not match separation
+
+The superseded candidate **was** separated at round level — n=300, z above 2.4 on every
+pair — and its straw and sticks collapsed into one behaviour at match level: 81.7% against
+80.0%, indistinguishable. The cause is that solo Siege hands a losing bot a bigger purse
+every round through `BUDGET.perDeficit` and `perRound`, so a `budgetFraction` edge has to
+survive a *widening* purse rather than only round one at parity. `accuracy` has no such
+compensator, which is why widening it fixed the collapse.
+
+That is the same lesson airlift taught from the other direction on the same day: a
+per-round rate and a per-match rate are different measurements, and a card or a tier can
+look settled at one grain and not exist at the other. The P7.8 gate now reports both for
+cards; difficulty tiers were validated at both before shipping.
+
+#### Also of note
+
+`bots.js` is deliberately untouched — the 52 campaign star thresholds were derived from its
+aimer in P5.8, so difficulty is passed in from the caller. `balance --campaign` still hashes
+`1cc95e355d92a65db5607c0eb80208160ff57c878d3d65bc65392e06b877272f`, and the
+`balance-stars` block in `levels.js` hashes identically across the pre-session HEAD, the
+pre-stamp HEAD and current HEAD.
+
+`tools/siege-match.mjs` went 41 to 48 assertions: default tier, that clicking Straw presses
+only Straw and persists, that the choice survives a reload, that each tier's live profile
+matches `data.js` exactly, and that fortress spend is strictly monotonic across tiers —
+straw 60, sticks 82, bricks 110 scrap at round 1. No original assertion was weakened.
+Three consecutive runs at 63.06/63.14/63.23 s, identical scoreline.
+
+One process note, since it confused a subagent enough to spend a paragraph on it: commits
+appearing in a repo a subagent is working in are the coordinator committing that
+subagent's verified work. There is no auto-committer. Its byte-for-byte check of the diff
+against its own tree was the right reflex regardless.
