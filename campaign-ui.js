@@ -1,6 +1,6 @@
-import { AMMO_BY_ID, MATERIALS, PIGS } from './data.js?v=20260902-1';
-import { EPISODES, LEVELS } from './levels.js?v=20260902-1';
-import { PALETTE } from './render.js?v=20260902-1';
+import { AMMO_BY_ID, MATERIALS, PIGS } from './data.js?v=20260902-2';
+import { EPISODES, LEVELS } from './levels.js?v=20260902-2';
+import { PALETTE } from './render.js?v=20260902-2';
 
 const STORAGE_KEY = 'slingwreck.campaign.progress.v1';
 const PROFILE_URL = '/_guard/profile';
