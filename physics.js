@@ -1,4 +1,4 @@
-import { MATERIALS, SHAPES, TUNE } from './data.js?v=20260902-2';
+import { MATERIALS, SHAPES, TUNE } from './data.js?v=20260902-3';
 
 const DIGEST_BUFFER = new ArrayBuffer(8);
 const DIGEST_VIEW = new DataView(DIGEST_BUFFER);

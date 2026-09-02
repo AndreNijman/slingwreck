@@ -17,7 +17,7 @@
   <meta name="twitter:description" content="Pull back, let fly, and turn a pig fortress into a glorious heap.">
   <meta name="twitter:image" content="https://slingwreck.andrenijman.com/og-image.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M18 8c0 13 14 18 14 33v15M46 8c0 13-14 18-14 33' fill='none' stroke='%232b211c' stroke-width='8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M18 10l14 16 14-16' fill='none' stroke='%238a5a2b' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='26' r='7' fill='%23d9563f' stroke='%232b211c' stroke-width='3'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=20260902-2">
+  <link rel="stylesheet" href="style.css?v=20260902-3">
 </head>
 <body>
   <main id="game-shell">
@@ -152,7 +152,7 @@
          Reuses #siege-banner, #siege-preview, #siege-draft and #siege-result below for the
          match itself, exactly like solo Siege — only the lobby and connection state are new
          surface here. -->
-    <section id="online-lobby" class="screen-panel online-lobby" aria-labelledby="online-lobby-title" hidden>
+    <section id="online-lobby" class="screen-panel online-lobby" role="dialog" aria-modal="true" aria-labelledby="online-lobby-title" hidden>
       <div class="panel-card wide">
         <p class="eyebrow">Online Siege</p>
         <h2 id="online-lobby-title">Find an opponent</h2>
@@ -172,7 +172,7 @@
         </div>
 
         <div id="online-room-state" class="online-room-state" hidden>
-          <p id="online-players" class="muted"></p>
+          <p id="online-players" class="muted" role="status" aria-live="polite"></p>
           <div class="row">
             <button id="online-start" class="button primary" type="button" hidden>Start match</button>
           </div>
@@ -217,7 +217,7 @@
       </div>
     </div>
 
-    <section id="siege-draft" class="screen-panel siege-draft" aria-labelledby="siege-draft-title" hidden>
+    <section id="siege-draft" class="screen-panel siege-draft" role="dialog" aria-modal="true" aria-labelledby="siege-draft-title" hidden>
       <div class="panel-card wide">
         <p class="eyebrow" id="siege-draft-eyebrow">You lost the round</p>
         <h2 id="siege-draft-title">Take something back</h2>
@@ -226,12 +226,12 @@
       </div>
     </section>
 
-    <section id="siege-result" class="screen-panel siege-result" aria-labelledby="siege-result-title" hidden>
+    <section id="siege-result" class="screen-panel siege-result" role="dialog" aria-modal="true" aria-labelledby="siege-result-title" hidden>
       <div class="panel-card">
         <p class="eyebrow" id="siege-result-eyebrow">Round over</p>
         <h2 id="siege-result-title">You took the round</h2>
-        <p id="siege-result-detail" class="muted"></p>
-        <div id="siege-standings" class="siege-standings"></div>
+        <p id="siege-result-detail" class="muted" role="status" aria-live="polite"></p>
+        <div id="siege-standings" class="siege-standings" aria-live="polite"></div>
         <div class="row">
           <button id="siege-continue" class="button primary" type="button">Next round</button>
           <button id="siege-quit" class="button ghost" type="button">Back to title</button>
@@ -239,7 +239,7 @@
       </div>
     </section>
 
-    <section id="critter-intro" class="screen-panel critter-intro" aria-labelledby="critter-intro-name" hidden>
+    <section id="critter-intro" class="screen-panel critter-intro" role="dialog" aria-modal="true" aria-labelledby="critter-intro-name" hidden>
       <div class="panel-card">
         <p class="eyebrow">New critter</p>
         <canvas id="critter-intro-art" class="critter-intro-art" aria-hidden="true"></canvas>
@@ -297,6 +297,6 @@
 
     <p id="status-message" class="visually-hidden" role="status" aria-live="polite"></p>
   </main>
-  <script type="module" src="game.js?v=20260902-2"></script>
+  <script type="module" src="game.js?v=20260902-3"></script>
 </body>
 </html>

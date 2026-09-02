@@ -272,6 +272,13 @@
       "path": "tools/level-audit.mjs",
       "phase": "P5",
       "job": "Checks every level against docs/LEVEL-STANDARD.md by measurement: directly hittable pigs by raycast, gantry share, settled-height monotonicity, two-range count, and stars not set before P5.8. --strict makes it a gate. Written after Episode 1 shipped 8 unprotected pigs that looked fine by eye."
+    },
+    {
+      "path": "tools/a11y.mjs",
+      "phase": "P8",
+      "budget": 900,
+      "job": "Measured accessibility gate — per-screen Tab order and reachable-control counts, computed WCAG contrast ratios for text and UI-component borders, aria-live and dialog-role presence, focus-trap wrap in both directions, 44px touch targets, and horizontal overflow at 390x844 across every screen including the online lobby. Fails on console errors, page errors and failed requests.",
+      "budgetNote": "Large because it measures rather than asserts: every ratio, control count and overflow figure is computed in the page and printed, so a failure says which pair failed at what ratio instead of that something is inaccessible. 863 lines at introduction, 71 assertions."
     }
   ]
 }

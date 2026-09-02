@@ -1,4 +1,4 @@
-import { AMMO_BY_ID, MATERIALS, PIGS, SHAPES, TUNE } from './data.js?v=20260902-2';
+import { AMMO_BY_ID, MATERIALS, PIGS, SHAPES, TUNE } from './data.js?v=20260902-3';
 
 // Prefixes of each template are deliberately stable: a lower budget removes the last
 // reinforcement instead of leaving a roof whose supports were removed. Campaign balance

@@ -11,9 +11,9 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { AMMO_BY_ID, MATERIALS, PIGS, SHAPES } from '../data.js?v=20260902-2';
-import { decode, encode, settleTest, validate } from '../build.js?v=20260902-2';
-import { EPISODES, LEVELS } from '../levels.js?v=20260902-2';
+import { AMMO_BY_ID, MATERIALS, PIGS, SHAPES } from '../data.js?v=20260902-3';
+import { decode, encode, settleTest, validate } from '../build.js?v=20260902-3';
+import { EPISODES, LEVELS } from '../levels.js?v=20260902-3';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LEVELS_FILE = join(ROOT, 'levels.js');

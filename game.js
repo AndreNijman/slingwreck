@@ -1,7 +1,7 @@
 import {
   AMMO_BY_ID, BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SCORE, SHAPES,
   SIEGE_DIFFICULTIES, SIEGE_DIFFICULTY_DEFAULT, TUNE
-} from './data.js?v=20260902-2';
+} from './data.js?v=20260902-3';
 import {
   finalizeSiegeScore,
   isRoundOver,
@@ -9,7 +9,7 @@ import {
   makeRound,
   stepRound,
   tap
-} from './sim.js?v=20260902-2';
+} from './sim.js?v=20260902-3';
 import {
   PALETTE,
   TRAJECTORY_STEP,
@@ -23,13 +23,13 @@ import {
   panTo,
   pushEvents,
   screenToWorld
-} from './render.js?v=20260902-2';
+} from './render.js?v=20260902-3';
 import {
   makeAudio,
   pushEvents as pushAudioEvents,
   setMuted as setAudioMuted,
   unlock as unlockAudio
-} from './audio.js?v=20260902-2';
+} from './audio.js?v=20260902-3';
 import {
   autoCompleteCandidates,
   budgetFor,
@@ -46,22 +46,22 @@ import {
   toBlueprint,
   undo,
   validate
-} from './build.js?v=20260902-2';
-import { LEVELS } from './levels.js?v=20260902-2';
-import { fortressForBudget, planShot, shouldTap } from './bots.js?v=20260902-2';
+} from './build.js?v=20260902-3';
+import { LEVELS } from './levels.js?v=20260902-3';
+import { fortressForBudget, planShot, shouldTap } from './bots.js?v=20260902-3';
 import {
   bagForRound,
   defaultDraftPick,
   matchWinner,
   resolveRound,
   rollDraft
-} from './relay-audit.js?v=20260902-2';
+} from './relay-audit.js?v=20260902-3';
 import {
   createCampaignUI,
   starResultText,
   starsForScore
-} from './campaign-ui.js?v=20260902-2';
-import { createOnlineSiege } from './siege-online.js?v=20260902-2';
+} from './campaign-ui.js?v=20260902-3';
+import { createOnlineSiege } from './siege-online.js?v=20260902-3';
 
 // Practice links may pin one critter without changing the authored level or normal play.
 const requestedAmmo = new URLSearchParams(window.location.search).get('ammo');
@@ -1832,7 +1832,13 @@ document.addEventListener('keydown', (event) => {
       event.preventDefault();
       const result = event.shiftKey ? redo(editorDraft) : undo(editorDraft);
       if (result.ok) refreshEditor(true);
-    } else if (event.key === 'Tab' && document.activeElement === canvas) {
+    } else if (event.key === 'Tab' && !event.shiftKey && document.activeElement === canvas) {
+      // Tab on the canvas is the documented palette-group shortcut, but it used to fire
+      // for Shift+Tab too, so a keyboard user standing on the canvas could not navigate
+      // backwards at all — Shift+Tab switched the group forwards instead. Plain Tab keeps
+      // the shortcut and still lands focus in the newly revealed palette; Shift+Tab now
+      // falls through to the browser's own backward navigation, which is the only way out
+      // of the canvas towards the controls above it.
       event.preventDefault();
       setEditorGroup(editorGroup === 'materials' ? 'pigs' : 'materials', true);
     } else if (/^[1-9]$/.test(event.key)) {

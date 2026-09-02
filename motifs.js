@@ -1,7 +1,7 @@
-import { MATERIALS, PIGS, SHAPES, TUNE } from './data.js?v=20260902-2';
-import { PIG_Y_QUANTUM, seatPigY } from './build.js?v=20260902-2';
-import { makeWorld, maxPenetration } from './physics.js?v=20260902-2';
-import { BLUEPRINT_VERSION, instantiate } from './sim.js?v=20260902-2';
+import { MATERIALS, PIGS, SHAPES, TUNE } from './data.js?v=20260902-3';
+import { PIG_Y_QUANTUM, seatPigY } from './build.js?v=20260902-3';
+import { makeWorld, maxPenetration } from './physics.js?v=20260902-3';
+import { BLUEPRINT_VERSION, instantiate } from './sim.js?v=20260902-3';
 
 function integer(value, label, minimum, maximum) {
   if (!Number.isInteger(value) || value < minimum || value > maximum) {

@@ -8,10 +8,10 @@
 //
 // So it is measured here, on every level, every run. `--strict` makes it a gate.
 
-import { LEVELS } from '../levels.js?v=20260902-2';
-import { TUNE, PIGS, SHAPES } from '../data.js?v=20260902-2';
-import { instantiate, makeRound } from '../sim.js?v=20260902-2';
-import { makeWorld, raycastAll, step, isSettled } from '../physics.js?v=20260902-2';
+import { LEVELS } from '../levels.js?v=20260902-3';
+import { TUNE, PIGS, SHAPES } from '../data.js?v=20260902-3';
+import { instantiate, makeRound } from '../sim.js?v=20260902-3';
+import { makeWorld, raycastAll, step, isSettled } from '../physics.js?v=20260902-3';
 
 const MAX_GANTRY_FRACTION = 0.25;
 const MIN_TWO_RANGE_LEVELS = 3;

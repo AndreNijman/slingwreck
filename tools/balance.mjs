@@ -11,7 +11,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { fortressForBudget, planShot, shouldTap } from '../bots.js?v=20260902-2';
+import { fortressForBudget, planShot, shouldTap } from '../bots.js?v=20260902-3';
 import {
   BUDGET,
   CARDS,
@@ -19,7 +19,7 @@ import {
   SCORE,
   SHAPES,
   TUNE
-} from '../data.js?v=20260902-2';
+} from '../data.js?v=20260902-3';
 import {
   budgetFor,
   earlyLockScrap,
@@ -30,9 +30,9 @@ import {
   toBlueprint,
   undo,
   validate
-} from '../build.js?v=20260902-2';
-import { LEVELS } from '../levels.js?v=20260902-2';
-import { removeBody, rng } from '../physics.js?v=20260902-2';
+} from '../build.js?v=20260902-3';
+import { LEVELS } from '../levels.js?v=20260902-3';
+import { removeBody, rng } from '../physics.js?v=20260902-3';
 import {
   beginSuddenDeath,
   finalizeSiegeScore,
@@ -42,7 +42,7 @@ import {
   remoteDetonate,
   stepRound,
   tap
-} from '../sim.js?v=20260902-2';
+} from '../sim.js?v=20260902-3';
 import {
   bagForRound,
   defaultDraftPick,
@@ -51,7 +51,7 @@ import {
   previewInterval,
   resolveRound,
   rollDraft
-} from '../relay-audit.js?v=20260902-2';
+} from '../relay-audit.js?v=20260902-3';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LEVELS_FILE = join(ROOT, 'levels.js');

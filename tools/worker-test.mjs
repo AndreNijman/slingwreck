@@ -2,14 +2,14 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { encode } from '../build.js?v=20260902-2';
-import { TUNE } from '../data.js?v=20260902-2';
+import { encode } from '../build.js?v=20260902-3';
+import { TUNE } from '../data.js?v=20260902-3';
 import {
   advanceAudit,
   createAudit,
   SETTLE_STEPS
-} from '../relay-audit.js?v=20260902-2';
-import { digestRound, launch, makeRound, stepRound } from '../sim.js?v=20260902-2';
+} from '../relay-audit.js?v=20260902-3';
+import { digestRound, launch, makeRound, stepRound } from '../sim.js?v=20260902-3';
 import {
   autoCompleteBlueprint,
   bagForRound,
@@ -29,7 +29,7 @@ import {
   scoreCeiling,
   validationMode,
   validateBlueprintSubmission
-} from '../worker.js?v=20260902-2';
+} from '../worker.js?v=20260902-3';
 
 const BUILD_OPTIONS = { budget: 110, cards: [], seed: 1 };
 const REGISTRY_STALE = 30_000;

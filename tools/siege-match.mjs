@@ -38,11 +38,11 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SIEGE_DIFFICULTIES, SIEGE_DIFFICULTY_DEFAULT, TUNE } from '../data.js?v=20260902-2';
+import { SIEGE_DIFFICULTIES, SIEGE_DIFFICULTY_DEFAULT, TUNE } from '../data.js?v=20260902-3';
 import {
   decode, encode, fromBlueprint, place, settleTest, spent, toBlueprint, undo, validate, budgetFor
-} from '../build.js?v=20260902-2';
-import { aim, fortressForBudget } from '../bots.js?v=20260902-2';
+} from '../build.js?v=20260902-3';
+import { aim, fortressForBudget } from '../bots.js?v=20260902-3';
 import { chromium } from 'playwright';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');

@@ -10,6 +10,20 @@
   --sky: #e8d5b0;
   --cream: #f5ead2;
   --shadow: rgba(43, 33, 28, 0.28);
+  /* Several Siege rules already reference these three via a `var(--x, fallback)` default
+     because the property itself was never declared here — the fallback always won, so
+     nothing looked broken, but a declared value that only ever comes from a fallback isn't
+     really a token. Declared explicitly, at the same values every fallback already used,
+     so there is no visual change and the property is real. */
+  --accent: #b23b2e;
+  --panel: #f4ebd6;
+  --mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  /* --paper-edge measures 2.1-2.2:1 against --cream/--paper, short of the 3:1 WCAG 1.4.11
+     floor for a UI component's boundary. Fine for the decorative hairlines and box-shadows
+     it is mostly used for (not components, so 1.4.11 does not apply) — not fine for the
+     handful of spots where the border is the only thing marking an actual control's edge.
+     --field-border is that darker tan, measured 3.19:1 on --paper and 3.36:1 on --cream. */
+  --field-border: #947b56;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 16px;
@@ -183,7 +197,7 @@ h1 {
 .difficulty-choice {
   min-height: 34px;
   padding: 0 var(--space-2);
-  border: 2px solid var(--paper-edge);
+  border: 2px solid var(--field-border);
   border-radius: var(--radius-sm);
   background: var(--cream);
   color: var(--ink);
@@ -828,7 +842,7 @@ body.editing #game {
 .material-choice,
 .piece-choice {
   position: relative;
-  border: 2px solid var(--paper-edge);
+  border: 2px solid var(--field-border);
   border-radius: var(--radius-md);
   background: var(--cream);
   color: var(--ink);
@@ -1005,7 +1019,7 @@ body.editing #game {
   width: 100%;
   min-height: 76px;
   resize: vertical;
-  border: 2px solid var(--paper-edge);
+  border: 2px solid var(--field-border);
   border-radius: var(--radius-sm);
   background: var(--cream);
   color: var(--ink);
@@ -1377,7 +1391,8 @@ body.editing #game {
   text-transform: uppercase;
 }
 .online-form input {
-  border: 2px solid var(--paper-edge);
+  min-height: 44px;
+  border: 2px solid var(--field-border);
   border-radius: var(--radius-sm);
   background: var(--cream);
   color: var(--ink);
@@ -1395,7 +1410,8 @@ body.editing #game {
 
 .online-connection-banner {
   position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: var(--space-2);
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+  gap: var(--space-2); max-width: calc(100vw - 2 * var(--space-4)); text-align: center;
   background: var(--terracotta, #B23B2E); color: var(--cream, #F5EAD2);
   border: 3px solid var(--ink, #2B211C); border-top: none;
   border-radius: 0 0 14px 14px; padding: 0.5rem 1rem; z-index: 50;

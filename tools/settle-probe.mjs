@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { PIGS, TUNE } from '../data.js?v=20260902-2';
-import { launch, makeRound, stepRound } from '../sim.js?v=20260902-2';
+import { PIGS, TUNE } from '../data.js?v=20260902-3';
+import { launch, makeRound, stepRound } from '../sim.js?v=20260902-3';
 
 let failures = 0;
 

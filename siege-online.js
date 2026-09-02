@@ -16,14 +16,14 @@
 
 import {
   digestRound, isRoundOver, launch, makeRound, remoteDetonate, stepRound, tap
-} from './sim.js?v=20260902-2';
-import { drawPreview } from './render.js?v=20260902-2';
+} from './sim.js?v=20260902-3';
+import { drawPreview } from './render.js?v=20260902-3';
 import {
   autoCompleteCandidates, decode, encode, settleTest, toBlueprint, validate
-} from './build.js?v=20260902-2';
-import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20260902-2';
-import { CARDS_BY_ID, TUNE } from './data.js?v=20260902-2';
-import { createNet, fetchLobbies } from './net.js?v=20260902-2';
+} from './build.js?v=20260902-3';
+import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20260902-3';
+import { CARDS_BY_ID, TUNE } from './data.js?v=20260902-3';
+import { createNet, fetchLobbies } from './net.js?v=20260902-3';
 
 // Quantisation for the outgoing preview: the relay closes any socket that sends a message
 // over 8192 bytes (worker.js MAX_MESSAGE), so this has a hard ceiling, not just a bandwidth
@@ -70,6 +70,10 @@ export function createOnlineSiege(deps) {
   const siegeDraftEyebrow = document.querySelector('#siege-draft-eyebrow');
   const siegeResultScreen = document.querySelector('#siege-result');
   const siegeResultTitle = document.querySelector('#siege-result-title');
+  // Not natively focusable; game.js's #round-over dialog sets the same tabIndex on
+  // #round-title so a screen reader lands on the outcome instead of wherever focus was
+  // left on the canvas. #siege-result has no such wiring of its own.
+  siegeResultTitle.tabIndex = -1;
   const siegeResultEyebrow = document.querySelector('#siege-result-eyebrow');
   const siegeResultDetail = document.querySelector('#siege-result-detail');
   const siegeStandings = document.querySelector('#siege-standings');
@@ -695,6 +699,7 @@ export function createOnlineSiege(deps) {
     siegeContinueButton.textContent = 'Continue';
     siegeResultScreen.hidden = false;
     roundHud.hidden = true;
+    siegeResultTitle.focus({ preventScroll: true });
   }
 
   function onMatchOver(message) {
@@ -710,6 +715,7 @@ export function createOnlineSiege(deps) {
     // Offering "play again" here would promise something the relay cannot do.
     siegeContinueButton.textContent = 'Back to title';
     siegeResultScreen.hidden = false;
+    siegeResultTitle.focus({ preventScroll: true });
   }
 
   function onDraftWait(message) {
@@ -753,6 +759,38 @@ export function createOnlineSiege(deps) {
       return button;
     }));
   }
+
+  // ---------------------------------------------------------------- keyboard (a11y)
+
+  // #round-over (game.js) already traps Tab inside itself while open. These four overlays
+  // share the same full-screen .screen-panel treatment (index.html now marks all four
+  // role="dialog" aria-modal="true", critter-intro included) but never got the same trap, so
+  // Tab could walk out to controls hidden underneath. One listener, keyed off whichever is
+  // actually visible, covers all of them without a trap function per screen. #critter-intro
+  // itself lives in game.js (out of scope) and has exactly one button, so the trap makes Tab
+  // there a correct no-op rather than a real cycle — still the right behaviour for aria-modal.
+  // Escape backs out of the lobby the same way it already does everywhere else (campaign
+  // episode/level screens, the editor), guarded the same way game.js guards its own editor
+  // shortcuts: a key typed into a field is text input, not a screen-level command.
+  const modalScreens = [lobbyScreen, siegeDraftScreen, siegeResultScreen, document.querySelector('#critter-intro')];
+  document.addEventListener('keydown', (event) => {
+    const typing = event.target instanceof HTMLElement &&
+      Boolean(event.target.closest('input, textarea, select, [contenteditable="true"]'));
+    if (event.key === 'Escape' && isActive() && !lobbyScreen.hidden && !typing) { quit(); return; }
+    if (event.key !== 'Tab') return;
+    const panel = modalScreens.find((screen) => !screen.hidden);
+    if (!panel) return;
+    const focusable = [...panel.querySelectorAll('button, input, textarea, a[href]')]
+      .filter((el) => !el.disabled && el.getClientRects().length > 0);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first.focus();
+    }
+  });
 
   // ---------------------------------------------------------------- listener guards
 

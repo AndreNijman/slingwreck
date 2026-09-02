@@ -676,10 +676,10 @@ async function runBrowsers(root, results, skipped, errors) {
         await page.goto(`${origin}/__determinism__.html`, { waitUntil: 'load' });
         const result = await page.evaluate(async () => {
           const [physics, sim, data, harness] = await Promise.all([
-            import('/physics.js?v=20260902-2'),
-            import('/sim.js?v=20260902-2'),
-            import('/data.js?v=20260902-2'),
-            import('/tools/determinism-test.mjs?v=20260902-2')
+            import('/physics.js?v=20260902-3'),
+            import('/sim.js?v=20260902-3'),
+            import('/data.js?v=20260902-3'),
+            import('/tools/determinism-test.mjs?v=20260902-3')
           ]);
           return harness.runScenarios(physics, sim, data);
         });
@@ -702,9 +702,9 @@ async function main() {
   ]);
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const [physics, sim, data] = await Promise.all([
-    import('../physics.js?v=20260902-2'),
-    import('../sim.js?v=20260902-2'),
-    import('../data.js?v=20260902-2')
+    import('../physics.js?v=20260902-3'),
+    import('../sim.js?v=20260902-3'),
+    import('../data.js?v=20260902-3')
   ]);
   const results = [{ engine: 'Node', result: runScenarios(physics, sim, data) }];
   const skipped = [];
