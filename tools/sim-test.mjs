@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
-import { AMMO_BY_ID, MATERIALS, TUNE } from '../data.js?v=20260902-3';
-import { addBody } from '../physics.js?v=20260902-3';
+import { AMMO_BY_ID, MATERIALS, TUNE } from '../data.js?v=20260903-1';
+import { addBody } from '../physics.js?v=20260903-1';
 import {
   digestRound,
   launch,
   makeRound,
   stepRound,
   tap
-} from '../sim.js?v=20260902-3';
+} from '../sim.js?v=20260903-1';
 
 let failures = 0;
 

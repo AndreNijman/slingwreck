@@ -6,7 +6,7 @@ import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
-import { LEVELS } from '../levels.js?v=20260902-3';
+import { LEVELS } from '../levels.js?v=20260903-1';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shotDir = resolve(root, 'shots/levels');
@@ -91,11 +91,11 @@ const html = `<!doctype html>
 <canvas id="background" width="${width}" height="${height}"></canvas>
 <canvas id="sheet" hidden></canvas>
 <script type="module">
-import { TUNE } from '/data.js?v=20260902-3';
-import { LEVELS } from '/levels.js?v=20260902-3';
-import { SETTLE_MOVE_TOLERANCE } from '/build.js?v=20260902-3';
-import { makeRound, stepRound } from '/sim.js?v=20260902-3';
-import { draw, frameRect, makeCamera, makeRenderer } from '/render.js?v=20260902-3';
+import { TUNE } from '/data.js?v=20260903-1';
+import { LEVELS } from '/levels.js?v=20260903-1';
+import { SETTLE_MOVE_TOLERANCE } from '/build.js?v=20260903-1';
+import { makeRound, stepRound } from '/sim.js?v=20260903-1';
+import { draw, frameRect, makeCamera, makeRenderer } from '/render.js?v=20260903-1';
 
 const WIDTH = ${width};
 const HEIGHT = ${height};

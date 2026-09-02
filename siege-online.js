@@ -16,14 +16,14 @@
 
 import {
   digestRound, isRoundOver, launch, makeRound, remoteDetonate, stepRound, tap
-} from './sim.js?v=20260902-3';
-import { drawPreview } from './render.js?v=20260902-3';
+} from './sim.js?v=20260903-1';
+import { drawPreview } from './render.js?v=20260903-1';
 import {
   autoCompleteCandidates, decode, encode, settleTest, toBlueprint, validate
-} from './build.js?v=20260902-3';
-import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20260902-3';
-import { CARDS_BY_ID, TUNE } from './data.js?v=20260902-3';
-import { createNet, fetchLobbies } from './net.js?v=20260902-3';
+} from './build.js?v=20260903-1';
+import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20260903-1';
+import { CARDS_BY_ID, TUNE } from './data.js?v=20260903-1';
+import { createNet, fetchLobbies } from './net.js?v=20260903-1';
 
 // Quantisation for the outgoing preview: the relay closes any socket that sends a message
 // over 8192 bytes (worker.js MAX_MESSAGE), so this has a hard ceiling, not just a bandwidth

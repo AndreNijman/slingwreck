@@ -3,7 +3,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { TUNE } from '../data.js?v=20260902-3';
+import { TUNE } from '../data.js?v=20260903-1';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shots = resolve(root, 'shots');

@@ -24,7 +24,10 @@
     "balance:campaign": "node tools/balance.mjs --campaign",
     "stamp": "node tools/stamp.mjs",
     "card": "node tools/card-shot.mjs",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test:live": "node tools/live-smoke.mjs",
+    "test:a11y": "node tools/a11y.mjs",
+    "test:online": "node tools/online-smoke.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

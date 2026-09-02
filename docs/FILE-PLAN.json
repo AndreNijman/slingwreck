@@ -279,6 +279,12 @@
       "budget": 900,
       "job": "Measured accessibility gate — per-screen Tab order and reachable-control counts, computed WCAG contrast ratios for text and UI-component borders, aria-live and dialog-role presence, focus-trap wrap in both directions, 44px touch targets, and horizontal overflow at 390x844 across every screen including the online lobby. Fails on console errors, page errors and failed requests.",
       "budgetNote": "Large because it measures rather than asserts: every ratio, control count and overflow figure is computed in the page and printed, so a failure says which pair failed at what ratio instead of that something is inaccessible. 863 lines at introduction, 71 assertions."
+    },
+    {
+      "path": "tools/live-smoke.mjs",
+      "phase": "P8",
+      "budget": 200,
+      "job": "P8's live gate: drives the DEPLOYED site's game frame and the DEPLOYED relay with two browser contexts through create/join, asserts the served build carries a cache stamp and the current feature set, and fails on any request error except the guard's expected 401 for a session-less visitor."
     }
   ]
 }

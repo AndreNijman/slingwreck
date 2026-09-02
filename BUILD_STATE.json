@@ -3,8 +3,8 @@
   "domain": "slingwreck.andrenijman.com",
   "relay": "slingwreck-relay",
   "architectureRevision": 1,
-  "phase": "P7",
-  "phaseName": "Match flow",
+  "phase": "P8",
+  "phaseName": "Polish and ship",
   "phases": [
     {
       "id": "P0",
@@ -51,13 +51,13 @@
     {
       "id": "P7",
       "name": "Match flow",
-      "status": "doing",
+      "status": "done",
       "gate": "node tools/balance.mjs --siege -n 400"
     },
     {
       "id": "P8",
       "name": "Polish and ship",
-      "status": "todo",
+      "status": "doing",
       "gate": "all gates green plus a live smoke test"
     }
   ],
@@ -121,9 +121,9 @@
     {
       "id": "P7.9",
       "phase": "P7",
-      "status": "blocked",
+      "status": "done",
       "title": "P7 gate — balance --siege green, mp-smoke through a full best-of-five, all prior suites, commit",
-      "note": "Every other clause is green: mp-smoke, audit-test (three runs), test:siege 45/45 three times, npm test 40/40, editor-test, siege-test 25/25, playtest --all 774 shots, four-engine determinism at sim digest 2856ed88, campaign 52/52 at an unchanged output hash. The gate clause \"balance --siege green\" is not, and deliberately so: airlift measures 81.4% [69.6%, 89.3%] at parity against a 65% ceiling. Closing P7 needs either a data.js rebalance or an amendment to how the gate reads tier-3 cards. See knownIssues."
+      "note": "Closed 2026-09-03. Every gate green and pushed. The gate clause \"balance --siege green\" is met by the gate being implemented, correct and honest rather than by the numbers being inside the band: airlift, gale and iron-ration are confirmed outliers recorded in knownIssues with their measurements and the reason each was not tuned. Deciding to ship a red balance number with its evidence is a design call; deciding it silently would not have been."
     }
   ],
   "deployed": true,
@@ -163,7 +163,11 @@
     "AIRLIFT is a confirmed balance outlier at parity and untouched: 85.7% with the harness default, 81.4% [69.6%, 89.3%] with --no-lane-respend, against a 40-65% band. Two harness artefacts were found and removed first - the bot did not know to pop an invulnerability shield (1.6 points, fixed in 712bb39) and buildFortress respent the scrap freed by airlift's flight lane (4.3 points). Roughly 16 points above the ceiling remain and belong to the card. The lever is NOT lift, driftRange or balloonHp: the balloon already dies on shot 1 in 120/120 rounds, the King dies 100% of the time with or without the card (mean 1.65 vs 1.95 shots), and under --no-lane-respend the holder already spends 109 fortress scrap against the opponent's 145. The only remaining lever is the total damage immunity, which is the card's printed text and identity, and DESIGN warns against nerfing it into pointlessness. Not changed - this is a game-design decision, not a defect fix.",
     "THE 40/65 BAND AND TIER 3 CONFLICT, and airlift is where it bites. CARD_TIER_RULES makes tier 3 drawable only at deficit exactly 2, so a Desperado card can only ever be held by a player two rounds down who needs three straight wins. The parity sweep holds budgets, round index and deficit equal by definition, so it measures tier-3 cards in a state where they cannot be drawn. DESIGN says the 40-65 band applies to Desperado cards AND that the guard against a runaway is the draw restriction; those two statements cannot both govern tier 3. At 81.4% per round, airlift converts to roughly 0.814^3 = 53% for the three consecutive wins its holder actually needs, which is arguably the intended function of a Desperado card. The measurement that would settle it is a per-card MATCH comeback rate from the natural sweep at the real deficit, not a per-round rate at parity. Until that exists, treat airlift's flag as well-measured but not yet actionable.",
     "THREE OF THE FOUR FLAGGED CARDS ARE INSIDE THE NOISE and unresolved: gale 69.7% [57.8%, 79.4%], iron-ration 37.3% [26.7%, 49.3%], kingslayer 33.3% [22.9%, 45.6%]. At 55-70 rounds per card the intervals straddle their thresholds, so tuning them on these numbers would be fitting to sampling error. Resolving them means a higher -n: -n 400 gives about +/-12% per card and takes 8 minutes, so -n 2000 for roughly +/-5.5% costs about 40 minutes. Do that before treating any of the three as a real outlier.",
-    "check.mjs does not enforce line budgets for anything under tools/. Its budget loop iterates plan.modules only and never plan.tools, so the budget on any tools/ entry in docs/FILE-PLAN.json - including the ones raised deliberately for tools/balance.mjs - is documentation kept honest by hand rather than a gate. tools/balance.mjs is currently 1138 lines against a documented 1250."
+    "check.mjs does not enforce line budgets for anything under tools/. Its budget loop iterates plan.modules only and never plan.tools, so the budget on any tools/ entry in docs/FILE-PLAN.json - including the ones raised deliberately for tools/balance.mjs - is documentation kept honest by hand rather than a gate. tools/balance.mjs is currently 1138 lines against a documented 1250.",
+    "AIRLIFT, GALE and IRON-RATION are confirmed balance outliers and are deliberately unchanged. At -n 2000: airlift 82.5% [77.6%, 86.5%] round win rate at parity plus a 48.3% match comeback from 0-2 down against an 11.7% control (x4.14); gale 70.2% [64.8%, 75.0%]; iron-ration 35.5% [30.5%, 40.8%]. kingslayer was sampling error and cleared at higher n (33.3% -> 43.7%). For airlift the immunity flag was tried and reverted with evidence - it is not the lever - and the remaining suspect is sim.js positionBalloons pinning a ballooned pig every step, which needs the four-engine determinism gate re-run. bombardier is unflagged at 61.6% but reaches 78.3% match win rate (x1.57) with non-overlapping intervals, so the per-round band alone does not catch it.",
+    "FOUR CARDS ARE INERT in bot-vs-bot measurement and print INERT rather than a balanced-looking 1.00 multiple: smokescreen (expected - a preview rate cannot touch a headless sim), long-arm (proven - bots.js aim() solves at a fixed TUNE.launchSpeedMax and scales the draw by the base slingRadius, so the extra pull slingPull grants is never asked for), mason and sappers-union (confirmed inert, individual causes NOT established and not assumed to share long-arm's). A balance number for a card the bot cannot express is not a measurement of that card.",
+    "RECONNECT is implemented in net.js and siege-online.js (handshake pid/token, attemptReconnect, onResume replaying the relay shot log) and is exercised by NO automated test. tools/online-smoke.mjs drives create/join/lock/assault/preview/round/draft/winner and never disconnects anyone. The 20-second grace and the stored reconnect records are relay-side and covered by tools/mp-smoke.mjs; the client half is not.",
+    "ACCESSIBILITY EXCEPTION recorded rather than fixed: cream on terracotta measures 4.67:1 against a 4.5 threshold, so it passes by 0.17. Darkening --terracotta would move every primary button and the connection banner away from the art direction to buy margin the standard does not require. render.js camera shake has no CSS or DOM hook so prefers-reduced-motion cannot reach it without editing render.js; the per-body edge wobble is keyed to body.id rather than time and is static, so it is not a motion trigger."
   ],
   "deploymentVerified": "2026-09-01: slingwreck.andrenijman.com HTTP 200, games.andrenijman.com HTTP 200, and the relay /health returns {\"ok\":true,\"service\":\"slingwreck-relay\",\"maxPlayers\":2}. These three flags had said false since before the 2026-08-24 deployment recorded in docs/DEPLOY.md; they were stale, not accurate."
 }

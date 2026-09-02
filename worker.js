@@ -10,7 +10,7 @@
 //   GET /lobbies  - public lobby directory
 //   GET /ws?room= - websocket, first message must be create or join
 
-import { BUDGET, CARDS_BY_ID, SCORE, TUNE } from './data.js?v=20260902-3';
+import { BUDGET, CARDS_BY_ID, SCORE, TUNE } from './data.js?v=20260903-1';
 import {
   AUDIT_STEP_BUDGET,
   SETTLE_STEPS,
@@ -34,7 +34,7 @@ import {
   scoreCeiling,
   startSuddenDeath,
   validationMode
-} from './relay-audit.js?v=20260902-3';
+} from './relay-audit.js?v=20260903-1';
 import {
   autoCompleteCandidates,
   budgetFor,
@@ -45,7 +45,7 @@ import {
   settleTest,
   spent,
   validate
-} from './build.js?v=20260902-3';
+} from './build.js?v=20260903-1';
 
 const TICK_MS = 250;
 const ROOM_TTL = 45 * 60_000;

@@ -14,8 +14,8 @@
 
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { AMMO } from '../data.js?v=20260902-3';
-import { LEVELS } from '../levels.js?v=20260902-3';
+import { AMMO } from '../data.js?v=20260903-1';
+import { LEVELS } from '../levels.js?v=20260903-1';
 
 const server = spawn('npx', ['serve', '.', '-l', '4173'], { stdio: 'ignore', detached: true });
 await new Promise((r) => setTimeout(r, 3500));

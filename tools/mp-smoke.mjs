@@ -7,7 +7,7 @@
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { encode } from '../build.js?v=20260902-3';
+import { encode } from '../build.js?v=20260903-1';
 
 const liveRelay = process.env.LIVE_RELAY;
 const relay = liveRelay || 'http://127.0.0.1:8787';
@@ -134,9 +134,9 @@ async function waitMessage(page, type, after = 0, field = null, value = null) {
 
 async function settleDigest(page, blueprint, seed, bag, keep = false) {
   return page.evaluate(async ({ blueprint, seed, bag, keep }) => {
-    const sim = await import('./sim.js?v=20260902-3');
-    const { decode } = await import('./build.js?v=20260902-3');
-    const { TUNE } = await import('./data.js?v=20260902-3');
+    const sim = await import('./sim.js?v=20260903-1');
+    const { decode } = await import('./build.js?v=20260903-1');
+    const { TUNE } = await import('./data.js?v=20260903-1');
     const round = sim.makeRound({ mode: 'siege', blueprint: decode(blueprint), seed, bag });
     const steps = Math.ceil(TUNE.blueprintSettleSeconds / TUNE.step);
     for (let index = 0; index < steps; index++) sim.stepRound(round, TUNE.step);
@@ -147,8 +147,8 @@ async function settleDigest(page, blueprint, seed, bag, keep = false) {
 
 async function launchLocal(page, dx, dy, stopAtKing) {
   return page.evaluate(async ({ dx, dy, stopAtKing }) => {
-    const sim = await import('./sim.js?v=20260902-3');
-    const { TUNE } = await import('./data.js?v=20260902-3');
+    const sim = await import('./sim.js?v=20260903-1');
+    const { TUNE } = await import('./data.js?v=20260903-1');
     const round = window.__slingRound;
     const ammoIndex = round.shotIndex;
     const step = round.stepCount;
@@ -172,9 +172,9 @@ async function launchLocal(page, dx, dy, stopAtKing) {
 
 async function replayResume(page, resume) {
   return page.evaluate(async (payload) => {
-    const sim = await import('./sim.js?v=20260902-3');
-    const { decode } = await import('./build.js?v=20260902-3');
-    const { TUNE } = await import('./data.js?v=20260902-3');
+    const sim = await import('./sim.js?v=20260903-1');
+    const { decode } = await import('./build.js?v=20260903-1');
+    const { TUNE } = await import('./data.js?v=20260903-1');
     const round = sim.makeRound({
       mode: 'siege',
       blueprint: decode(payload.blueprint),
