@@ -821,6 +821,22 @@ function playComebackMatch({ seed, band, cardId, leg }) {
     seed, initialCards, natural: true, startRound: band.startRound, initialWins
   });
   const holderPid = leg === 0 ? 1 : 2;
+  if (process.env.DEBUG_CARD && (cardId ?? 'CONTROL') === process.env.DEBUG_CARD) {
+    const last = match.rounds[match.rounds.length - 1];
+    const holderState = last.playerStates.find((p) => p.pid === holderPid);
+    const otherState = last.playerStates.find((p) => p.pid !== holderPid);
+    const baseline = cardId ? simulateMatch({
+      seed, initialCards: [[], []], natural: true, startRound: band.startRound, initialWins
+    }) : null;
+    console.error(`DBG card=${cardId ?? 'CONTROL'} tier=${band.tier} round=${band.startRound} ` +
+      `leg=${leg} seed=0x${seed.toString(16)} ` +
+      `reason=${last.reason} holderScore=${holderState.score.toFixed(3)} ` +
+      `otherScore=${otherState.score.toFixed(3)} holderKing=${holderState.kingPopped} ` +
+      `otherKing=${otherState.kingPopped} holderCost=${holderState.fortressCost} ` +
+      `otherCost=${otherState.fortressCost} winner=${match.winner} holderWon=${match.winner === holderPid}` +
+      (baseline ? ` baselineWinner=${baseline.winner} baselineFavorsHolderSlot=` +
+        `${baseline.winner === holderPid}` : ''));
+  }
   return match.winner === holderPid;
 }
 
@@ -835,15 +851,34 @@ function sweepComeback(band, cardId, matches, salt, shard = null) {
   const pairings = matches / 2;
   let wins = 0;
   let played = 0;
+  // A card that changes no outcome hands exactly one leg of every mirrored pairing to the
+  // holder, because the two legs are the same match with the slots swapped. So it scores
+  // exactly matches/2 — and 50.0% then reads as "balanced" when it actually means "this bot
+  // cannot express this card at all". Counting the pairings that split 1-1 separates those
+  // two cases for free, with no extra simulation: an inert card splits EVERY pairing, while
+  // a card with any effect eventually takes both legs of one, or neither.
+  //
+  // Found the hard way. `long-arm`, `mason` and `sappers-union` all reported exactly 30/60
+  // = 50.0% against a 50.0% control in the tier-2 band. They are inert here, not balanced:
+  // for each, the round score depended only on which slot a player occupied and never on
+  // who held the card, and the winner matched a card-less baseline on the same seed. One
+  // cause is proven — `bots.js` `aim()` solves at a fixed `TUNE.launchSpeedMax` and scales
+  // the draw by the base `TUNE.slingRadius`, so the extra pull `slingPull` grants is
+  // something the bot never asks for, however faithfully `sim.js` would apply it.
+  let splitPairings = 0;
+  let sampledPairings = 0;
   for (let pairing = 0; pairing < pairings; pairing++) {
     if (shard && pairing % shard.of !== shard.index) continue;
     const seed = seedWord(COMEBACK_SEED, salt * 100000 + pairing);
+    let legWins = 0;
     for (let leg = 0; leg < 2; leg++) {
-      if (playComebackMatch({ seed, band, cardId, leg })) wins++;
+      if (playComebackMatch({ seed, band, cardId, leg })) { wins++; legWins++; }
       played++;
     }
+    sampledPairings++;
+    if (legWins === 1) splitPairings++;
   }
-  return { wins, matches: played };
+  return { wins, matches: played, splitPairings, sampledPairings };
 }
 
 async function comeback(n, { shard = null } = {}) {
@@ -856,8 +891,11 @@ async function comeback(n, { shard = null } = {}) {
       `${controlMatches} (${COMEBACK_CONTROL_MULTIPLIER}x); seed=0x${COMEBACK_SEED.toString(16)}`);
   }
 
+  const debugOnlyTier = process.env.DEBUG_ONLY_CARD &&
+    CARDS.find((card) => card.id === process.env.DEBUG_ONLY_CARD)?.tier;
   const controls = {};
   for (const tier of [1, 2, 3]) {
+    if (debugOnlyTier && tier !== debugOnlyTier) continue;
     controls[tier] = sweepComeback(bands[tier], null, controlMatches, tier - 3, shard);
   }
   // A shard emits raw counts only. Rates and intervals are meaningless on a stride of the
@@ -868,7 +906,8 @@ async function comeback(n, { shard = null } = {}) {
     }
     for (const card of CARDS) {
       const result = sweepComeback(bands[card.tier], card.id, n, CARDS.indexOf(card) + 1, shard);
-      console.log(`CARD\t${card.id}\t${card.tier}\t${result.wins}\t${result.matches}`);
+      console.log(`CARD\t${card.id}\t${card.tier}\t${result.wins}\t${result.matches}` +
+        `\t${result.splitPairings}\t${result.sampledPairings}`);
     }
     console.log(`SHARD\t${shard.index}/${shard.of}\tn=${n}\t` +
       `${((performance.now() - started) / 1000).toFixed(1)}s`);
@@ -879,18 +918,21 @@ async function comeback(n, { shard = null } = {}) {
     'per tier)');
   for (const tier of [1, 2, 3]) {
     const control = controls[tier];
+    if (!control) continue;
     const [lo, hi] = wilson95(control.wins, control.matches);
     console.log(`tier ${tier}: ${bandLabel(bands[tier])}; null control ${control.wins}/` +
       `${control.matches} = ${percentage(control.wins / control.matches)} ` +
       `[${percentage(lo)}, ${percentage(hi)}]`);
   }
 
-  const rows = CARDS.map((card) => {
-    const band = bands[card.tier];
-    const salt = CARDS.indexOf(card) + 1;
-    const result = sweepComeback(band, card.id, n, salt);
-    return { card, band, ...result };
-  });
+  const rows = CARDS
+    .filter((card) => !process.env.DEBUG_ONLY_CARD || card.id === process.env.DEBUG_ONLY_CARD)
+    .map((card) => {
+      const band = bands[card.tier];
+      const salt = CARDS.indexOf(card) + 1;
+      const result = sweepComeback(band, card.id, n, salt);
+      return { card, band, ...result };
+    });
 
   console.log('\nper-card MATCH comeback rate (holder alone vs the null control at the same band)');
   console.log('card                 tier  band                                matches  ' +
@@ -902,7 +944,10 @@ async function comeback(n, { shard = null } = {}) {
     console.log(`${row.card.id.padEnd(21)}${String(row.card.tier).padStart(4)}  ` +
       `${bandLabel(row.band).padEnd(36)}${String(row.matches).padStart(7)}  ` +
       `${percentage(rate).padStart(13)}  ${`[${percentage(lo)}, ${percentage(hi)}]`.padEnd(15)}  ` +
-      `${percentage(controlRate)}`);
+      `${percentage(controlRate)}` +
+      (row.splitPairings === row.sampledPairings
+        ? '   INERT (this bot cannot express it: every mirrored pairing split 1-1)'
+        : ''));
   }
 
   console.log(`\nfortress filler grid exhausted before budget: ${fortressFillShortfalls} ` +
