@@ -20,6 +20,7 @@
 //      that case, so this gate expects that one request to fail and fails on any other.
 
 import { chromium } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 const SITE = process.env.SLINGWRECK_SITE ?? 'https://slingwreck.andrenijman.com';
 const FRAME = `${SITE}/?_games_frame=1`;
@@ -64,10 +65,17 @@ try {
   const tiers = await host.locator('.difficulty-choice').count();
   report('the deployed build carries the P8 difficulty selector', tiers === 3, `${tiers} tiers`);
 
+  // Not "a stamp exists" — "the stamp is the one in this working tree". The weaker check
+  // passed green over a stale deploy on 2026-09-04, which is the whole failure this gate
+  // was written for: a push can be correct, gated and published and still leave the site
+  // serving the previous build under unchanged module URLs.
   const stamp = await host.evaluate(() =>
     [...document.querySelectorAll('script[src]')].map((s) => s.src.match(/\?v=([\d-]+)/)?.[1])
       .filter(Boolean)[0] ?? 'none');
-  report('the deployed modules carry a cache stamp', /^\d{8}-\d+$/.test(stamp), stamp);
+  const expected = (await readFile(new URL('../index.html', import.meta.url), 'utf8'))
+    .match(/\?v=([\d-]+)/)?.[1] ?? 'none';
+  report('the deployed build is the one in this working tree',
+    stamp === expected, `live ${stamp} vs local ${expected}`);
 
   await host.locator('#siege-online-button').click();
   await guest.locator('#siege-online-button').click();
