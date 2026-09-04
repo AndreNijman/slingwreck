@@ -62,7 +62,7 @@
     {
       "path": "siege-online.js",
       "phase": "P7",
-      "budget": 900,
+      "budget": 1100,
       "imports": [
         "data.js",
         "sim.js",
@@ -72,7 +72,7 @@
         "relay-audit.js"
       ],
       "job": "Online Siege: lobby (create, join by code, password, registry listing), the relay-driven match state machine, blueprint submission, simultaneous assault against a peer, the lossy ~8 Hz corner-preview stream both ways, relay-rolled drafts, reconnect and the honest failure states. The relay stays authoritative for validation, settle, resolution, budgets and draft rolls; this module sends intent and renders what the relay confirms.",
-      "budgetNote": "Split from game.js rather than grown into it, following campaign-ui.js. game.js was already at 2503 of 2600 after the card-aware bot fortress, and online Siege is a genuinely separate concern: it owns a socket lifecycle, a lobby, and a state machine driven by relay messages rather than by the local frame loop. Solo Siege stays in game.js because it shares the round loop, camera and editor draft directly; the online path deliberately does not reach into any of that. 812 lines at introduction."
+      "budgetNote": "Split from game.js rather than grown into it, following campaign-ui.js. game.js was already at 2503 of 2600 after the card-aware bot fortress, and online Siege is a genuinely separate concern: it owns a socket lifecycle, a lobby, and a state machine driven by relay messages rather than by the local frame loop. Solo Siege stays in game.js because it shares the round loop, camera and editor draft directly; the online path deliberately does not reach into any of that. 812 lines at introduction. Raised from 900 to 1100 on 2026-09-04 for the ready-up rework, after a real two-player session came back with no fortresses and a dead lock button. The lines are the honesty: a ready toggle with both sides visible, a draft autosave that keeps the relay's record.draft in step with the plot, and three distinct failure reports (illegal, unstable, not-entered) that name the real problem instead of returning silently. The previous version was shorter because it failed without saying anything."
     },
     {
       "path": "campaign-ui.js",

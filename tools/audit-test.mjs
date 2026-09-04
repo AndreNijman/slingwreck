@@ -7,9 +7,9 @@ import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { encode } from '../build.js?v=20260903-1';
-import { TUNE } from '../data.js?v=20260903-1';
-import { launch, makeRound, stepRound } from '../sim.js?v=20260903-1';
+import { encode } from '../build.js?v=20260904-1';
+import { TUNE } from '../data.js?v=20260904-1';
+import { launch, makeRound, stepRound } from '../sim.js?v=20260904-1';
 
 const liveRelay = process.env.LIVE_RELAY;
 const relay = liveRelay || 'http://127.0.0.1:8787';
@@ -179,9 +179,9 @@ async function closeMatch(match) {
 
 async function initLocal(page, siege) {
   await page.evaluate(async (payload) => {
-    const sim = await import('./sim.js?v=20260903-1');
-    const { decode } = await import('./build.js?v=20260903-1');
-    const { TUNE } = await import('./data.js?v=20260903-1');
+    const sim = await import('./sim.js?v=20260904-1');
+    const { decode } = await import('./build.js?v=20260904-1');
+    const { TUNE } = await import('./data.js?v=20260904-1');
     const round = sim.makeRound({
       mode: 'siege',
       blueprint: decode(payload.blueprint),
@@ -196,8 +196,8 @@ async function initLocal(page, siege) {
 
 async function localMiss(page, tapAbility = false) {
   return page.evaluate(async (tapAbility) => {
-    const sim = await import('./sim.js?v=20260903-1');
-    const { AMMO_BY_ID, TUNE } = await import('./data.js?v=20260903-1');
+    const sim = await import('./sim.js?v=20260904-1');
+    const { AMMO_BY_ID, TUNE } = await import('./data.js?v=20260904-1');
     const round = window.__auditRound;
     const step = round.stepCount;
     const ammoIndex = round.shotIndex;
@@ -275,7 +275,7 @@ async function honestShotAndScore(match, tapAbility = true) {
 // with the ammo the relay just pushed onto the authoritative bag.
 async function beginLocalSuddenDeath(page) {
   await page.evaluate(async () => {
-    const sim = await import('./sim.js?v=20260903-1');
+    const sim = await import('./sim.js?v=20260904-1');
     if (!sim.beginSuddenDeath(window.__auditRound)) {
       throw new Error('local sudden death could not be started');
     }

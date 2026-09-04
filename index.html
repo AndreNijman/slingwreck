@@ -17,7 +17,7 @@
   <meta name="twitter:description" content="Pull back, let fly, and turn a pig fortress into a glorious heap.">
   <meta name="twitter:image" content="https://slingwreck.andrenijman.com/og-image.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M18 8c0 13 14 18 14 33v15M46 8c0 13-14 18-14 33' fill='none' stroke='%232b211c' stroke-width='8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M18 10l14 16 14-16' fill='none' stroke='%238a5a2b' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='26' r='7' fill='%23d9563f' stroke='%232b211c' stroke-width='3'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=20260903-1">
+  <link rel="stylesheet" href="style.css?v=20260904-1">
 </head>
 <body>
   <main id="game-shell">
@@ -201,8 +201,20 @@
       <span class="siege-round" id="siege-round">Round 1</span>
       <span class="siege-wins" id="siege-wins">0 – 0</span>
       <span class="siege-scrap" id="siege-scrap">110 scrap</span>
+      <!-- Online Siege only (see siege-online.js): both players' ready state, always
+           visible, so nobody is left guessing whether the other side has locked in — the
+           actual confusion in the bug report this was built to close. Solo Siege never
+           touches these, so they sit empty and inert there. -->
+      <span class="siege-ready-pills" aria-live="polite">
+        <span id="siege-ready-you" class="ready-pill">You: Building</span>
+        <span id="siege-ready-them" class="ready-pill">Them: Building</span>
+      </span>
       <span class="siege-clock" id="siege-clock">1:30</span>
       <button id="siege-lock" class="button primary small" type="button">Lock in</button>
+      <!-- A rejected ready-up must say why, out loud, right next to the control that was
+           just pressed — not only in the side validation panel, which a player mid-build
+           is not necessarily looking at. role="alert" so it interrupts a screen reader too. -->
+      <p id="siege-ready-reason" class="siege-ready-reason" role="alert" hidden></p>
     </div>
 
     <div id="siege-preview" class="siege-preview" hidden>
@@ -297,6 +309,6 @@
 
     <p id="status-message" class="visually-hidden" role="status" aria-live="polite"></p>
   </main>
-  <script type="module" src="game.js?v=20260903-1"></script>
+  <script type="module" src="game.js?v=20260904-1"></script>
 </body>
 </html>

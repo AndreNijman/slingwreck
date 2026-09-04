@@ -1338,7 +1338,8 @@ body.editing #game {
    theirs. Everything else here is scaffolding around that. */
 .siege-banner {
   position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: var(--space-3);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: var(--space-3); max-width: calc(100vw - 2 * var(--space-3));
   background: var(--panel, #F4EBD6); border: 3px solid var(--ink, #2B211C);
   border-top: none; border-radius: 0 0 14px 14px;
   padding: 0.5rem 1rem; z-index: 30;
@@ -1348,6 +1349,17 @@ body.editing #game {
 .siege-round { font-weight: 700; }
 .siege-wins { color: var(--accent, #B23B2E); font-weight: 700; }
 .siege-clock { min-width: 3.2em; text-align: right; }
+
+/* Online Siege's ready-up: both sides' state at a glance, and — when a ready-up is
+   rejected — the reason, on its own line right under the banner it was pressed in. */
+.siege-ready-pills { display: flex; gap: var(--space-2); }
+.ready-pill { color: var(--ink-soft, #66564A); }
+.ready-pill.ready { color: var(--ink, #2B211C); font-weight: 800; }
+#siege-ready-reason {
+  flex-basis: 100%; margin: 0.3rem 0 0; text-align: center;
+  color: var(--terracotta-dark, #8E3028); font-weight: 700;
+}
+#siege-ready-reason[hidden] { display: none; }
 
 .siege-preview {
   position: absolute; top: var(--space-3); right: var(--space-3);

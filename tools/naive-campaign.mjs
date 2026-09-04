@@ -18,7 +18,7 @@
 import { chromium } from '@playwright/test';
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
-import { LEVELS } from '../levels.js?v=20260903-1';
+import { LEVELS } from '../levels.js?v=20260904-1';
 
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : d; };

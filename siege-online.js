@@ -16,14 +16,14 @@
 
 import {
   digestRound, isRoundOver, launch, makeRound, remoteDetonate, stepRound, tap
-} from './sim.js?v=20260903-1';
-import { drawPreview } from './render.js?v=20260903-1';
+} from './sim.js?v=20260904-1';
+import { drawPreview } from './render.js?v=20260904-1';
 import {
   autoCompleteCandidates, decode, encode, settleTest, toBlueprint, validate
-} from './build.js?v=20260903-1';
-import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20260903-1';
-import { CARDS_BY_ID, TUNE } from './data.js?v=20260903-1';
-import { createNet, fetchLobbies } from './net.js?v=20260903-1';
+} from './build.js?v=20260904-1';
+import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20260904-1';
+import { CARDS_BY_ID, TUNE } from './data.js?v=20260904-1';
+import { createNet, fetchLobbies } from './net.js?v=20260904-1';
 
 // Quantisation for the outgoing preview: the relay closes any socket that sends a message
 // over 8192 bytes (worker.js MAX_MESSAGE), so this has a hard ceiling, not just a bandwidth
@@ -33,6 +33,8 @@ import { createNet, fetchLobbies } from './net.js?v=20260903-1';
 const POSE_QUANTUM = 0.02;
 const PREVIEW_MAX_DELTA = 48;
 const LOBBY_POLL_MS = 3000;
+// How often the in-progress build draft is streamed to the relay (see maybeAutosaveDraft).
+const DRAFT_AUTOSAVE_MS = 2000;
 
 function quantise(value) { return Math.round(value / POSE_QUANTUM) * POSE_QUANTUM; }
 
@@ -46,7 +48,7 @@ function posesDiffer(a, b) {
 
 export function createOnlineSiege(deps) {
   const {
-    openEditor, closeEditor, showTitle, getEditorDraft, renderValidation,
+    openEditor, closeEditor, showTitle, getEditorDraft, renderValidation, guidanceFor,
     getRound, setRound, setPlaying, resetCameraState, updateHud
   } = deps;
 
@@ -59,6 +61,10 @@ export function createOnlineSiege(deps) {
   const siegeScrapLabel = document.querySelector('#siege-scrap');
   const scrapLeftLabel = document.querySelector('#scrap-left');
   const siegeClock = document.querySelector('#siege-clock');
+  const siegeReadyYou = document.querySelector('#siege-ready-you');
+  const siegeReadyThem = document.querySelector('#siege-ready-them');
+  const siegeReadyReason = document.querySelector('#siege-ready-reason');
+  const settleResultLabel = document.querySelector('#settle-result');
   const siegeLockButton = document.querySelector('#siege-lock');
   const siegePreview = document.querySelector('#siege-preview');
   const siegePreviewCanvas = document.querySelector('#siege-preview-canvas');
@@ -120,6 +126,10 @@ export function createOnlineSiege(deps) {
       buildCards: [],
       buildDeadline: 0,
       locked: false,
+      opponentLocked: false,
+      lastDraftSentAt: -Infinity,
+      lastDraftSent: '',
+      notEntered: false,
       attackRound: null,
       shadowRound: null,
       shadowBodyById: null,
@@ -254,6 +264,11 @@ export function createOnlineSiege(deps) {
     siegeDraftScreen.hidden = true;
     siegeResultScreen.hidden = true;
     hideConnectionBanner();
+    // Solo Siege reuses this exact button/banner and never touches its label or the ready
+    // pills — leave both the way solo expects to find them, not the way online left them.
+    siegeLockButton.textContent = 'Lock in';
+    resetReadyPills();
+    hideReadyReason();
     resetContext();
     showTitle();
   }
@@ -300,7 +315,12 @@ export function createOnlineSiege(deps) {
       case 'build-clock': return onBuildClock(message);
       case 'locked': return; // banked scrap ack; nothing to show beyond the disabled button
       case 'build-rejected': return onBuildRejected(message);
-      case 'build-status': return; // who has locked so far; not shown, both locks race anyway
+      // Who has readied up so far — this is the opponent-ready signal the ready-up UI
+      // needs. The relay already sends it on every lock (worker.js's lockBlueprint); it was
+      // previously ignored, which is half of why "did my opponent even ready?" was unknowable.
+      case 'build-status': return onBuildStatus(message);
+      case 'draft-saved': return; // periodic draft autosave ack; nothing to show
+      case 'draft-rejected': return; // decode(encode(x)) always round-trips; a codec bug, not a player action
       case 'siege': return onSiege(message);
       case 'siege-clock': return; // the 3-minute cap; not surfaced, rounds resolve well inside it
       case 'shot-accepted': case 'tap-accepted': case 'audit-ok': return;
@@ -386,8 +406,15 @@ export function createOnlineSiege(deps) {
     ctx.buildBudget = message.budget;
     ctx.buildCards = message.cards;
     ctx.locked = false;
+    ctx.opponentLocked = false;
+    ctx.lastDraftSentAt = -Infinity;
+    ctx.lastDraftSent = '';
+    ctx.notEntered = false;
     ctx.buildDeadline = performance.now() + message.left * 1000;
     siegeLockButton.disabled = false;
+    siegeLockButton.textContent = 'Ready';
+    resetReadyPills();
+    hideReadyReason();
     stopLobbyPolling();
     // Every screen a previous round or the lobby could have left open. openEditor() itself
     // only knows about the campaign/editor screens (titleScreen, roundHud, roundOver) — it
@@ -413,37 +440,155 @@ export function createOnlineSiege(deps) {
     const left = Number.isFinite(leftSeconds) ? leftSeconds
       : Math.max(0, (ctx.buildDeadline - performance.now()) / 1000);
     siegeClock.textContent = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
+    maybeAutosaveDraft();
   }
 
-  // Called by both the "Lock in" button and Space (via openEditor's editorSiege.onLock hook —
+  // ---- ready-up state (both sides visible) and failure reporting ---------------------
+
+  function resetReadyPills() {
+    siegeReadyYou.textContent = 'You: Building';
+    siegeReadyYou.classList.remove('ready');
+    siegeReadyThem.textContent = 'Them: Building';
+    siegeReadyThem.classList.remove('ready');
+  }
+
+  // The relay broadcasts this on every lock (worker.js's lockBlueprint -> build-status), to
+  // both sockets — it is the only opponent-ready signal the relay actually sends. It carries
+  // *everyone* currently locked, not just the opponent, which is why this reads `ctx.opponent`
+  // out of the list rather than trusting the message to be about "the other player" already.
+  function onBuildStatus(message) {
+    if (!ctx.opponent) return;
+    ctx.opponentLocked = (message.locked ?? []).includes(ctx.opponent.pid);
+    siegeReadyThem.textContent = ctx.opponentLocked ? 'Them: Ready ✓' : 'Them: Building';
+    siegeReadyThem.classList.toggle('ready', ctx.opponentLocked);
+  }
+
+  function showReadyReason(text) {
+    siegeReadyReason.textContent = text;
+    siegeReadyReason.hidden = false;
+    statusMessage.textContent = text;
+  }
+
+  function hideReadyReason() {
+    siegeReadyReason.hidden = true;
+    siegeReadyReason.textContent = '';
+  }
+
+  // Named validation codes in plain language — never "invalid" on its own. Failure must be
+  // impossible to miss: this sits right next to the button that was just pressed, not only
+  // in the side "fortress checks" panel (which a player mid-build may never have looked at —
+  // exactly how a King-less, pig-less fortress reached lock-in in the field report this was
+  // built to fix).
+  function reportReadyRejected(errors) {
+    const detail = errors.map((error) => guidanceFor(error)).join(' ');
+    showReadyReason(`Can't ready up yet — ${detail}`);
+  }
+
+  function reportSettleRejected(settled) {
+    const moved = settled.movedPieces.length;
+    const dead = settled.deadPigs.length;
+    const detail = !settled.settled && !moved && !dead
+      ? "it doesn't finish settling within three seconds"
+      : `it needs bracing — ${moved} piece${moved === 1 ? '' : 's'} moved` +
+        `${dead ? ` and ${dead} pig${dead === 1 ? '' : 's'} died` : ''}`;
+    showReadyReason(`Can't ready up yet — your fortress collapses: ${detail}. Test the tower and fix that first.`);
+    // Keep the dedicated settle-result panel in sync too, the same wording runSettleTest's
+    // own failure branch (game.js) uses, so a player who does press "Test tower" next sees
+    // language they already recognise rather than a second, differently-worded report.
+    if (settleResultLabel) {
+      settleResultLabel.textContent = `It needs bracing: ${moved} piece${moved === 1 ? '' : 's'} moved` +
+        `${dead ? ` and ${dead} pig${dead === 1 ? '' : 's'} died` : ''}. The draft is unchanged.`;
+    }
+  }
+
+  // Reachable only if every candidate on the auto-complete ladder — including its final,
+  // always-affordable, blocks-free fallback (build.js's AUTO_LAYOUTS: one King, two Runts,
+  // nothing to collapse) — fails both validate() and settleTest(). That should not happen
+  // for any budget this mode ever grants; if it ever does, say so honestly rather than
+  // silently sending nothing. The relay still has whatever the periodic draft autosave last
+  // gave it (see maybeAutosaveDraft), so "not entered" here does not necessarily mean an
+  // empty plot server-side — just that this client could not confirm a legal one itself.
+  function reportNotEntered() {
+    ctx.notEntered = true;
+    showReadyReason(
+      "The timer ran out and your fortress couldn't be made legal automatically. " +
+      "The relay will use whatever it last has for you."
+    );
+  }
+
+  // Called by both the "Ready" button and Space (via openEditor's editorSiege.onLock hook —
   // see game.js), exactly the same as solo Siege's lockSiegeFortress. The relay validates and
-  // settles authoritatively; this runs the identical validator first so a fortress that would
+  // settles authoritatively; this runs the identical checks first so a fortress that would
   // fail server-side already shows its errors locally, per the "one ladder, each side
   // validating with the validator it trusts" rule this task was built under.
+  //
+  // Expiry must never submit nothing (DESIGN.md 6.2: "whatever is placed is auto-completed to
+  // legality and locked"). The candidate search below filters on *both* validate() and
+  // settleTest() — the same two stages worker.js's validateBlueprintSubmission runs — so an
+  // expired lock this function decides to send is never the one the relay turns around and
+  // rejects as unstable (build-rejected), which used to strand a player back in an already-
+  // expired build phase with no further local timer to retry from.
   function sendLock(expired) {
     if (ctx.phase !== 'build' || ctx.locked) return;
     const rules = { mode: 'siege', budget: ctx.buildBudget, cards: ctx.buildCards };
-    let blueprint = toBlueprint(getEditorDraft());
-    let check = validate(blueprint, rules);
-    if (!check.ok) {
-      if (!expired) { renderValidation(); return; }
-      blueprint = autoCompleteCandidates(blueprint).find((c) => validate(c, rules).ok) ?? blueprint;
-      check = validate(blueprint, rules);
-      if (!check.ok) { renderValidation(); return; }
+    const authored = toBlueprint(getEditorDraft());
+    const legal = validate(authored, rules);
+    const settled = legal.ok ? settleTest(authored, rules) : null;
+
+    let blueprint = authored;
+    if (!legal.ok || !settled.ok) {
+      if (!expired) {
+        if (!legal.ok) reportReadyRejected(renderValidation().errors);
+        else reportSettleRejected(settled);
+        return;
+      }
+      const candidate = autoCompleteCandidates(authored)
+        .find((c) => validate(c, rules).ok && settleTest(c, rules).ok);
+      if (!candidate) { reportNotEntered(); return; }
+      blueprint = candidate;
     }
-    const settled = settleTest(blueprint, rules);
-    if (!settled.ok && !expired) { renderValidation(); return; }
+
     ctx.locked = true;
     ctx.myBlueprint = encode(blueprint);
     siegeLockButton.disabled = true;
+    siegeLockButton.textContent = 'Ready ✓';
+    siegeReadyYou.textContent = 'You: Ready ✓';
+    siegeReadyYou.classList.add('ready');
+    hideReadyReason();
     net.send({ t: 'lock', blueprint: ctx.myBlueprint });
+  }
+
+  // Streams the live, in-progress draft to the relay every couple of seconds so
+  // `record.draft` (worker.js) is never far behind what is actually on the plot. Without
+  // this, a player who has not yet clicked "Ready" when the relay's OWN build-phase deadline
+  // fires gets auto-completed from whatever `record.draft` last held — which, before this,
+  // was always '' (worker.js's beginBuild initialises it empty and nothing ever updated it
+  // short of an explicit lock), so the relay built them a bare King-and-two-Runts fortress
+  // with none of their blocks. That is the exact "no tower" the field report described.
+  // Server-verified: tools/online-smoke.mjs drives this and confirms the frames arrive.
+  // Best-effort and silent by design: this is a background save, not a player action, so a
+  // transient encode failure (mid-edit, momentarily over a limit) or a disconnected socket
+  // just skips this tick rather than surfacing anything.
+  function maybeAutosaveDraft() {
+    if (ctx.locked || !net?.connected()) return;
+    const now = performance.now();
+    if (now - ctx.lastDraftSentAt < DRAFT_AUTOSAVE_MS) return;
+    ctx.lastDraftSentAt = now;
+    let encoded;
+    try { encoded = encode(toBlueprint(getEditorDraft())); } catch { return; }
+    if (encoded === ctx.lastDraftSent) return;
+    ctx.lastDraftSent = encoded;
+    net.send({ t: 'draft', blueprint: encoded });
   }
 
   function onBuildRejected(message) {
     ctx.locked = false;
     siegeLockButton.disabled = false;
+    siegeLockButton.textContent = 'Ready';
+    siegeReadyYou.textContent = 'You: Building';
+    siegeReadyYou.classList.remove('ready');
     const detail = (message.errors ?? []).map((e) => e.message).join(' ');
-    statusMessage.textContent = `The relay rejected that fortress: ${detail || message.reason || 'invalid'}.`;
+    showReadyReason(`The relay rejected that fortress: ${detail || message.reason || 'invalid'}.`);
   }
 
   // ---------------------------------------------------------------- siege phase
@@ -827,6 +972,13 @@ export function createOnlineSiege(deps) {
       phase: ctx.phase,
       round: ctx.round,
       opponent: ctx.opponent,
+      locked: ctx.locked,
+      opponentLocked: ctx.opponentLocked,
+      notEntered: ctx.notEntered,
+      readyReasonVisible: !siegeReadyReason.hidden,
+      readyReasonText: siegeReadyReason.textContent,
+      readyYouText: siegeReadyYou.textContent,
+      readyThemText: siegeReadyThem.textContent,
       seed: ctx.attackRound?.seed ?? null,
       attackerCards: ctx.attackRound ? [...ctx.attackRound.attackerCards] : null,
       defenderCards: ctx.attackRound ? [...ctx.attackRound.defenderCards] : null,
@@ -834,6 +986,10 @@ export function createOnlineSiege(deps) {
       shadowDefenderCards: ctx.shadowRound ? [...ctx.shadowRound.defenderCards] : null,
       attack: ctx.attackRound ? {
         phase: ctx.attackRound.phase, shot: ctx.attackRound.shotIndex,
+        // The opponent's actual block count as it reached this round — the direct measure
+        // of "expiry never submits nothing" (tools/online-smoke.mjs asserts this is > 0 for
+        // a player who never explicitly readied up).
+        blocks: ctx.attackRound.blocks.length,
         bag: ctx.attackRound.bag.length, step: ctx.attackRound.stepCount, score: ctx.attackRound.score
       } : null,
       previewFramesApplied: ctx.previewFramesApplied,

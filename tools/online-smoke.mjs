@@ -21,7 +21,7 @@ import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
-import { encode } from '../build.js?v=20260903-1';
+import { decode, encode } from '../build.js?v=20260904-1';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const startedAt = performance.now();
@@ -66,6 +66,29 @@ const BLUEPRINT = encode({
   ]
 });
 const SHOT = { dx: -1.3, dy: -0.4 };
+
+// Ready-up gate fixtures (P8 field-report fix): a real bug reached "verified, all gates
+// pass" because this file used to paste BLUEPRINT above and click lock well before expiry
+// on every round — it never built anything illegal and never let the timer run out, so the
+// silent-rejection and empty-fortress-at-expiry defects had no assertion that could have
+// caught them. See docs/BUILD_PLAN.md's "what this build has learned" #1: a threshold (or
+// here, a scenario) chosen after the defect is not a gate; this one is chosen from what the
+// build phase is supposed to do (DESIGN.md 6.2) and only then measured.
+//
+// One block, zero pigs: fails both king-count and too-few-pigs, deliberately, so the
+// rejection-reason assertion below has more than one guidance line to find.
+const ILLEGAL_BLUEPRINT = encode({ v: 1, blocks: [['cube', 'wood', 5, 0.5, 0]], pigs: [] });
+// A real, multi-block fortress — standing in for "built towers and everything" in the field
+// report — used both to prove the draft autosave streams real content and to prove it is
+// what survives an expired, never-readied build phase.
+const READY_FORTRESS = encode({
+  v: 1,
+  blocks: [
+    ['cube', 'wood', 4, 0.5, 0], ['cube', 'wood', 4, 1.5, 0], ['cube', 'wood', 4, 2.5, 0],
+    ['cube', 'stone', 10, 0.5, 0], ['cube', 'stone', 10, 1.5, 0]
+  ],
+  pigs: [['runt', 2, 0.296875, 0], ['king', 12, 0.6875, 0], ['runt', 22, 0.296875, 0]]
+});
 
 const MIME = {
   '.css': 'text/css', '.html': 'text/html', '.js': 'text/javascript',
@@ -179,11 +202,140 @@ async function fireShot(page) {
   await page.mouse.up();
 }
 
-async function lockIn(page, blueprint) {
+async function loadBlueprintOnly(page, blueprint) {
   await page.locator('#blueprint-input').fill(blueprint);
   await page.locator('#load-blueprint-button').click();
   await poll(() => state(page), (s) => (s?.editor?.pieceCount ?? 0) > 0);
+}
+
+async function lockIn(page, blueprint) {
+  await loadBlueprintOnly(page, blueprint);
   await page.locator('#siege-lock').click();
+}
+
+// The ready-up gate (P8 field report). Reproduces, in the real UI against the real relay,
+// the two defects a real match hit: a rejected ready-up that said nothing, and a build
+// timer expiring into an empty fortress on both sides. Runs in its own room so it cannot
+// perturb the fixed-count summary assertions the main best-of-five loop above produces.
+async function runReadyUpScenarios(browser, baseUrl, relay) {
+  const facts = {
+    illegalLockFramesSent: -1,
+    illegalReasonVisible: false,
+    illegalReasonText: '',
+    autosaveDraftBlocksSeen: 0,
+    opponentReadyPillUpdated: false,
+    ownReadyPillUpdated: false,
+    expiredLockFramesSent: -1,
+    expiredLockBlocks: -1,
+    opponentSeesNonEmptyFortress: -1
+  };
+  const readyRoom = `${room}-ready`;
+  const hostCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const guestCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const host2 = await hostCtx.newPage();
+  const guest2 = await guestCtx.newPage();
+  watch(host2, 'ready-host'); watch(guest2, 'ready-guest');
+
+  // Registered before navigation so the one WebSocket each page opens is captured from its
+  // first frame — this is how "sent nothing" and "sent the live draft" are measured
+  // authoritatively, rather than inferred from on-screen state alone.
+  const host2Frames = [];
+  host2.on('websocket', (ws) => {
+    ws.on('framesent', (frame) => { try { host2Frames.push(JSON.parse(frame.payload)); } catch {} });
+  });
+
+  const url = `${baseUrl}/?smoke-test&relay=${encodeURIComponent(relay)}`;
+  await Promise.all([host2.goto(url), guest2.goto(url)]);
+  await host2.locator('#siege-online-button').click();
+  await guest2.locator('#siege-online-button').click();
+  await host2.locator('#online-name').fill('ReadyHost');
+  await host2.locator('#online-room').fill(readyRoom);
+  await host2.locator('#online-create').click();
+  await poll(() => online(host2), (o) => o?.phase === 'lobby');
+  await guest2.locator('#online-name').fill('ReadyGuest');
+  await guest2.locator('#online-room').fill(readyRoom);
+  await guest2.locator('#online-join').click();
+  await poll(() => online(host2), (o) => Boolean(o?.opponent));
+  await host2.locator('#online-start').click();
+  await poll(() => online(host2), (o) => o?.phase === 'build');
+  await poll(() => online(guest2), (o) => o?.phase === 'build');
+
+  // --- 1: an illegal ready-up (no King, no pigs) must be rejected with a visible, specific
+  // reason, and must send nothing to the relay. Before this task, sendLock() returned here
+  // silently: renderValidation() re-rendered a side panel that already said "2 to fix", with
+  // no new signal at the point of the click, which is what the field report called "the
+  // lockin button doesn't do anything".
+  const framesBeforeIllegal = host2Frames.length;
+  await loadBlueprintOnly(host2, ILLEGAL_BLUEPRINT);
+  await host2.locator('#siege-lock').click();
+  await delay(400);
+  const afterIllegal = await online(host2);
+  facts.illegalLockFramesSent = host2Frames.slice(framesBeforeIllegal).filter((m) => m.t === 'lock').length;
+  facts.illegalReasonVisible = Boolean(afterIllegal?.readyReasonVisible);
+  facts.illegalReasonText = afterIllegal?.readyReasonText ?? '';
+
+  // --- 2: the periodic draft autosave (maybeAutosaveDraft, siege-online.js) must stream the
+  // live, in-progress draft to the relay — the fix for the deeper defect: worker.js's
+  // finishBuild() auto-completes an un-readied player from `record.draft`, which nothing
+  // ever populated before this task, so the relay's own build-deadline fallback built a bare
+  // King-and-two-Runts fortress from an empty draft regardless of what was on the plot. A
+  // real multi-block fortress here, still un-readied, is what should reach the relay as a
+  // 'draft' frame within a couple of autosave ticks.
+  const framesBeforeReal = host2Frames.length;
+  await loadBlueprintOnly(host2, READY_FORTRESS);
+  const autosaveSeen = await poll(() => Promise.resolve(host2Frames.slice(framesBeforeReal)
+    .filter((m) => m.t === 'draft')
+    .map((m) => { try { return decode(m.blueprint).blocks.length; } catch { return 0; } })
+    .reduce((max, n) => Math.max(max, n), 0)), (n) => n > 0, 6000);
+  facts.autosaveDraftBlocksSeen = autosaveSeen.ok ? autosaveSeen.value : 0;
+
+  // --- 3: guest readies up normally with a legal fortress; both sides' ready state must be
+  // visible and must update live from the relay's build-status broadcast (worker.js's
+  // lockBlueprint), not just reflect local intent.
+  await lockIn(guest2, READY_FORTRESS);
+  const ownPill = await poll(() => online(guest2), (o) => o?.locked === true && /Ready/.test(o.readyYouText ?? ''));
+  facts.ownReadyPillUpdated = ownPill.ok;
+  const opponentPill = await poll(() => online(host2),
+    (o) => o?.opponentLocked === true && /Ready/.test(o.readyThemText ?? ''));
+  facts.opponentReadyPillUpdated = opponentPill.ok;
+
+  // --- 4: host's own build timer expiring, still un-readied, must still submit a real
+  // fortress — never nothing. Driven by fast-forwarding *this page's* clock (Playwright's
+  // Clock, which genuinely virtualises performance.now()/requestAnimationFrame — verified
+  // separately against a bare page before wiring this in) so the real tick()/sendLock(true)
+  // code path runs without waiting out the real 90 s build timer. The relay itself is not
+  // touched or mocked: the resulting 'lock' message still travels the real socket and is
+  // validated, settled and broadcast by the real worker.js.
+  const framesBeforeExpiry = host2Frames.length;
+  await host2.clock.install();
+  // TUNE.buildSeconds is 90s. clock.install() rebases performance.now() to ~0 at install
+  // time, so what matters is not wall-clock margin over 90s but margin over
+  // ctx.buildDeadline's own value (captured pre-install, against the *old* performance.now()
+  // baseline) — i.e. 90s plus however much real setup time preceded this line. Three
+  // minutes covers that comfortably even on a slow run.
+  await host2.clock.fastForward('03:00');
+  const expiredLock = await poll(() => Promise.resolve(host2Frames.slice(framesBeforeExpiry)
+    .find((m) => m.t === 'lock')), (m) => Boolean(m), 8000);
+  facts.expiredLockFramesSent = host2Frames.slice(framesBeforeExpiry).filter((m) => m.t === 'lock').length;
+  if (expiredLock.ok) {
+    try { facts.expiredLockBlocks = decode(expiredLock.value.blueprint).blocks.length; } catch { facts.expiredLockBlocks = -1; }
+  }
+
+  // --- 5: that same fortress — not an empty one — is what the opponent's client actually
+  // receives and attacks. This is the direct, end-to-end measure of "expiry never submits
+  // nothing": not a proxy, the same `attack.blocks` count siege-online.js's snapshot reports
+  // from the real round it built out of the relay's 'siege' message.
+  const bothSieging = await Promise.all([
+    poll(() => online(host2), (o) => o?.phase === 'siege', 15000),
+    poll(() => online(guest2), (o) => o?.phase === 'siege', 15000)
+  ]);
+  if (bothSieging.every((r) => r.ok)) {
+    facts.opponentSeesNonEmptyFortress = (await online(guest2))?.attack?.blocks ?? -1;
+  }
+
+  await hostCtx.close().catch(() => {});
+  await guestCtx.close().catch(() => {});
+  return facts;
 }
 
 const server = serve();
@@ -395,6 +547,25 @@ try {
   report('drafted-card threading: attacker/defender roles were correct on every check made',
     threadingChecks.length > 0 && threadingChecks.every(Boolean),
     `${threadingChecks.filter(Boolean).length}/${threadingChecks.length} threading check(s) passed`);
+
+  const readyFacts = await runReadyUpScenarios(browser, baseUrl, relay);
+  report('an illegal ready-up (no King, no pigs) sends nothing to the relay',
+    readyFacts.illegalLockFramesSent === 0, `${readyFacts.illegalLockFramesSent} lock frame(s) sent`);
+  report('a rejected ready-up shows a visible, specific reason naming the real problem',
+    readyFacts.illegalReasonVisible && readyFacts.illegalReasonText.includes('King Hog') &&
+      readyFacts.illegalReasonText.includes('two pigs'),
+    JSON.stringify(readyFacts.illegalReasonText));
+  report('the periodic draft autosave streams the real, un-readied fortress to the relay',
+    readyFacts.autosaveDraftBlocksSeen > 0, `${readyFacts.autosaveDraftBlocksSeen} block(s) seen in a 'draft' frame`);
+  report('readying up updates your own visible ready state',
+    readyFacts.ownReadyPillUpdated, readyFacts.ownReadyPillUpdated ? 'updated' : 'did not update');
+  report('the opponent readying up updates your visible ready state too (build-status)',
+    readyFacts.opponentReadyPillUpdated, readyFacts.opponentReadyPillUpdated ? 'updated' : 'did not update');
+  report('a build timer expiring on an un-readied player still submits a real lock, never nothing',
+    readyFacts.expiredLockFramesSent === 1 && readyFacts.expiredLockBlocks > 0,
+    `${readyFacts.expiredLockFramesSent} lock frame(s), ${readyFacts.expiredLockBlocks} block(s)`);
+  report('the fortress that reaches the opponent\'s round is the real one, not an empty fallback',
+    readyFacts.opponentSeesNonEmptyFortress > 0, `${readyFacts.opponentSeesNonEmptyFortress} block(s) in the round`);
 
   await host.screenshot({ path: resolve(root, 'shots/online-smoke.png') }).catch(() => {});
 } catch (error) {

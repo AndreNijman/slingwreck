@@ -5,7 +5,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { AMMO, AMMO_BY_ID, MATERIALS, TUNE } from '../data.js?v=20260903-1';
+import { AMMO, AMMO_BY_ID, MATERIALS, TUNE } from '../data.js?v=20260904-1';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shotsDir = resolve(root, 'shots');
@@ -126,9 +126,9 @@ function createStaticServer() {
 async function installHarness(page) {
   await page.evaluate(async ({ blueprint, draw, materials }) => {
     const [{ AMMO_BY_ID, TUNE }, sim, render] = await Promise.all([
-      import('/data.js?v=20260903-1'),
-      import('/sim.js?v=20260903-1'),
-      import('/render.js?v=20260903-1')
+      import('/data.js?v=20260904-1'),
+      import('/sim.js?v=20260904-1'),
+      import('/render.js?v=20260904-1')
     ]);
     const canvas = document.querySelector('#game');
     const renderer = render.makeRenderer(canvas);
