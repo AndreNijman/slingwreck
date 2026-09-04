@@ -38,11 +38,11 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SIEGE_DIFFICULTIES, SIEGE_DIFFICULTY_DEFAULT, TUNE } from '../data.js?v=20260904-1';
+import { SIEGE_DIFFICULTIES, SIEGE_DIFFICULTY_DEFAULT, TUNE } from '../data.js?v=20260904-2';
 import {
   decode, encode, fromBlueprint, place, settleTest, spent, toBlueprint, undo, validate, budgetFor
-} from '../build.js?v=20260904-1';
-import { aim, fortressForBudget } from '../bots.js?v=20260904-1';
+} from '../build.js?v=20260904-2';
+import { aim, fortressForBudget } from '../bots.js?v=20260904-2';
 import { chromium } from 'playwright';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -57,6 +57,21 @@ const BLUEPRINT =
   'AwwDFQCEABUAhQAlgIUAJYCGABUAhwAVAIgAFABEARQARQEkgEUBJIBGARQARwEUAEgBQJoAAAdjAQDAmwAA';
 const decodedBlueprint = decode(BLUEPRINT);
 const blueprintPieceCount = decodedBlueprint.blocks.length + decodedBlueprint.pigs.length;
+
+// Legal (a default-unlocked material, one King, two other pigs, in bounds, no overlap) but a
+// heavy stone cube dropped straight onto the King with nothing under either: settleTest
+// measures this as both unstable and King-fatal. Deliberately used here, rather than the
+// merely-unstable fixture online-smoke.mjs uses, because a dead King ends siegeRoundFinished
+// immediately on its own (game.js: `kingDown` is checked before either side's bag), so this
+// round resolves in about a second of real simulated time with no shot ever fired — the same
+// zero-shot round start the online relay now has to resolve server-side, measured here for
+// solo's own state machine instead of assumed to behave the same way.
+const UNSTABLE_BLUEPRINT = encode({
+  v: 1,
+  blocks: [['cube', 'stone', 12, 14, 0]],
+  pigs: [['king', 12, 0.6875, 0], ['runt', 2, 0.296875, 0], ['runt', 22, 0.296875, 0]]
+});
+const unstablePieceCount = 4;
 
 // Chosen by brute-forcing relay-audit.js's own `rollDraft` (a pure function of seed, round,
 // deficit and player) offline until round 1's deficit-1 draft for the player contained Deep
@@ -364,6 +379,32 @@ try {
   report('a lower budgetFraction tier actually spends less scrap on its round-1 fortress, in tier order',
     tierIds.every((id, index) => index === 0 || spentByTier[tierIds[index - 1]] < spentByTier[id]),
     tierIds.map((id) => `${id}=${spentByTier[id]}`).join(', '));
+
+  // Settle is advisory in solo Siege too (game.js's lockSiegeFortress never gated ready-up on
+  // it — see errors-and-fixes; it just never said anything). Readying up with UNSTABLE_BLUEPRINT
+  // must succeed immediately (siege.phase leaves 'build' without a second click or a stall),
+  // and the round result must name the same "needs bracing" finding the Test tower button
+  // already uses, once the King's own preflight collapse ends the round.
+  await difficultyButton(SIEGE_DIFFICULTY_DEFAULT).click();
+  await page.locator('#siege-button').click();
+  await poll(() => fullState(page), (state) => state?.siege?.phase === 'build');
+  await page.locator('#blueprint-input').fill(UNSTABLE_BLUEPRINT);
+  await page.locator('#load-blueprint-button').click();
+  await poll(() => fullState(page), (state) => state?.editor?.pieceCount === unstablePieceCount);
+  await page.locator('#siege-lock').click();
+  const readiedUnstable = await poll(() => fullState(page),
+    (state) => state?.siege?.phase && state.siege.phase !== 'build', 4000);
+  report('readying up with a deliberately unstable tower succeeds immediately in solo Siege too',
+    readiedUnstable.ok, readiedUnstable.ok ? `phase now "${readiedUnstable.value.siege.phase}"` : readiedUnstable.detail);
+  const unstableResolved = await poll(() => fullState(page),
+    (state) => state?.siege?.phase === 'roundover', 10000);
+  const unstableDetail = unstableResolved.ok
+    ? await page.locator('#siege-result-detail').textContent() : null;
+  report('a round starting with a dead King resolves cleanly — no stall, correct result panel',
+    unstableResolved.ok && /needs bracing/i.test(unstableDetail ?? ''),
+    unstableResolved.ok ? JSON.stringify(unstableDetail) : unstableResolved.detail);
+  await page.locator('#siege-quit').click();
+  await poll(() => fullState(page), (state) => !state?.siege);
 
   // The scripted match below is pinned to the bot's original, unreduced behaviour (accuracy
   // 0.82, full purse) so its scoreline and card draws stay exactly what they always were —

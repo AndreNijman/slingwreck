@@ -1360,6 +1360,14 @@ body.editing #game {
   color: var(--terracotta-dark, #8E3028); font-weight: 700;
 }
 #siege-ready-reason[hidden] { display: none; }
+/* Advisory, not a refusal: readying up with an unstable tower still succeeds, so this reads
+   as a notice (ink text on a warm highlight) rather than the rejection's alarm-red. */
+#siege-ready-reason.warning {
+  color: var(--ink, #2B211C);
+  background: rgba(217, 164, 65, 0.35);
+  border-radius: var(--radius-sm, 4px);
+  padding: 0.2rem 0.6rem;
+}
 
 .siege-preview {
   position: absolute; top: var(--space-3); right: var(--space-3);

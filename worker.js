@@ -10,7 +10,7 @@
 //   GET /lobbies  - public lobby directory
 //   GET /ws?room= - websocket, first message must be create or join
 
-import { BUDGET, CARDS_BY_ID, SCORE, TUNE } from './data.js?v=20260904-1';
+import { BUDGET, CARDS_BY_ID, PIGS, SCORE, TUNE } from './data.js?v=20260904-2';
 import {
   AUDIT_STEP_BUDGET,
   SETTLE_STEPS,
@@ -34,7 +34,7 @@ import {
   scoreCeiling,
   startSuddenDeath,
   validationMode
-} from './relay-audit.js?v=20260904-1';
+} from './relay-audit.js?v=20260904-2';
 import {
   autoCompleteCandidates,
   budgetFor,
@@ -45,7 +45,8 @@ import {
   settleTest,
   spent,
   validate
-} from './build.js?v=20260904-1';
+} from './build.js?v=20260904-2';
+import { PIG_FLAGS, PIG_FLAG_DECOY, PIG_ID, digestRound } from './sim.js?v=20260904-2';
 
 const TICK_MS = 250;
 const ROOM_TTL = 45 * 60_000;
@@ -179,24 +180,45 @@ export function validateBlueprintSubmission(source, options = {}) {
     if (!legality.ok) {
       return { ok: false, stage: 'validate', errors: legality.errors };
     }
+    // The settle test is advisory, never a gate: the relay only ever stores the *authored*
+    // blueprint (record.blueprint below is always `result.encoded`, this same `source` —
+    // never a settled pose), and the siege phase's own SETTLE_STEPS preflight runs the exact
+    // same fixed-length simulation on both sides regardless of what settleTest found here. A
+    // fortress that fails it is accepted and simply falls into whatever shape it falls into;
+    // the findings travel back as `warnings` so the client can say so instead of refusing to
+    // continue. Legality above stays a hard gate — those are the game's rules, not a physics
+    // outcome the player is being asked to tolerate.
     const settled = settleTest(decoded, options);
+    const warnings = [];
     if (!settled.ok) {
-      const errors = [];
-      if (settled.movedPieces.length) errors.push(wireError(
-        'unstable', 'One or more pieces moved too far during the settle test.',
+      if (settled.movedPieces.length) warnings.push(wireError(
+        'unstable', 'One or more pieces may move before the siege begins.',
         settled.movedPieces
       ));
-      if (settled.deadPigs.length) errors.push(wireError(
-        'pig-died', 'One or more pigs died during the settle test.',
-        settled.deadPigs
+      if (settled.deadPigs.length) {
+        // A dead pig is a lesser fortress; a dead King is the round, lost before the first
+        // shot. Real (non-Decoy) King only, the same test sim.js's own isKing uses — a Decoy
+        // King dying is cosmetic, not a loss condition. This is the one warning worth
+        // escalating rather than stating flatly.
+        const kingDied = settled.deadPigs.some((id) => {
+          const tuple = decoded.pigs[Number(id.split(':')[1])];
+          return tuple && PIGS[tuple[PIG_ID]]?.traits.king &&
+            !((tuple[PIG_FLAGS] ?? 0) & PIG_FLAG_DECOY);
+        });
+        warnings.push(wireError(
+          'pig-died',
+          kingDied
+            ? 'Your King may die before the siege begins — that loses the round outright.'
+            : 'One or more pigs may die before the siege begins.',
+          settled.deadPigs
+        ));
+      }
+      if (!settled.settled && !warnings.length) warnings.push(wireError(
+        'not-settled', 'The fortress may not finish settling before the siege begins.', []
       ));
-      if (!settled.settled && !errors.length) errors.push(wireError(
-        'not-settled', 'The fortress did not settle within three seconds.', []
-      ));
-      return { ok: false, stage: 'settle', errors, settled };
     }
     const cost = spent(fromBlueprint(decoded, options));
-    return { ok: true, blueprint: decoded, encoded: source, settled, cost };
+    return { ok: true, blueprint: decoded, encoded: source, settled, cost, warnings };
   } catch {
     return {
       ok: false,
@@ -1062,7 +1084,8 @@ export class SiegeRoom {
     this.send(session.socket, {
       t: 'locked',
       bankedScrap: banked,
-      totalBankedScrap: record.bankedScrap
+      totalBankedScrap: record.bankedScrap,
+      warnings: result.warnings
     });
     this.broadcast({
       t: 'build-status',
@@ -1148,6 +1171,66 @@ export class SiegeRoom {
         autoCompleted: opponent.autoCompleted,
         yourAutoCompleted: player.autoCompleted
       });
+    }
+    // The settle test above is now advisory, so a King can legitimately already be dead by
+    // the time Siege starts -- sim.js's stepRound() ends the round the instant it notices,
+    // with zero shots fired. There is no way for a client to report that honestly over the
+    // wire: ammoIndexFor(round) is round.shotIndex - 1, so a zero-shot win is ammoIndex -1,
+    // and checkScore's ordering check (relay-audit.js) requires the first boundary to be
+    // ammoIndex 0 -- it was built for "shots arrive in order", never "no shots arrived at
+    // all". Trusting a client's own claim of an instant win would also be a new forgeable
+    // claim on the one surface where that is a security bug. Neither problem exists if the
+    // relay decides this itself: it already knows both blueprints here, so it replays the
+    // exact SETTLE_STEPS preflight both clients are about to run for each pairing, using the
+    // same createAudit/advanceAudit machinery a real king-pop mid-siege already goes through
+    // (and caching the result into `this.audits`, so a reconnect or later audit call picks
+    // up from here instead of re-deriving step 0). If a King is already dead, that leg never
+    // needed a shot to resolve and never reaches checkScore at all -- finishRound() below
+    // flips the room to 'round-over' before either client's own preflight-triggered report
+    // can arrive, and handleAuditMessage's existing `phase !== 'siege'` guard absorbs it
+    // harmlessly if it does.
+    const preflightWinners = [];
+    for (const player of roster) {
+      const blueprint = decode(player.siege.blueprint);
+      if (blueprint?.ok === false) continue;
+      const audit = createAudit({
+        blueprint,
+        seed: player.siege.seed,
+        bag: player.siege.bag,
+        attackerCards: player.siege.attackerCards,
+        defenderCards: player.siege.defenderCards
+      });
+      advanceAudit(audit, player.siege, SETTLE_STEPS, SETTLE_STEPS);
+      this.audits.set(player.pid, audit);
+      if (audit.round.phase === 'won') {
+        player.siege.verifiedScore = audit.round.score;
+        player.siege.verifiedDamage = audit.round.scoreBreakdown?.damage ?? 0;
+        player.siege.verifiedStep = audit.round.stepCount;
+        player.siege.verifiedDigest = digestRound(audit.round);
+        player.siege.settled = false;
+        player.siege.spent = true;
+        preflightWinners.push({
+          pid: player.pid, score: audit.round.score, fortressCost: player.fortressCost
+        });
+      }
+    }
+    if (preflightWinners.length === 1) {
+      await this.finishRound(preflightWinners[0].pid, 'king-pop', { preflightCollapse: true });
+      return;
+    }
+    if (preflightWinners.length === 2) {
+      // Both players' fortresses collapsed onto their own King before either fired a shot.
+      // Neither side has a kingPop claim to arbitrate against the other, so this falls to
+      // exactly the score/fortress-cost/seeded ladder an ordinary exhausted-bag tie already
+      // uses -- not a new tiebreak, the same one.
+      const result = resolveRound(preflightWinners.map((entry) => ({
+        pid: entry.pid, score: entry.score, kingPopped: false,
+        suddenDeathDamage: undefined, fortressCost: entry.fortressCost
+      })));
+      const winner = result.resolved ? result.winner : roster[(this.seed ^ this.round) & 1].pid;
+      await this.finishRound(winner, result.resolved ? result.reason : 'seeded-final-tie',
+        { preflightCollapse: true });
+      return;
     }
     await this.persist();
     await this.syncRegistry();

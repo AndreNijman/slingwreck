@@ -1,7 +1,7 @@
 import {
   AMMO_BY_ID, BUDGET, CARDS, CARDS_BY_ID, MATERIALS, PIGS, SCORE, SHAPES,
   SIEGE_DIFFICULTIES, SIEGE_DIFFICULTY_DEFAULT, TUNE
-} from './data.js?v=20260904-1';
+} from './data.js?v=20260904-2';
 import {
   finalizeSiegeScore,
   isRoundOver,
@@ -9,7 +9,7 @@ import {
   makeRound,
   stepRound,
   tap
-} from './sim.js?v=20260904-1';
+} from './sim.js?v=20260904-2';
 import {
   PALETTE,
   TRAJECTORY_STEP,
@@ -23,13 +23,13 @@ import {
   panTo,
   pushEvents,
   screenToWorld
-} from './render.js?v=20260904-1';
+} from './render.js?v=20260904-2';
 import {
   makeAudio,
   pushEvents as pushAudioEvents,
   setMuted as setAudioMuted,
   unlock as unlockAudio
-} from './audio.js?v=20260904-1';
+} from './audio.js?v=20260904-2';
 import {
   autoCompleteCandidates,
   budgetFor,
@@ -46,22 +46,22 @@ import {
   toBlueprint,
   undo,
   validate
-} from './build.js?v=20260904-1';
-import { LEVELS } from './levels.js?v=20260904-1';
-import { fortressForBudget, planShot, shouldTap } from './bots.js?v=20260904-1';
+} from './build.js?v=20260904-2';
+import { LEVELS } from './levels.js?v=20260904-2';
+import { fortressForBudget, planShot, shouldTap } from './bots.js?v=20260904-2';
 import {
   bagForRound,
   defaultDraftPick,
   matchWinner,
   resolveRound,
   rollDraft
-} from './relay-audit.js?v=20260904-1';
+} from './relay-audit.js?v=20260904-2';
 import {
   createCampaignUI,
   starResultText,
   starsForScore
-} from './campaign-ui.js?v=20260904-1';
-import { createOnlineSiege } from './siege-online.js?v=20260904-1';
+} from './campaign-ui.js?v=20260904-2';
+import { createOnlineSiege } from './siege-online.js?v=20260904-2';
 
 // Practice links may pin one critter without changing the authored level or normal play.
 const requestedAmmo = new URLSearchParams(window.location.search).get('ammo');
@@ -856,6 +856,15 @@ function runSettleTest() {
   updateBudgetMeter();
 }
 
+// Shared with lockSiegeFortress's ready-up warning below, so a player who reads one sees
+// the same language in the other rather than a second, differently-worded report.
+function braceMessage(result) {
+  const moved = result.movedPieces.length;
+  const dead = result.deadPigs.length;
+  return `It needs bracing: ${moved} piece${moved === 1 ? '' : 's'} moved` +
+    `${dead ? ` and ${dead} pig${dead === 1 ? '' : 's'} died` : ''}`;
+}
+
 function finishSettleTest() {
   const animation = settleAnimation;
   settleAnimation = null;
@@ -875,14 +884,9 @@ function finishSettleTest() {
   settleButton.disabled = false;
   settleButton.textContent = 'Test tower';
   settleResult.classList.remove('testing');
-  if (animation.result.ok) {
-    settleResult.textContent = 'It stands: nothing shifted and every pig survived the full three seconds.';
-  } else {
-    const moved = animation.result.movedPieces.length;
-    const dead = animation.result.deadPigs.length;
-    settleResult.textContent = `It needs bracing: ${moved} piece${moved === 1 ? '' : 's'} moved` +
-      `${dead ? ` and ${dead} pig${dead === 1 ? '' : 's'} died` : ''}. The draft is unchanged.`;
-  }
+  settleResult.textContent = animation.result.ok
+    ? 'It stands: nothing shifted and every pig survived the full three seconds.'
+    : `${braceMessage(animation.result)}. The draft is unchanged.`;
   statusMessage.textContent = settleResult.textContent;
   editorGhost = null;
   updateBudgetMeter();
@@ -2263,6 +2267,7 @@ function startSiegeMatch() {
   siege.playerSpent = 0;
   siege.botSpent = 0;
   siege.botPlan = null;
+  siege.playerUnsettled = null;
   // One seed for the whole match: bag composition and the draft are both derived from it,
   // so a match is reproducible and — when this is wired to the relay — auditable.
   siege.seed = pinnedSiegeSeed ?? (Date.now() ^ 0x5109) >>> 0;
@@ -2324,6 +2329,12 @@ function lockSiegeFortress(expired = false) {
   siege.banked[0] += Math.floor(remaining / 10) * BUDGET.earlyLockPer10s;
   siege.playerSpent = spent(editorDraft);
   siege.playerFortress = blueprint;
+  // Settle is advisory, not a gate: online Siege no longer blocks ready-up on it either
+  // (worker.js's validateBlueprintSubmission), so this never held solo back — it just never
+  // said anything. Stash the finding for endSiegeRound to surface once this round resolves,
+  // so a player learns the same thing in both modes instead of one warning and one silence.
+  const settled = settleTest(blueprint, rules);
+  siege.playerUnsettled = settled.ok ? null : settled;
   // `fortressForBudget` returns { blueprint, template, spent } — passing the wrapper
   // straight to makeRound built an empty world, so the player won every round instantly
   // against nothing and `fortressCost` read undefined.
@@ -2474,6 +2485,13 @@ function endSiegeRound() {
     ? (iWon ? 'You popped their King.' : 'They popped your King.')
     : `On points — ${scoreFormat.format(Math.round(players[0].score))} against ` +
       `${scoreFormat.format(Math.round(players[1].score))}.`;
+  // Advisory settle warning, surfaced here rather than at ready-up: readying up is
+  // instant against a bot (no opponent to wait on), so a banner shown then would close
+  // with the editor before anyone could read it. Same wording runSettleTest uses.
+  if (siege.playerUnsettled) {
+    siegeResultDetail.textContent += ` Heads up: ${braceMessage(siege.playerUnsettled)} in your fortress.`;
+    siege.playerUnsettled = null;
+  }
   siegeStandings.textContent = `You ${siege.wins[0]} — ${siege.wins[1]} Bot` +
     `  ·  first to ${TUNE.winsNeeded}`;
   siege.banked[winner] += BUDGET.winnerBonus;

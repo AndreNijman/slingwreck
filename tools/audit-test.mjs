@@ -7,9 +7,9 @@ import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { encode } from '../build.js?v=20260904-1';
-import { TUNE } from '../data.js?v=20260904-1';
-import { launch, makeRound, stepRound } from '../sim.js?v=20260904-1';
+import { encode } from '../build.js?v=20260904-2';
+import { TUNE } from '../data.js?v=20260904-2';
+import { launch, makeRound, stepRound } from '../sim.js?v=20260904-2';
 
 const liveRelay = process.env.LIVE_RELAY;
 const relay = liveRelay || 'http://127.0.0.1:8787';
@@ -128,8 +128,22 @@ const BLUEPRINT_B = encode({
     ['runt', 20, 0.296875, 0]
   ]
 });
+// Legal (a default-unlocked material, one King, two other pigs, in bounds, no burial — the
+// block starts high in open air, so the pre-settle raycast never crosses it) but a heavy
+// stone cube dropped straight onto the King with nothing under either. worker.js's settle
+// test is advisory now, so this locks in; its King is measured dead by the end of the
+// SETTLE_STEPS preflight, with zero shots ever fired. Used by the desync scenario below.
+const DEAD_KING_BLUEPRINT = encode({
+  v: 1,
+  blocks: [['cube', 'stone', 12, 14, 0]],
+  pigs: [
+    ['king', 12, 0.6875, 0],
+    ['runt', 2, 0.296875, 0],
+    ['runt', 22, 0.296875, 0]
+  ]
+});
 
-async function setup(context, label) {
+async function setup(context, label, blueprintHonest = BLUEPRINT_A, blueprintSuspect = BLUEPRINT_B) {
   const room = `audit-${label}-${crypto.randomUUID().slice(0, 6)}`;
   const honest = await pageFor(context, `${label}-honest`);
   const suspect = await pageFor(context, `${label}-suspect`);
@@ -138,8 +152,8 @@ async function setup(context, label) {
   await send(honest, { t: 'start' });
   await Promise.all([waitMessage(honest, 'build'), waitMessage(suspect, 'build')]);
   await Promise.all([
-    send(honest, { t: 'lock', blueprint: BLUEPRINT_A }),
-    send(suspect, { t: 'lock', blueprint: BLUEPRINT_B })
+    send(honest, { t: 'lock', blueprint: blueprintHonest }),
+    send(suspect, { t: 'lock', blueprint: blueprintSuspect })
   ]);
   const [honestSiege, suspectSiege] = await Promise.all([
     waitMessage(honest, 'siege'),
@@ -179,9 +193,9 @@ async function closeMatch(match) {
 
 async function initLocal(page, siege) {
   await page.evaluate(async (payload) => {
-    const sim = await import('./sim.js?v=20260904-1');
-    const { decode } = await import('./build.js?v=20260904-1');
-    const { TUNE } = await import('./data.js?v=20260904-1');
+    const sim = await import('./sim.js?v=20260904-2');
+    const { decode } = await import('./build.js?v=20260904-2');
+    const { TUNE } = await import('./data.js?v=20260904-2');
     const round = sim.makeRound({
       mode: 'siege',
       blueprint: decode(payload.blueprint),
@@ -196,8 +210,8 @@ async function initLocal(page, siege) {
 
 async function localMiss(page, tapAbility = false) {
   return page.evaluate(async (tapAbility) => {
-    const sim = await import('./sim.js?v=20260904-1');
-    const { AMMO_BY_ID, TUNE } = await import('./data.js?v=20260904-1');
+    const sim = await import('./sim.js?v=20260904-2');
+    const { AMMO_BY_ID, TUNE } = await import('./data.js?v=20260904-2');
     const round = window.__auditRound;
     const step = round.stepCount;
     const ammoIndex = round.shotIndex;
@@ -275,7 +289,7 @@ async function honestShotAndScore(match, tapAbility = true) {
 // with the ammo the relay just pushed onto the authoritative bag.
 async function beginLocalSuddenDeath(page) {
   await page.evaluate(async () => {
-    const sim = await import('./sim.js?v=20260904-1');
+    const sim = await import('./sim.js?v=20260904-2');
     if (!sim.beginSuddenDeath(window.__auditRound)) {
       throw new Error('local sudden death could not be started');
     }
@@ -365,6 +379,32 @@ try {
   await expectForfeit(rapid, 'shot-timing');
   await closeMatch(rapid);
   console.log('PASS impossible shot cadence forfeited; honest client won');
+
+  // The settle test became advisory (worker.js's validateBlueprintSubmission): a King can now
+  // legitimately be dead before either side fires a shot. There is no wire message that can
+  // carry a zero-shot win honestly — ammoIndexFor(round) is -1 with no shots fired, which
+  // checkScore's ordering check was never built to accept — so the relay has to resolve this
+  // itself, at finishBuild(), before either client's own preflight-triggered report can even
+  // be sent. No message is sent by either page here on purpose: this proves the relay reaches
+  // 'round-over' on its own, not that a client-reported claim was accepted.
+  const collapsed = await setup(context, 'collapsed-king', BLUEPRINT_A, DEAD_KING_BLUEPRINT);
+  const [collapsedHonestOver, collapsedSuspectOver] = await Promise.all([
+    waitMessage(collapsed.honest, 'round-over'),
+    waitMessage(collapsed.suspect, 'round-over')
+  ]);
+  for (const result of [collapsedHonestOver, collapsedSuspectOver]) {
+    assert.equal(result.winner, collapsed.honestWelcome.you);
+    assert.equal(result.loser ?? null, null);
+    assert.equal(result.reason, 'king-pop');
+    assert.equal(result.preflightCollapse, true);
+  }
+  for (const page of [collapsed.honest, collapsed.suspect]) {
+    const messages = await page.evaluate(() => window.__auditClient.messages);
+    assert.equal(messages.some((message) =>
+      message.t === 'round-over' && message.reason === 'forfeit'), false);
+  }
+  await closeMatch(collapsed);
+  console.log('PASS a King dead before any shot resolves server-side with no client report; no forfeit');
 
   const honest = await setup(context, 'honest-full');
   await Promise.all([

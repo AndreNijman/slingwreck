@@ -16,14 +16,14 @@
 
 import {
   digestRound, isRoundOver, launch, makeRound, remoteDetonate, stepRound, tap
-} from './sim.js?v=20260904-1';
-import { drawPreview } from './render.js?v=20260904-1';
+} from './sim.js?v=20260904-2';
+import { drawPreview } from './render.js?v=20260904-2';
 import {
-  autoCompleteCandidates, decode, encode, settleTest, toBlueprint, validate
-} from './build.js?v=20260904-1';
-import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20260904-1';
-import { CARDS_BY_ID, TUNE } from './data.js?v=20260904-1';
-import { createNet, fetchLobbies } from './net.js?v=20260904-1';
+  autoCompleteCandidates, decode, encode, toBlueprint, validate
+} from './build.js?v=20260904-2';
+import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20260904-2';
+import { CARDS_BY_ID, TUNE } from './data.js?v=20260904-2';
+import { createNet, fetchLobbies } from './net.js?v=20260904-2';
 
 // Quantisation for the outgoing preview: the relay closes any socket that sends a message
 // over 8192 bytes (worker.js MAX_MESSAGE), so this has a hard ceiling, not just a bandwidth
@@ -313,7 +313,7 @@ export function createOnlineSiege(deps) {
         return;
       case 'build': return onBuild(message);
       case 'build-clock': return onBuildClock(message);
-      case 'locked': return; // banked scrap ack; nothing to show beyond the disabled button
+      case 'locked': return onLocked(message);
       case 'build-rejected': return onBuildRejected(message);
       // Who has readied up so far — this is the opponent-ready signal the ready-up UI
       // needs. The relay already sends it on every lock (worker.js's lockBlueprint); it was
@@ -463,15 +463,20 @@ export function createOnlineSiege(deps) {
     siegeReadyThem.classList.toggle('ready', ctx.opponentLocked);
   }
 
-  function showReadyReason(text) {
+  // `warning` styles this as advisory (amber) rather than a refusal (red) — see
+  // #siege-ready-reason.warning in style.css. Nothing that sets `warning: true` here ever
+  // blocks the ready-up it is attached to; only the un-flagged, legality-rejected path does.
+  function showReadyReason(text, warning = false) {
     siegeReadyReason.textContent = text;
     siegeReadyReason.hidden = false;
+    siegeReadyReason.classList.toggle('warning', warning);
     statusMessage.textContent = text;
   }
 
   function hideReadyReason() {
     siegeReadyReason.hidden = true;
     siegeReadyReason.textContent = '';
+    siegeReadyReason.classList.remove('warning');
   }
 
   // Named validation codes in plain language — never "invalid" on its own. Failure must be
@@ -484,30 +489,23 @@ export function createOnlineSiege(deps) {
     showReadyReason(`Can't ready up yet — ${detail}`);
   }
 
-  function reportSettleRejected(settled) {
-    const moved = settled.movedPieces.length;
-    const dead = settled.deadPigs.length;
-    const detail = !settled.settled && !moved && !dead
-      ? "it doesn't finish settling within three seconds"
-      : `it needs bracing — ${moved} piece${moved === 1 ? '' : 's'} moved` +
-        `${dead ? ` and ${dead} pig${dead === 1 ? '' : 's'} died` : ''}`;
-    showReadyReason(`Can't ready up yet — your fortress collapses: ${detail}. Test the tower and fix that first.`);
-    // Keep the dedicated settle-result panel in sync too, the same wording runSettleTest's
-    // own failure branch (game.js) uses, so a player who does press "Test tower" next sees
-    // language they already recognise rather than a second, differently-worded report.
-    if (settleResultLabel) {
-      settleResultLabel.textContent = `It needs bracing: ${moved} piece${moved === 1 ? '' : 's'} moved` +
-        `${dead ? ` and ${dead} pig${dead === 1 ? '' : 's'} died` : ''}. The draft is unchanged.`;
-    }
+  // The relay's settle findings, returned on the `locked` acknowledgement (onLocked) — never
+  // a rejection. The player asked to be let through on an unstable tower, so this reports the
+  // same warnings worker.js's validateBlueprintSubmission produced, worded plainly, with the
+  // ready-up already complete by the time this is shown.
+  function reportSettleWarning(warnings) {
+    const detail = warnings.map((warning) => warning.message).join(' ');
+    showReadyReason(`Readied up — heads up: ${detail}`, true);
+    if (settleResultLabel) settleResultLabel.textContent = `${detail} You readied up anyway.`;
   }
 
   // Reachable only if every candidate on the auto-complete ladder — including its final,
   // always-affordable, blocks-free fallback (build.js's AUTO_LAYOUTS: one King, two Runts,
-  // nothing to collapse) — fails both validate() and settleTest(). That should not happen
-  // for any budget this mode ever grants; if it ever does, say so honestly rather than
-  // silently sending nothing. The relay still has whatever the periodic draft autosave last
-  // gave it (see maybeAutosaveDraft), so "not entered" here does not necessarily mean an
-  // empty plot server-side — just that this client could not confirm a legal one itself.
+  // nothing to collapse) — fails validate(). That should not happen for any budget this
+  // mode ever grants; if it ever does, say so honestly rather than silently sending
+  // nothing. The relay still has whatever the periodic draft autosave last gave it (see
+  // maybeAutosaveDraft), so "not entered" here does not necessarily mean an empty plot
+  // server-side — just that this client could not confirm a legal one itself.
   function reportNotEntered() {
     ctx.notEntered = true;
     showReadyReason(
@@ -516,34 +514,38 @@ export function createOnlineSiege(deps) {
     );
   }
 
+  // The relay's ack for a lock-in: the banked-scrap toggle already happened optimistically
+  // below, so all that is left to show is whatever the relay's own settle test — run
+  // authoritatively, over the exact bytes this client sent — found. Advisory, never a
+  // refusal: the ready-up above already went through regardless of what this says.
+  function onLocked(message) {
+    if (message.warnings?.length) reportSettleWarning(message.warnings);
+    else hideReadyReason();
+  }
+
   // Called by both the "Ready" button and Space (via openEditor's editorSiege.onLock hook —
-  // see game.js), exactly the same as solo Siege's lockSiegeFortress. The relay validates and
-  // settles authoritatively; this runs the identical checks first so a fortress that would
+  // see game.js), exactly the same as solo Siege's lockSiegeFortress. The relay validates
+  // authoritatively; this runs the identical legality check first so a fortress that would
   // fail server-side already shows its errors locally, per the "one ladder, each side
-  // validating with the validator it trusts" rule this task was built under.
+  // validating with the validator it trusts" rule this task was built under. The settle test
+  // is advisory (the player asked to be let through on an unstable tower) and is not run
+  // here at all — the relay's own findings come back on the `locked` ack (onLocked above)
+  // and are shown as a warning, never a refusal. Legality is the only thing that still
+  // blocks ready-up.
   //
   // Expiry must never submit nothing (DESIGN.md 6.2: "whatever is placed is auto-completed to
-  // legality and locked"). The candidate search below filters on *both* validate() and
-  // settleTest() — the same two stages worker.js's validateBlueprintSubmission runs — so an
-  // expired lock this function decides to send is never the one the relay turns around and
-  // rejects as unstable (build-rejected), which used to strand a player back in an already-
-  // expired build phase with no further local timer to retry from.
+  // legality and locked"). The candidate search below filters on validate() alone — settle is
+  // no longer part of what "legal" means here, so it never needs a second opinion from it.
   function sendLock(expired) {
     if (ctx.phase !== 'build' || ctx.locked) return;
     const rules = { mode: 'siege', budget: ctx.buildBudget, cards: ctx.buildCards };
     const authored = toBlueprint(getEditorDraft());
     const legal = validate(authored, rules);
-    const settled = legal.ok ? settleTest(authored, rules) : null;
 
     let blueprint = authored;
-    if (!legal.ok || !settled.ok) {
-      if (!expired) {
-        if (!legal.ok) reportReadyRejected(renderValidation().errors);
-        else reportSettleRejected(settled);
-        return;
-      }
-      const candidate = autoCompleteCandidates(authored)
-        .find((c) => validate(c, rules).ok && settleTest(c, rules).ok);
+    if (!legal.ok) {
+      if (!expired) { reportReadyRejected(renderValidation().errors); return; }
+      const candidate = autoCompleteCandidates(authored).find((c) => validate(c, rules).ok);
       if (!candidate) { reportNotEntered(); return; }
       blueprint = candidate;
     }
@@ -819,6 +821,14 @@ export function createOnlineSiege(deps) {
   }
 
   function reasonDetail(message, iWon) {
+    // Settle is advisory now (a fortress that fails it still readies up), so a King can be
+    // dead before either side ever fires a shot — worker.js's finishBuild() resolves that
+    // itself and flags it here rather than letting it read as an ordinary king-pop or a
+    // mystery tiebreak.
+    if (message.preflightCollapse) {
+      return iWon ? "Their fortress collapsed onto its own King before the siege began."
+        : "Your fortress collapsed onto its own King before the siege began.";
+    }
     switch (message.reason) {
       case 'king-pop': return iWon ? 'You popped their King.' : 'They popped your King.';
       case 'score': {

@@ -21,7 +21,7 @@ import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
-import { decode, encode } from '../build.js?v=20260904-1';
+import { decode, encode } from '../build.js?v=20260904-2';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const startedAt = performance.now();
@@ -87,6 +87,17 @@ const READY_FORTRESS = encode({
     ['cube', 'wood', 4, 0.5, 0], ['cube', 'wood', 4, 1.5, 0], ['cube', 'wood', 4, 2.5, 0],
     ['cube', 'stone', 10, 0.5, 0], ['cube', 'stone', 10, 1.5, 0]
   ],
+  pigs: [['runt', 2, 0.296875, 0], ['king', 12, 0.6875, 0], ['runt', 22, 0.296875, 0]]
+});
+// Legal (one King, two other pigs, in bounds, no overlap) but a wood cube perched at x=8,
+// far from the King at x=12, that settleTest measures as moving 7.5 units — deliberately
+// unstable, and deliberately not King-crushing, so this exercises "ready up anyway with a
+// warning" without also exercising the separate dead-King round-start path (that one is
+// tools/audit-test.mjs's job, over the raw protocol where the exact resolution can be
+// pinned down without a browser in the loop).
+const UNSTABLE_BLUEPRINT = encode({
+  v: 1,
+  blocks: [['cube', 'wood', 8, 8, 0]],
   pigs: [['runt', 2, 0.296875, 0], ['king', 12, 0.6875, 0], ['runt', 22, 0.296875, 0]]
 });
 
@@ -338,6 +349,63 @@ async function runReadyUpScenarios(browser, baseUrl, relay) {
   return facts;
 }
 
+// The settle test is advisory (the player asked to be let through on an unstable tower):
+// readying up with UNSTABLE_BLUEPRINT must succeed outright, show a plainly visible warning
+// that never reads as a refusal, and still reach a real siege round carrying that exact
+// fortress — not an empty or substituted one. Its own room, so it cannot perturb the
+// fixed-count summary assertions above.
+async function runUnstableReadyScenario(browser, baseUrl, relay) {
+  const unstableRoom = `${room}-unstable`;
+  const hostCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const guestCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const host3 = await hostCtx.newPage();
+  const guest3 = await guestCtx.newPage();
+  watch(host3, 'unstable-host'); watch(guest3, 'unstable-guest');
+
+  const url = `${baseUrl}/?smoke-test&relay=${encodeURIComponent(relay)}`;
+  await Promise.all([host3.goto(url), guest3.goto(url)]);
+  await host3.locator('#siege-online-button').click();
+  await guest3.locator('#siege-online-button').click();
+  await host3.locator('#online-name').fill('UnstableHost');
+  await host3.locator('#online-room').fill(unstableRoom);
+  await host3.locator('#online-create').click();
+  await poll(() => online(host3), (o) => o?.phase === 'lobby');
+  await guest3.locator('#online-name').fill('UnstableGuest');
+  await guest3.locator('#online-room').fill(unstableRoom);
+  await guest3.locator('#online-join').click();
+  await poll(() => online(host3), (o) => Boolean(o?.opponent));
+  await host3.locator('#online-start').click();
+  await poll(() => online(host3), (o) => o?.phase === 'build');
+  await poll(() => online(guest3), (o) => o?.phase === 'build');
+
+  await loadBlueprintOnly(host3, UNSTABLE_BLUEPRINT);
+  await host3.locator('#siege-lock').click();
+  const readied = await poll(() => online(host3), (o) => o?.locked === true, 6000);
+  const afterReady = await online(host3);
+  const warningClass = await host3.evaluate(() =>
+    document.querySelector('#siege-ready-reason')?.classList.contains('warning') ?? false);
+  await lockIn(guest3, READY_FORTRESS);
+
+  const bothSieging = await Promise.all([
+    poll(() => online(host3), (o) => o?.phase === 'siege', 15000),
+    poll(() => online(guest3), (o) => o?.phase === 'siege', 15000)
+  ]);
+  const facts = {
+    readiedUp: readied.ok && afterReady?.locked === true,
+    readyPillText: afterReady?.readyYouText ?? '',
+    warningVisible: Boolean(afterReady?.readyReasonVisible),
+    warningText: afterReady?.readyReasonText ?? '',
+    warningStyledAsAdvisory: warningClass,
+    bothReachedSiege: bothSieging.every((r) => r.ok),
+    opponentSeesUnstableFortress: bothSieging.every((r) => r.ok)
+      ? ((await online(guest3))?.attack?.blocks ?? -1) : -1
+  };
+
+  await hostCtx.close().catch(() => {});
+  await guestCtx.close().catch(() => {});
+  return facts;
+}
+
 const server = serve();
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -566,6 +634,21 @@ try {
     `${readyFacts.expiredLockFramesSent} lock frame(s), ${readyFacts.expiredLockBlocks} block(s)`);
   report('the fortress that reaches the opponent\'s round is the real one, not an empty fallback',
     readyFacts.opponentSeesNonEmptyFortress > 0, `${readyFacts.opponentSeesNonEmptyFortress} block(s) in the round`);
+
+  const unstableFacts = await runUnstableReadyScenario(browser, baseUrl, relay);
+  report('readying up with a deliberately unstable tower succeeds outright',
+    unstableFacts.readiedUp && /Ready/.test(unstableFacts.readyPillText),
+    `locked=${unstableFacts.readiedUp}, pill="${unstableFacts.readyPillText}"`);
+  report('the unstable-tower warning is visible and never reads as a refusal',
+    unstableFacts.warningVisible && !/can't|reject/i.test(unstableFacts.warningText) &&
+      unstableFacts.warningText.length > 0,
+    JSON.stringify(unstableFacts.warningText));
+  report('the warning is styled as advisory, not as the rejection banner',
+    unstableFacts.warningStyledAsAdvisory, unstableFacts.warningStyledAsAdvisory ? 'warning class present' : 'missing');
+  report('both clients still reach the siege phase with an unstable tower in play',
+    unstableFacts.bothReachedSiege, unstableFacts.bothReachedSiege ? 'both sieging' : 'did not reach siege');
+  report('the round starts with the unstable player\'s actual fortress present, not an empty one',
+    unstableFacts.opponentSeesUnstableFortress > 0, `${unstableFacts.opponentSeesUnstableFortress} block(s) in the round`);
 
   await host.screenshot({ path: resolve(root, 'shots/online-smoke.png') }).catch(() => {});
 } catch (error) {

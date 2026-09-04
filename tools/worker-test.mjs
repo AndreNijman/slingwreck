@@ -2,14 +2,14 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { encode } from '../build.js?v=20260904-1';
-import { TUNE } from '../data.js?v=20260904-1';
+import { encode } from '../build.js?v=20260904-2';
+import { TUNE } from '../data.js?v=20260904-2';
 import {
   advanceAudit,
   createAudit,
   SETTLE_STEPS
-} from '../relay-audit.js?v=20260904-1';
-import { digestRound, launch, makeRound, stepRound } from '../sim.js?v=20260904-1';
+} from '../relay-audit.js?v=20260904-2';
+import { digestRound, launch, makeRound, stepRound } from '../sim.js?v=20260904-2';
 import {
   autoCompleteBlueprint,
   bagForRound,
@@ -29,7 +29,7 @@ import {
   scoreCeiling,
   validationMode,
   validateBlueprintSubmission
-} from '../worker.js?v=20260904-1';
+} from '../worker.js?v=20260904-2';
 
 const BUILD_OPTIONS = { budget: 110, cards: [], seed: 1 };
 const REGISTRY_STALE = 30_000;
@@ -115,14 +115,6 @@ test('blueprint rejection is reasoned, private-ready data and never throws', () 
     'king-count', 'too-few-pigs'
   ]);
 
-  const falling = validateBlueprintSubmission(encode({
-    ...VALID,
-    blocks: [['cube', 'wood', 8, 8, 0]]
-  }), BUILD_OPTIONS);
-  assert.equal(falling.stage, 'settle');
-  assert.equal(falling.errors[0].code, 'unstable');
-  assert.deepEqual(falling.errors[0].pieceIds, ['block:0']);
-
   const flagged = validateBlueprintSubmission(encode({
     ...VALID,
     pigs: [
@@ -134,6 +126,69 @@ test('blueprint rejection is reasoned, private-ready data and never throws', () 
   assert.equal(flagged.stage, 'validate');
   assert.ok(flagged.errors.some((error) => error.code === 'piece-limit' &&
     error.pieceIds.includes('pig:4')));
+});
+
+// The settle test is advisory (the player asked to be let through on an unstable tower);
+// legality is not. A blueprint that only fails settle is accepted, with the settle findings
+// returned as `warnings` instead of `errors` and no `stage` — the exact two-stage split
+// worker.js:162-206 now makes. A blueprint that fails legality is still refused outright,
+// unchanged.
+test('a settle-failing blueprint is accepted with warnings; a legality-failing one is still rejected', () => {
+  const falling = validateBlueprintSubmission(encode({
+    ...VALID,
+    blocks: [['cube', 'wood', 8, 8, 0]]
+  }), BUILD_OPTIONS);
+  assert.equal(falling.ok, true);
+  assert.equal(Object.hasOwn(falling, 'stage'), false);
+  assert.equal(falling.warnings.length, 1);
+  assert.equal(falling.warnings[0].code, 'unstable');
+  assert.deepEqual(falling.warnings[0].pieceIds, ['block:0']);
+
+  // A heavy block dropped directly on the King, with nothing under either: legal (a
+  // default-unlocked material, one King, two other pigs, in bounds, no overlap) but its King
+  // dies during the settle test. Still accepted, with a `pig-died` warning alongside
+  // `unstable` — the case the task calls "dead-pigs", and the one whose round-start
+  // resolution tools/audit-test.mjs measures separately.
+  const deadKing = validateBlueprintSubmission(encode({
+    ...VALID,
+    blocks: [['cube', 'stone', 12, 14, 0]]
+  }), BUILD_OPTIONS);
+  assert.equal(deadKing.ok, true);
+  assert.equal(Object.hasOwn(deadKing, 'stage'), false);
+  assert.ok(deadKing.warnings.some((warning) => warning.code === 'unstable'));
+  const pigDied = deadKing.warnings.find((warning) => warning.code === 'pig-died');
+  assert.ok(pigDied?.pieceIds.includes('pig:1'));
+  // The dead pig here is the real King (VALID's pig index 1), so the warning must say so in
+  // the strongest terms — an outright round loss, not a generic "a pig died" that reads no
+  // differently than losing a Runt.
+  assert.match(pigDied.message, /King.*loses the round outright/);
+
+  // A dead Runt, with the King untouched, gets the plain wording instead — the escalation is
+  // specific to the King, not "any pig died".
+  const deadRunt = validateBlueprintSubmission(encode({
+    ...VALID,
+    blocks: [['cube', 'stone', 2, 14, 0]]
+  }), BUILD_OPTIONS);
+  const runtWarning = deadRunt.warnings.find((warning) => warning.code === 'pig-died');
+  assert.ok(runtWarning, 'expected the dropped block to kill the runt beneath it');
+  assert.doesNotMatch(runtWarning.message, /outright/);
+
+  // A stable, fully legal fortress still reports no warnings at all — `warnings` is present
+  // and empty on a clean pass, not omitted, so a client can check `.length` unconditionally.
+  const clean = validateBlueprintSubmission(encode(VALID), BUILD_OPTIONS);
+  assert.equal(clean.ok, true);
+  assert.deepEqual(clean.warnings, []);
+
+  // Legality still hard-rejects, with the same specific reasons as before — settle
+  // relaxation never reaches a blueprint that fails validate() first.
+  const noKing = validateBlueprintSubmission(encode({
+    v: 1, blocks: [], pigs: []
+  }), BUILD_OPTIONS);
+  assert.equal(noKing.ok, false);
+  assert.equal(noKing.stage, 'validate');
+  assert.deepEqual(noKing.errors.map((error) => error.code), [
+    'king-count', 'too-few-pigs'
+  ]);
 });
 
 test('timer auto-completion always returns a legal authored blueprint', () => {

@@ -12,8 +12,8 @@ const html = `<!doctype html><meta charset="utf-8">
 <style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}canvas{display:block;width:1280px;height:720px}</style>
 <canvas id="frame" width="1280" height="720"></canvas>
 <script type="module">
-import { makeRound } from '/sim.js?v=20260904-1';
-import { draw, makeCamera, makeRenderer } from '/render.js?v=20260904-1';
+import { makeRound } from '/sim.js?v=20260904-2';
+import { draw, makeCamera, makeRenderer } from '/render.js?v=20260904-2';
 const xs = [1, 4.1, 7.2, 10.3, 13.4, 16.5, 19.6, 22.7];
 const materials = ${JSON.stringify(materials)};
 const pigs = ${JSON.stringify(pigs)};

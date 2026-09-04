@@ -11,8 +11,8 @@ import {
   SCORE,
   SHAPES,
   TUNE
-} from './data.js?v=20260904-1';
-import { rng } from './physics.js?v=20260904-1';
+} from './data.js?v=20260904-2';
+import { rng } from './physics.js?v=20260904-2';
 import {
   beginSuddenDeath,
   digestRound,
@@ -22,7 +22,7 @@ import {
   remoteDetonate,
   stepRound,
   tap
-} from './sim.js?v=20260904-1';
+} from './sim.js?v=20260904-2';
 
 export const SETTLE_STEPS = Math.ceil(TUNE.blueprintSettleSeconds / TUNE.step);
 export const ROUND_STEPS = Math.ceil(TUNE.roundSeconds / TUNE.step);

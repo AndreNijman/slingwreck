@@ -1,4 +1,4 @@
-import { PIGS } from './data.js?v=20260904-1';
+import { PIGS } from './data.js?v=20260904-2';
 const MAX_VOICES = 16, COALESCE_SECONDS = 0.03, MASTER_LEVEL = 0.68;
 const SILENCE = null;
 const DEFAULT_ABILITY_NOTES = Object.freeze([350]);
