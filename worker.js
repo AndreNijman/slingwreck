@@ -8,7 +8,16 @@
 //
 //   GET /health   - liveness
 //   GET /lobbies  - public lobby directory
-//   GET /ws?room= - websocket, first message must be create or join
+//   GET /ping?room=<name>[&shard=<shard>] - where that room runs, { colo, region }
+//   GET /ws?room=<name>[&shard=<shard>&ticket=<t>] - websocket, first message
+//                   must be create, join or reconnect
+//
+// At match start a room whose two players are far apart may move to a fairer
+// region (netplace.js): its Durable Object hands the room to a fresh one there,
+// its "shard" (`<key>~<shard>`), and gives each player a ticket to reconnect
+// with. Later connections to the old name are sent on to the shard until it
+// empties. Internal routes between objects (/_adopt, /_released) are never
+// forwarded.
 
 import { BUDGET, CARDS_BY_ID, PIGS, SCORE, TUNE } from './data.js?v=20260904-2';
 import {
@@ -48,6 +57,10 @@ import {
 } from './build.js?v=20260904-2';
 import { PIG_FLAGS, PIG_FLAG_DECOY, PIG_ID, digestRound } from './sim.js?v=20260904-2';
 import { NetStats, sendNetLog, coloOf } from './netstats.js?v=20260904-2';
+import {
+  REGIONS, chooseRegion, newShard, playerWhere, regionOfColo, roomStub, shardRegion,
+  whereOf, withWhere
+} from './netplace.js?v=20260904-2';
 
 const TICK_MS = 250;
 const ROOM_TTL = 45 * 60_000;
@@ -60,6 +73,10 @@ const PASSWORD_MAX = 128;
 const PASSWORD_ATTEMPTS = 5;
 const PASSWORD_WINDOW = 60_000;
 const ROOM_STATE_KEY = 'room-state';
+const MOVED_KEY = 'moved';
+const ADOPT_WAIT = 6000; // a moved room starts with whoever reconnected by then
+const MOVE_CLOSE = 1000; // the old sockets close this long after `move`
+const TICKET = /^[a-z0-9]{16}$/;
 const PRODUCTION_ORIGIN = 'https://slingwreck.andrenijman.com';
 const encoder = new TextEncoder();
 
@@ -150,6 +167,18 @@ export function partitionLobbies(entries, now = Date.now()) {
   lobbies.sort((a, b) => (Number(b.joinable) - Number(a.joinable)) ||
     (b.players - a.players) || (b.updated - a.updated));
   return { lobbies: lobbies.slice(0, 40), staleKeys, freshEntries };
+}
+
+// The relay's preview rate limit (relay-audit.js previewAllowed) with a little slack:
+// frames leave the sender evenly, but uplink jitter bunches some of them up, and a
+// strict per-frame gap threw those away. `lastPreviewAt` advances by the interval for
+// each frame taken, so the average rate (Smokescreen's one per 3 s included) is the same.
+const PREVIEW_SLACK = 60;
+export function previewAccepted(session, now, cards = []) {
+  if (!previewAllowed(session.lastPreviewAt, now + PREVIEW_SLACK, cards)) return false;
+  session.lastPreviewAt = Number.isFinite(session.lastPreviewAt)
+    ? Math.max(now, session.lastPreviewAt + previewInterval(cards)) : now;
+  return true;
 }
 
 export function disconnectExpired(record, now = Date.now()) {
@@ -286,9 +315,30 @@ function randomToken() {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+// A player's netprobe.js results as sent ({ weur: 38, apac: 290 }), kept to known regions.
+export function cleanProbes(ms) {
+  if (!ms || typeof ms !== 'object') return null;
+  const out = {};
+  for (const region of REGIONS) {
+    const value = Number(ms[region]);
+    if (Number.isFinite(value) && value > 0 && value < 10_000) out[region] = Math.round(value);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function median(values) {
+  return values.length ? [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] : null;
+}
+
+function newTicket() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return [...bytes].map((byte) => 'abcdefghijklmnopqrstuvwxyz0123456789'[byte % 36]).join('');
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith('/_')) return new Response('not found', { status: 404 });
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: {
         'Access-Control-Allow-Origin': '*',
@@ -304,10 +354,21 @@ export default {
       return env.REGISTRY.getByName('global')
         .fetch(new Request('https://registry/list'));
     }
-    if (url.pathname !== '/ws') {
+    if (url.pathname !== '/ws' && url.pathname !== '/ping') {
       return new Response('SLINGWRECK relay. Connect over websocket at /ws\n', {
         status: 404
       });
+    }
+    const key = roomKey(url.searchParams.get('room'));
+    const shard = url.searchParams.get('shard') || '';
+    const ticket = url.searchParams.get('ticket') || '';
+    if (key.length < 3 || shard && !shardRegion(shard) || ticket && !TICKET.test(ticket)) {
+      return json({ error: 'lobby names need at least 3 characters' }, 400);
+    }
+    // A room's ping target, timed by the lobby list and the waiting room. It
+    // never creates a room: the object only reports where it runs.
+    if (url.pathname === '/ping') {
+      return roomStub(env.ROOMS, key, shard).fetch(new Request('https://room/ping'));
     }
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
       return new Response('upgrade required', { status: 426 });
@@ -315,13 +376,13 @@ export default {
     if (!originAllowed(request.headers.get('Origin'))) {
       return new Response('origin not allowed', { status: 403 });
     }
-    const key = roomKey(url.searchParams.get('room'));
-    if (key.length < 3) {
-      return new Response('lobby names need at least 3 characters', { status: 400 });
-    }
     const headers = new Headers(request.headers);
     headers.set('X-Slingwreck-IP', clientIp(request));
-    return env.ROOMS.getByName(key).fetch(new Request(request, { headers }));
+    // Where the player connects from, for the lag log (request.cf is only
+    // reliable here). DEV_TRUST_WHERE (wrangler dev --var) lets tests fake it.
+    const where = playerWhere(request, { trustHeaders: env.DEV_TRUST_WHERE === '1' });
+    return roomStub(env.ROOMS, key, shard)
+      .fetch(withWhere(new Request(request, { headers }), where));
   }
 };
 
@@ -361,6 +422,8 @@ export class LobbyRegistry {
         locked: Boolean(source.locked),
         phase: String(source.phase || 'lobby'),
         round: Math.max(0, Math.floor(source.round) || 0),
+        region: REGIONS.includes(source.region) ? source.region : '',
+        shard: shardRegion(source.shard) ? source.shard : '',
         updated: Number.isFinite(source.updated) ? source.updated : Date.now()
       };
       await this.ctx.storage.put(storageKey, lobby);
@@ -410,6 +473,16 @@ export class SiegeRoom {
     this.validateMode = validationMode(env);
     this.net = null; // lag stats for the match in progress
     this.colo = '';
+    // Room placement (netplace.js). In a room's own object: `moved` once its
+    // room moved to a shard ({ shard, region }, also in storage). In a shard:
+    // its name, the colo the room came from, and until the match starts the
+    // seats waiting for their tickets.
+    this.moved = null;
+    this.moving = false;
+    this.moveTried = false;
+    this.shard = '';
+    this.movedFrom = '';
+    this.adoption = null;
     this.ctx.blockConcurrencyWhile(async () => {
       await this.restore();
       if (this.key) this.ensureTimer();
@@ -431,6 +504,8 @@ export class SiegeRoom {
       touched: this.touched,
       result: this.result,
       draftPid: this.draftPid,
+      shard: this.shard,
+      movedFrom: this.movedFrom,
       players: [...this.players.values()]
     };
   }
@@ -441,6 +516,7 @@ export class SiegeRoom {
   }
 
   async restore() {
+    this.moved = (await this.ctx.storage.get(MOVED_KEY)) ?? null;
     const saved = await this.ctx.storage.get(ROOM_STATE_KEY);
     if (!saved?.key || !Array.isArray(saved.players)) return;
     this.room = saved.room;
@@ -456,6 +532,8 @@ export class SiegeRoom {
     this.touched = saved.touched;
     this.result = saved.result ?? null;
     this.draftPid = saved.draftPid ?? -1;
+    this.shard = saved.shard ?? '';
+    this.movedFrom = saved.movedFrom ?? '';
     const now = Date.now();
     for (const record of saved.players) {
       record.connected = false;
@@ -487,19 +565,43 @@ export class SiegeRoom {
   // -- plumbing ----------------------------------------------------------
 
   async fetch(request) {
+    const url = new URL(request.url);
+    if (request.method === 'POST' && url.pathname === '/_adopt') {
+      return this.adopt(await request.json().catch(() => null));
+    }
+    if (request.method === 'POST' && url.pathname === '/_released') {
+      await this.released((await request.json().catch(() => null))?.shard);
+      return new Response(null, { status: 204 });
+    }
+    await this.locate();
+    // Before the upgrade check, and without touching the room clock: a ping
+    // keeps nothing alive and creates nothing.
+    if (url.pathname === '/ping') return json({ colo: this.colo, region: this.region() });
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
       return new Response('upgrade required', { status: 426 });
     }
     const pair = new WebSocketPair();
     const server = pair[1];
     server.accept();
+    const ticket = url.searchParams.get('ticket') || '';
+    // The room moved: send the player on to its shard, where they connect as usual.
+    if (this.moved && !ticket) {
+      this.send(server, { t: 'move', shard: this.moved.shard, region: this.moved.region });
+      setTimeout(() => { try { server.close(4000, 'moved'); } catch {} }, MOVE_CLOSE);
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
     const session = {
       socket: server,
       pid: -1,
       ready: false,
       dropped: false,
       ip: cleanName(request.headers.get('X-Slingwreck-IP'), 'unknown', 64),
-      routeKey: roomKey(new URL(request.url).searchParams.get('room')),
+      routeKey: roomKey(url.searchParams.get('room')),
+      where: whereOf(request),
+      routeShard: shardRegion(url.searchParams.get('shard')) ? url.searchParams.get('shard') : '',
+      ticket,
+      regions: null, // this player's netprobe.js results
+      rtts: [], // their last five reported pings
       queue: Promise.resolve(),
       handshakeTimer: 0,
       lastPreviewAt: -Infinity
@@ -578,6 +680,8 @@ export class SiegeRoom {
       locked: this.locked,
       phase: this.phase,
       round: this.round,
+      region: this.region(),
+      shard: this.shard,
       updated: Date.now()
     };
     this.lastRegistrySync = lobby.updated;
@@ -596,6 +700,10 @@ export class SiegeRoom {
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this.shard) this.release();
+    if (this.adoption) clearTimeout(this.adoption.timer);
+    this.adoption = null;
+    this.moveTried = false;
     const registryWork = this.removeRegistry();
     this.players.clear();
     this.room = '';
@@ -611,6 +719,8 @@ export class SiegeRoom {
     this.draftPid = -1;
     this.audits.clear();
     this.passwordAttempts.clear();
+    this.shard = '';
+    this.movedFrom = '';
     await Promise.all([registryWork, this.ctx.storage.delete(ROOM_STATE_KEY)]);
   }
 
@@ -648,8 +758,18 @@ export class SiegeRoom {
     }
 
     if (message.t === 'ping') {
+      // The last five reported pings, for placement at match start.
+      if (typeof message.rtt === 'number' && message.rtt > 0 && message.rtt < 60_000) {
+        const rtts = session.rtts ??= [];
+        rtts.push(message.rtt);
+        if (rtts.length > 5) rtts.shift();
+      }
       this.net?.ping(session.pid, message.rtt, message.fps, message.frameMax);
       this.send(session.socket, { t: 'pong', c: message.c });
+      return;
+    }
+    if (message.t === 'regions') {
+      session.regions = cleanProbes(message.ms);
       return;
     }
     if (message.t === 'name') {
@@ -710,6 +830,10 @@ export class SiegeRoom {
   }
 
   async handshake(session, message) {
+    if (session.ticket) {
+      await this.ticketHandshake(session, message);
+      return;
+    }
     if (message.t === 'reconnect') {
       await this.reconnectHandshake(session, message);
       return;
@@ -741,12 +865,16 @@ export class SiegeRoom {
       this.key = key;
       this.passwordHash = passwordHash;
       this.locked = password.length > 0;
+      // A create can land on a shard object when its release never reached the
+      // room's own object (which still sends everyone here). Knowing its shard
+      // name, it lists itself correctly and releases the name when it empties.
+      if (session.routeShard) this.shard = session.routeShard;
     } else {
       if (!this.players.size || this.key !== key) {
         this.reject(session, 'room-missing', 'no lobby has that name');
         return;
       }
-      if (this.phase !== 'lobby') {
+      if (this.phase !== 'lobby' || this.adoption) {
         this.reject(session, 'match-started', 'that match has already started');
         return;
       }
@@ -802,6 +930,7 @@ export class SiegeRoom {
       disconnectedAt: 0,
       graceDeadline: 0,
       resumeTokenHash,
+      where: session.where ?? null,
       siege: null
     };
     this.players.set(pid, record);
@@ -816,6 +945,7 @@ export class SiegeRoom {
       host: this.host === pid,
       max: MAX_PLAYERS,
       resumeToken,
+      region: this.region(),
       tune: {
         buildSeconds: TUNE.buildSeconds,
         winsNeeded: TUNE.winsNeeded,
@@ -910,6 +1040,7 @@ export class SiegeRoom {
     const wasHost = session.pid === this.host;
     this.players.delete(session.pid);
     if (!this.players.size) {
+      if (this.adoption) return; // a moved room waits for the rest of its seats
       if (!this.sessions.size) {
         await this.reset();
       } else {
@@ -952,6 +1083,7 @@ export class SiegeRoom {
       room: this.room,
       host: this.host,
       phase: this.phase,
+      region: this.region(),
       max: MAX_PLAYERS,
       players: [...this.players.values()].map((player) => ({
         pid: player.pid,
@@ -976,6 +1108,16 @@ export class SiegeRoom {
       this.sendError(session, 'need-two-players', 'exactly two players are required');
       return;
     }
+    if (this.moving) return;
+    // A new match may first move somewhere fairer for both players.
+    const choice = this.mayMove()
+      ? chooseRegion([...this.players.keys()].map((pid) => this.placeOf(pid))) : null;
+    if (choice && await this.moveRoom(choice)) return;
+    if (this.phase !== 'lobby' || this.players.size !== MAX_PLAYERS) return;
+    await this.beginMatch();
+  }
+
+  async beginMatch() {
     this.seed = randomSeed();
     this.result = null;
     this.draftPid = -1;
@@ -1321,8 +1463,7 @@ export class SiegeRoom {
     if (this.phase !== 'siege') return;
     const now = Date.now();
     const sender = this.players.get(session.pid);
-    if (!sender || !previewAllowed(session.lastPreviewAt, now, sender.cards)) return;
-    session.lastPreviewAt = now;
+    if (!sender || !previewAccepted(session, now, sender.cards)) return;
     const opponent = [...this.players.values()].find((record) =>
       record.pid !== session.pid);
     const target = opponent && this.playerSession(opponent.pid);
@@ -1649,6 +1790,228 @@ export class SiegeRoom {
     return true;
   }
 
+  // -- room placement ----------------------------------------------------
+
+  // Where this object runs, for /ping, the lobby list and the lag log
+  // (DEV_COLO fakes it under wrangler dev). A shard's region is the one it was
+  // made for.
+  async locate() {
+    if (!this.colo) this.colo = this.env?.DEV_COLO || await coloOf();
+  }
+
+  region() {
+    return shardRegion(this.shard) || regionOfColo(this.colo);
+  }
+
+  // Once per room session, never from a shard, never twice.
+  mayMove() {
+    return Boolean(this.env?.ROOMS && this.key && !this.shard && !this.moved &&
+      !this.moveTried && this.players.size >= 2);
+  }
+
+  placeOf(pid) {
+    const session = this.playerSession(pid);
+    return { probes: session?.regions ?? null, rtt: median(session?.rtts ?? []) };
+  }
+
+  // At match start netplace.js's chooseRegion found a clearly fairer region:
+  // hand the room to a shard there (/_adopt), give each player a ticket for
+  // their seat, and remember the move so later connections follow it. The
+  // shard starts the match once both tickets are back (or after ADOPT_WAIT)
+  // and tells this object when it empties (/_released). False if the shard
+  // could not take the room; the match then starts here as before.
+  async moveRoom(choice) {
+    this.moving = true;
+    this.moveTried = true;
+    const shard = newShard(choice.region);
+    const tickets = {};
+    const ticketOf = new Map();
+    for (const record of this.players.values()) {
+      const ticket = newTicket();
+      tickets[ticket] = { pid: record.pid };
+      ticketOf.set(record.pid, ticket);
+    }
+    const state = {
+      room: this.room, host: this.host, passwordHash: this.passwordHash, locked: this.locked,
+      nextPid: this.nextPid,
+      players: [...this.players.values()].map(({ pid, name, where }) => ({ pid, name, where }))
+    };
+    try {
+      const response = await roomStub(this.env.ROOMS, this.key, shard).fetch('https://room/_adopt', {
+        method: 'POST',
+        body: JSON.stringify({ code: this.key, shard, from: this.colo, state, tickets })
+      });
+      if (!response.ok) throw new Error(`adopt answered ${response.status}`);
+    } catch (error) {
+      console.error(JSON.stringify({
+        message: 'room move failed, starting here',
+        error: error instanceof Error ? error.message : String(error)
+      }));
+      this.moving = false;
+      return false;
+    }
+    this.moving = false;
+    this.moved = { shard, region: choice.region };
+    await this.ctx.storage.put(MOVED_KEY, this.moved);
+    const sessions = [...this.sessions.values()];
+    for (const session of sessions) {
+      const ticket = ticketOf.get(session.pid);
+      this.send(session.socket, { t: 'move', shard, region: choice.region, ...(ticket ? { ticket } : {}) });
+      session.pid = -1; // nothing left here for drop() to clean up
+    }
+    // The shard lists the room from now on, under the same key, so this
+    // forgets it without removing the listing.
+    this.players.clear();
+    this.room = '';
+    this.key = '';
+    this.host = -1;
+    this.passwordHash = '';
+    this.locked = false;
+    this.phase = 'lobby';
+    await this.ctx.storage.delete(ROOM_STATE_KEY);
+    setTimeout(() => {
+      for (const session of sessions) {
+        try { session.socket.close(4000, 'moved'); } catch {}
+      }
+    }, MOVE_CLOSE);
+    return true;
+  }
+
+  // In the shard: take the room over, its seats waiting for their tickets.
+  adopt(body) {
+    const { code, shard, from, state, tickets } = body ?? {};
+    const key = roomKey(code);
+    if (key.length < 3 || key !== code || !shardRegion(shard) || !state ||
+        !Array.isArray(state.players) || !tickets || typeof tickets !== 'object' ||
+        this.key || this.players.size || this.adoption) {
+      return new Response('cannot adopt', { status: 409 });
+    }
+    this.shard = shard;
+    this.movedFrom = cleanName(from, '', 8);
+    this.room = cleanName(state.room, key, 24);
+    this.key = key;
+    this.passwordHash = String(state.passwordHash || '');
+    this.locked = Boolean(state.locked);
+    this.phase = 'lobby';
+    this.round = 0;
+    this.touched = Date.now();
+    const seats = new Map(state.players.map((seat) => [Number(seat.pid), seat]));
+    this.host = seats.has(Number(state.host)) ? Number(state.host) : -1;
+    this.nextPid = Math.max(Number(state.nextPid) || 1, ...[...seats.keys()].map((pid) => pid + 1));
+    this.adoption = {
+      tickets: new Map(Object.entries(tickets).filter(([ticket, value]) =>
+        TICKET.test(ticket) && seats.has(Number(value?.pid))).map(([ticket, value]) =>
+        [ticket, Number(value.pid)])),
+      seats,
+      timer: setTimeout(() => {
+        void this.adopted().catch((error) => console.error(JSON.stringify({
+          message: 'room adoption failed',
+          error: error instanceof Error ? error.message : String(error)
+        })));
+      }, ADOPT_WAIT)
+    };
+    return new Response(null, { status: 204 });
+  }
+
+  // A player back from the room's old object with their ticket takes their seat.
+  async ticketHandshake(session, message) {
+    const adoption = this.adoption;
+    const pid = adoption?.tickets.get(session.ticket);
+    if (pid === undefined || roomKey(message.room) !== this.key || session.routeKey !== this.key) {
+      this.reject(session, 'seat-gone', 'the room moved and your seat is gone');
+      return;
+    }
+    adoption.tickets.delete(session.ticket);
+    const seat = adoption.seats.get(pid);
+    const resumeToken = randomToken();
+    const record = {
+      pid,
+      name: cleanName(seat?.name),
+      wins: 0,
+      cards: [],
+      bankedScrap: 0,
+      roundCarry: 0,
+      budget: 0,
+      draft: '',
+      draftOffer: null,
+      blueprint: '',
+      fortressCost: 0,
+      locked: false,
+      autoCompleted: false,
+      connected: true,
+      disconnectedAt: 0,
+      graceDeadline: 0,
+      resumeTokenHash: await hashPassword(resumeToken),
+      where: session.where?.country ? session.where : seat?.where ?? null,
+      siege: null
+    };
+    this.players.set(pid, record);
+    session.pid = pid;
+    session.ready = true;
+    clearTimeout(session.handshakeTimer);
+    this.send(session.socket, {
+      t: 'welcome',
+      you: pid,
+      room: this.room,
+      host: this.host === pid,
+      max: MAX_PLAYERS,
+      resumeToken,
+      region: this.region(),
+      moved: true,
+      tune: {
+        buildSeconds: TUNE.buildSeconds,
+        winsNeeded: TUNE.winsNeeded,
+        maxRounds: TUNE.maxRounds
+      }
+    });
+    this.sendLobby();
+    if (!adoption.tickets.size) await this.adopted();
+    else {
+      await this.persist();
+      await this.syncRegistry();
+    }
+  }
+
+  // Both tickets are back, or time is up: start with whoever is here. One
+  // player alone waits in the room for an opponent, as before a start.
+  async adopted() {
+    const adoption = this.adoption;
+    if (!adoption) return;
+    clearTimeout(adoption.timer);
+    this.adoption = null;
+    if (!this.players.size) {
+      await this.reset();
+      return;
+    }
+    if (!this.players.has(this.host)) this.host = this.players.keys().next().value;
+    if (this.players.size === MAX_PLAYERS && this.phase === 'lobby') {
+      await this.beginMatch();
+      return;
+    }
+    this.sendLobby();
+    await this.persist();
+    await this.syncRegistry();
+  }
+
+  // In the shard, once empty: the room's own name is free again.
+  release() {
+    if (!this.env?.ROOMS || !this.key) return;
+    const sent = roomStub(this.env.ROOMS, this.key).fetch('https://room/_released', {
+      method: 'POST',
+      body: JSON.stringify({ shard: this.shard })
+    }).catch((error) => console.error(JSON.stringify({
+      message: 'room release failed',
+      error: error instanceof Error ? error.message : String(error)
+    })));
+    this.ctx.waitUntil?.(sent);
+  }
+
+  async released(shard) {
+    if (!this.moved || this.moved.shard !== shard) return;
+    this.moved = null;
+    await this.ctx.storage.delete(MOVED_KEY);
+  }
+
   // -- lag log -----------------------------------------------------------
 
   // One record per match, from the first build to the match result (or until it
@@ -1658,8 +2021,10 @@ export class SiegeRoom {
   startNetLog() {
     this.endNetLog('abandoned');
     this.net = new NetStats();
-    for (const record of this.players.values()) this.net.seat(record.pid, record.name);
-    if (!this.colo) coloOf().then((colo) => { this.colo = colo; });
+    for (const record of this.players.values()) {
+      this.net.seat(record.pid, record.name, record.where);
+    }
+    void this.locate();
   }
 
   endNetLog(outcome) {
@@ -1667,7 +2032,9 @@ export class SiegeRoom {
     this.net = null;
     if (!net) return;
     const record = net.record({
-      code: this.room, mode: `1v1 siege · first to ${TUNE.winsNeeded}`, outcome, colo: this.colo
+      code: this.room, mode: `1v1 siege · first to ${TUNE.winsNeeded}`, outcome, colo: this.colo,
+      region: this.region(),
+      moved: this.shard ? { from: this.movedFrom, to: shardRegion(this.shard) } : null
     });
     if (record.runTime < 10) return;
     sendNetLog(this.env, this.ctx, 'slingwreck', record);
@@ -1695,7 +2062,8 @@ export class SiegeRoom {
       await this.reset();
       return;
     }
-    if (!this.sessions.size && this.phase !== 'siege' && this.phase !== 'draft') {
+    if (!this.sessions.size && !this.adoption && this.phase !== 'siege' &&
+        this.phase !== 'draft') {
       await this.reset();
       return;
     }
