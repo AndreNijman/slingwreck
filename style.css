@@ -1439,6 +1439,22 @@ body.editing #game {
 }
 .online-connection-banner[hidden] { display: none; }
 .online-connection-banner .text-button { color: var(--cream, #F5EAD2); text-decoration: underline; }
+/* The waiting room's region and ping, and the live ping during a match. */
+.online-room-where { margin: 0 0 var(--space-2); font: 700 0.7rem/1.3 var(--font-chrome); }
+.online-room-where[hidden] { display: none; }
+.net-ping {
+  position: absolute; z-index: 30;
+  right: max(var(--space-3), env(safe-area-inset-right));
+  bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  padding: 2px 8px; border: 2px solid var(--ink, #2B211C); border-radius: var(--radius-sm);
+  background: var(--panel, #F4EBD6); color: var(--ink, #2B211C);
+  font: 700 11px var(--mono, ui-monospace, monospace); pointer-events: none;
+}
+.net-ping[hidden] { display: none; }
+/* In the attack the ability button owns this corner (72px tall at least), so sit above it. */
+.net-ping.siege { bottom: calc(max(var(--space-3), env(safe-area-inset-bottom)) + 72px + var(--space-3)); }
+.net-ping.warn { background: var(--sun, #D9A441); }
+.net-ping.bad { background: var(--terracotta, #B64032); color: var(--cream, #F5EAD2); }
 
 @media (max-width: 640px) {
   .siege-preview { width: 168px; }

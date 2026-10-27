@@ -23,28 +23,16 @@ import {
 } from './build.js?v=20260904-2';
 import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20260904-2';
 import { CARDS_BY_ID, TUNE } from './data.js?v=20260904-2';
-import { createNet, fetchLobbies } from './net.js?v=20260904-2';
+import { createNet, fetchLobbies, pingAddress } from './net.js?v=20260904-2';
+import { pingUrl, probeRegions, regionLabel } from './netprobe.js?v=20260904-2';
+import { PreviewBuffer, previewFrame } from './preview-buffer.js?v=20260904-2';
 
-// Quantisation for the outgoing preview: the relay closes any socket that sends a message
-// over 8192 bytes (worker.js MAX_MESSAGE), so this has a hard ceiling, not just a bandwidth
-// preference. Rounding to 0.02 world units collapses float noise into a small alphabet of
-// repeated values, which is what actually keeps the JSON small — the array length (bounded
-// by PREVIEW_MAX_DELTA) is the real backstop.
-const POSE_QUANTUM = 0.02;
-const PREVIEW_MAX_DELTA = 48;
 const LOBBY_POLL_MS = 3000;
 // How often the in-progress build draft is streamed to the relay (see maybeAutosaveDraft).
 const DRAFT_AUTOSAVE_MS = 2000;
-
-function quantise(value) { return Math.round(value / POSE_QUANTUM) * POSE_QUANTUM; }
-
-function poseOf(body) {
-  return [quantise(body.x), quantise(body.y), quantise(body.c), quantise(body.s)];
-}
-
-function posesDiffer(a, b) {
-  return !a || a[0] !== b[0] || a[1] !== b[1] || a[2] !== b[2] || a[3] !== b[3];
-}
+// A listed room is timed once, and again at most this often (the list polls every 3 s).
+const ROOM_PING_MS = 30_000;
+const SHARD = /^[a-z]+-[a-z0-9]{6}$/;
 
 export function createOnlineSiege(deps) {
   const {
@@ -102,6 +90,8 @@ export function createOnlineSiege(deps) {
   const connectionBanner = document.querySelector('#online-connection-banner');
   const connectionText = document.querySelector('#online-connection-text');
   const connectionReconnect = document.querySelector('#online-connection-reconnect');
+  const roomWhere = document.querySelector('#online-room-where');
+  const hudPing = document.querySelector('#net-ping');
 
   // Everything that describes the current session. Rebuilt by resetContext() whenever the
   // player leaves the lobby, starts a fresh room search, or the match ends.
@@ -109,6 +99,9 @@ export function createOnlineSiege(deps) {
   let net = null;
   let lobbyPollTimer = 0;
   let loopHandle = 0;
+  let probes = null; // this player's ms to each region (netprobe.js), sent to each room
+  let lastLabelsAt = 0;
+  const roomPings = new Map(); // `${key}|${shard}` -> { ms, at } for the lobby list
 
   function resetContext() {
     ctx = {
@@ -118,6 +111,12 @@ export function createOnlineSiege(deps) {
       host: false,
       room: '',
       resumeToken: '',
+      // The handshake last sent, repeated at the room's shard if the room moves.
+      dial: null,
+      shard: '',
+      region: '',
+      moving: '',
+      movingAt: 0,
       opponent: null,
       phase: 'lobby',
       round: 0,
@@ -135,6 +134,7 @@ export function createOnlineSiege(deps) {
       shadowBodyById: null,
       shadowPigById: null,
       shadowKing: null,
+      previewBuffer: null,
       theirAmmoFallback: 0,
       shotsReported: 0,
       tapReportedFor: -1,
@@ -168,7 +168,8 @@ export function createOnlineSiege(deps) {
       button.type = 'button';
       button.className = 'text-button online-lobby-row';
       const lock = lobby.locked ? ' 🔒' : '';
-      button.textContent = `${lobby.name} — ${lobby.players}/${lobby.max}${lock}`;
+      const where = lobby.region ? `  ·  ${regionLabel(lobby.region, roomPing(lobby))}` : '';
+      button.textContent = `${lobby.name} — ${lobby.players}/${lobby.max}${lock}${where}`;
       button.disabled = !lobby.joinable;
       button.addEventListener('click', () => { roomInput.value = lobby.name; roomInput.focus(); });
       li.append(button);
@@ -182,9 +183,28 @@ export function createOnlineSiege(deps) {
     }
   }
 
+  // This player's ms to a listed room (timed against its object's GET /ping), redrawn
+  // when a timing lands.
+  let listed = [];
+  function roomPing(lobby) {
+    const id = `${lobby.key}|${lobby.shard || ''}`;
+    const hit = roomPings.get(id);
+    if (!hit || hit.at && Date.now() - hit.at > ROOM_PING_MS) {
+      const entry = { ms: hit?.ms ?? null, at: 0 }; // at 0 while timing
+      roomPings.set(id, entry);
+      void pingUrl(pingAddress(lobby.key, lobby.shard)).then((ms) => {
+        entry.ms = ms;
+        entry.at = Date.now();
+        if (!lobbyScreen.hidden && listed.includes(lobby)) renderLobbyList(listed);
+      });
+    }
+    return roomPings.get(id).ms;
+  }
+
   async function refreshLobbyList() {
     const lobbies = await fetchLobbies();
     if (lobbyScreen.hidden) return;
+    listed = lobbies;
     renderLobbyList(lobbies);
   }
 
@@ -247,9 +267,20 @@ export function createOnlineSiege(deps) {
     titleScreen.hidden = true;
     lobbyScreen.hidden = false;
     setStatus('Not connected.');
+    renderWhere();
     startLobbyPolling();
     nameInput.focus();
     startLoop();
+    // This player's ms to each region, for the room's placement at match start.
+    void probeRegions().then((ms) => {
+      if (!ms) return;
+      probes = ms;
+      sendProbes();
+    });
+  }
+
+  function sendProbes() {
+    if (probes && net?.connected()) net.send({ t: 'regions', ms: probes });
   }
 
   function quit() {
@@ -264,6 +295,7 @@ export function createOnlineSiege(deps) {
     siegeDraftScreen.hidden = true;
     siegeResultScreen.hidden = true;
     hideConnectionBanner();
+    hudPing.hidden = true;
     // Solo Siege reuses this exact button/banner and never touches its label or the ready
     // pills — leave both the way solo expects to find them, not the way online left them.
     siegeLockButton.textContent = 'Lock in';
@@ -273,15 +305,22 @@ export function createOnlineSiege(deps) {
     showTitle();
   }
 
+  function dial(action, room, options) {
+    ctx.dial = { action, room, options };
+    ensureNet().open(action, room, { ...options, shard: ctx.shard });
+  }
+
   function handleCreate() {
-    ensureNet().open('create', roomInput.value.trim(), {
+    ctx.shard = '';
+    dial('create', roomInput.value.trim(), {
       name: nameInput.value.trim(), password: passwordInput.value
     });
     setStatus('Creating room…');
   }
 
   function handleJoin() {
-    ensureNet().open('join', roomInput.value.trim(), {
+    ctx.shard = '';
+    dial('join', roomInput.value.trim(), {
       name: nameInput.value.trim(), password: passwordInput.value
     });
     setStatus('Joining room…');
@@ -290,8 +329,46 @@ export function createOnlineSiege(deps) {
   function handleReconnectClick() {
     if (!ctx.room || ctx.pid < 0 || !ctx.resumeToken) { quit(); return; }
     hideConnectionBanner();
-    ensureNet().open('reconnect', ctx.room, { pid: ctx.pid, token: ctx.resumeToken });
+    dial('reconnect', ctx.room, { pid: ctx.pid, token: ctx.resumeToken });
     setStatus('Reconnecting…');
+  }
+
+  // The relay moved the room to a fairer region at match start: reconnect to its shard
+  // and keep the screen as it is. With a ticket the seat is kept for us; without one (we
+  // dialed the room after it moved) the same handshake is repeated there. A failed
+  // reconnect is a lost connection like any other.
+  function onMove(message) {
+    const shard = String(message.shard || '');
+    if (!SHARD.test(shard) || !ctx.dial) return;
+    ctx.shard = shard;
+    ctx.region = String(message.region || '');
+    ctx.moving = `Moving room to ${regionLabel(ctx.region) || 'a fairer region'}…`;
+    ctx.movingAt = performance.now();
+    renderWhere();
+    const { action, room, options } = ctx.dial;
+    ensureNet().open(action, room, { ...options, shard, ticket: message.ticket || '' });
+  }
+
+  // The waiting room's "where": the room's region and this player's live ping to it
+  // ("Asia · 120 ms"), or a note while the room moves.
+  function renderWhere() {
+    if (ctx.moving && ctx.connected && performance.now() - ctx.movingAt > 2000) ctx.moving = '';
+    const text = ctx.moving || (ctx.region ? `Room runs in ${regionLabel(ctx.region, net?.rtt())}` : '');
+    roomWhere.textContent = text;
+    roomWhere.hidden = !text;
+  }
+
+  // This player's live ping while a match is on: neutral, then warning from 120 ms and
+  // bad from 200 ms. Hidden until the first pong.
+  function renderPing() {
+    const rtt = net?.rtt() ?? -1;
+    const playing = ctx.phase !== 'lobby' && ctx.connected && rtt > 0;
+    hudPing.hidden = !playing;
+    if (!playing) return;
+    hudPing.textContent = `${Math.round(rtt)} ms`;
+    hudPing.classList.toggle('siege', ctx.phase === 'siege');
+    hudPing.classList.toggle('warn', rtt >= 120 && rtt < 200);
+    hudPing.classList.toggle('bad', rtt >= 200);
   }
 
   createButton.addEventListener('click', handleCreate);
@@ -307,6 +384,7 @@ export function createOnlineSiege(deps) {
     ctx.lastError = '';
     switch (message.t) {
       case 'welcome': return onWelcome(message);
+      case 'move': return onMove(message);
       case 'lobby': return onLobby(message);
       case 'build-cancelled':
         setStatus('The opponent left during the build phase. Back to the lobby.');
@@ -358,6 +436,8 @@ export function createOnlineSiege(deps) {
     ctx.room = message.room;
     ctx.resumeToken = message.resumeToken;
     ctx.connected = true;
+    if (message.region) ctx.region = message.region;
+    sendProbes();
     if (message.reconnected) {
       setStatus('Reconnected.');
       hideConnectionBanner();
@@ -390,6 +470,8 @@ export function createOnlineSiege(deps) {
     const opponent = message.players.find((p) => p.pid !== ctx.pid);
     ctx.opponent = opponent ? { pid: opponent.pid, name: opponent.name } : null;
     ctx.host = message.host === ctx.pid;
+    if (message.region) ctx.region = message.region;
+    renderWhere();
     roomState.hidden = false;
     playersLine.textContent = opponent
       ? `${you?.name ?? 'You'} vs ${opponent.name} — ready.`
@@ -649,6 +731,9 @@ export function createOnlineSiege(deps) {
     ctx.shadowBodyById = new Map(shadowRound.world.bodies.map((b) => [b.id, b]));
     ctx.shadowPigById = new Map(shadowRound.pigs.map((p) => [p.id, p]));
     ctx.shadowKing = shadowRound.pigs.find((p) => p.isKing) ?? null;
+    ctx.previewBuffer = new PreviewBuffer(ctx.shadowBodyById, ctx.shadowPigById, {
+      legacy: new URLSearchParams(location.search).has('preview-legacy')
+    });
     ctx.theirAmmoFallback = bagForRound(message.seed, message.round, message.defenderCards).length;
 
     setRound(attackRound);
@@ -713,56 +798,30 @@ export function createOnlineSiege(deps) {
   function sendPreviewIfDue(round, force = false) {
     const now = performance.now();
     if (!force && !previewAllowed(ctx.lastPreviewSentAt, now, round.attackerCards)) return;
-    const d = [];
-    for (const block of round.blocks) {
-      if (d.length >= PREVIEW_MAX_DELTA) break;
-      if (ctx.reportedDeadBlocks.has(block.id)) continue;
-      if (block.dead) {
-        d.push([block.id, 0, 0, 0, 0, 1]);
-        ctx.reportedDeadBlocks.add(block.id);
-        ctx.lastSentPose.delete(block.id);
-        continue;
-      }
-      const pose = poseOf(block);
-      if (posesDiffer(ctx.lastSentPose.get(block.id), pose)) {
-        d.push([block.id, ...pose, 0]);
-        ctx.lastSentPose.set(block.id, pose);
-      }
-    }
-    const p = [];
-    for (const pig of round.pigs) {
-      if (pig.dead && !ctx.reportedDeadPigs.has(pig.id)) {
-        p.push([pig.id, 1]);
-        ctx.reportedDeadPigs.add(pig.id);
-      }
-    }
     ctx.lastPreviewSentAt = now;
-    if (!d.length && !p.length) return; // nothing moved since last frame; save the send
-    net.send({
-      t: 'preview',
-      frame: { d, p, s: round.score, a: round.bag.length - round.shotIndex }
-    });
+    const frame = previewFrame(round, ctx);
+    if (frame) net.send({ t: 'preview', frame }); // null: nothing moved; save the send
   }
 
+  // Frames are counted as they arrive and drawn by the playout buffer (preview-buffer.js),
+  // from the loop below.
   function applyPreview(frame) {
-    if (!ctx.shadowRound || !frame) return;
+    if (!ctx.shadowRound || !ctx.previewBuffer || !frame) return;
     let moved = 0;
-    for (const [id, x, y, c, s, dead] of frame.d ?? []) {
-      const body = ctx.shadowBodyById.get(id);
-      if (!body) continue;
-      if (dead) { body.dead = true; moved++; continue; }
-      body.x = x; body.y = y; body.c = c; body.s = s;
-      moved++;
-    }
-    for (const [id, dead] of frame.p ?? []) {
-      const pig = ctx.shadowPigById.get(id);
-      if (pig && dead) { pig.dead = true; moved++; }
-    }
+    for (const [id] of frame.d ?? []) if (ctx.shadowBodyById.has(id)) moved++;
+    for (const [id, dead] of frame.p ?? []) if (dead && ctx.shadowPigById.has(id)) moved++;
     if (moved) ctx.previewBodiesMovedTotal += moved;
     if (moved) ctx.previewFramesApplied++;
+    ctx.previewBuffer.push(frame, performance.now());
+    drawPreviewBuffer();
+  }
+
+  function drawPreviewBuffer() {
+    const buffer = ctx.previewBuffer;
+    if (!buffer || !ctx.shadowRound || !buffer.render(performance.now())) return;
     renderPreviewFrame();
-    siegeTheirScore.textContent = String(Math.round(frame.s ?? 0));
-    siegeTheirAmmo.textContent = `${frame.a ?? ctx.theirAmmoFallback} left`;
+    siegeTheirScore.textContent = String(Math.round(buffer.score));
+    siegeTheirAmmo.textContent = `${buffer.ammo ?? ctx.theirAmmoFallback} left`;
     siegePreviewKing.classList.toggle('dead', Boolean(ctx.shadowKing?.dead));
   }
 
@@ -966,6 +1025,13 @@ export function createOnlineSiege(deps) {
       if (!ctx.locked && performance.now() >= ctx.buildDeadline) sendLock(true);
     } else if (ctx.phase === 'siege') {
       monitorSiege();
+      drawPreviewBuffer();
+    }
+    const now = performance.now();
+    if (now - lastLabelsAt > 500) {
+      lastLabelsAt = now;
+      renderPing();
+      if (ctx.phase === 'lobby') renderWhere();
     }
   }
 

@@ -24,6 +24,14 @@ export function lobbyListUrl() {
   return `${relayBase().replace(/^ws/, 'http')}/lobbies`;
 }
 
+// Where to time a room from (the relay's GET /ping), at its shard if it moved.
+export function pingAddress(room, shard = '') {
+  const url = new URL(`${relayBase().replace(/^ws/, 'http')}/ping`);
+  url.searchParams.set('room', room);
+  if (shard) url.searchParams.set('shard', shard);
+  return url.toString();
+}
+
 export function createNet(handlers = {}) {
   let socket = null;
   let connectionGuard = 0;
@@ -56,6 +64,10 @@ export function createNet(handlers = {}) {
     const base = relayBase().replace(/^http/, 'ws');
     const url = new URL(`${base}/ws`);
     url.searchParams.set('room', room);
+    // A room that moved somewhere fairer at match start runs at its `shard`;
+    // `ticket` reclaims this player's seat there.
+    if (options.shard) url.searchParams.set('shard', options.shard);
+    if (options.ticket) url.searchParams.set('ticket', options.ticket);
     const ws = new WebSocket(url.toString());
     socket = ws;
     // A ping goes once a second while connected, with this client's round trip
@@ -138,6 +150,8 @@ export function createNet(handlers = {}) {
     connected: () => connectionState === 'connected' &&
       socket?.readyState === WebSocket.OPEN,
     state: () => connectionState,
+    // This socket's last round trip in ms, -1 before the first pong.
+    rtt: () => pinger?.rtt ?? -1,
     status: () => ({ state: connectionState, reason: connectionReason })
   };
 }

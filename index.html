@@ -173,6 +173,7 @@
 
         <div id="online-room-state" class="online-room-state" hidden>
           <p id="online-players" class="muted" role="status" aria-live="polite"></p>
+          <p id="online-room-where" class="muted online-room-where" hidden></p>
           <div class="row">
             <button id="online-start" class="button primary" type="button" hidden>Start match</button>
           </div>
@@ -216,6 +217,9 @@
            is not necessarily looking at. role="alert" so it interrupts a screen reader too. -->
       <p id="siege-ready-reason" class="siege-ready-reason" role="alert" hidden></p>
     </div>
+
+    <!-- Online Siege only: this player's live ping to the room, bottom right (style.css .net-ping). -->
+    <span id="net-ping" class="net-ping" title="Your ping to the room" hidden></span>
 
     <div id="siege-preview" class="siege-preview" hidden>
       <div class="siege-preview-head">
