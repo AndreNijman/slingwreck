@@ -2,6 +2,8 @@
 // reconnect: P6.2 will make resume an explicit reconstruction from blueprint,
 // seed, and shot log instead of a retry loop that hides a dropped round.
 
+import { NetPing } from './netping.js?v=20260904-2';
+
 const RELAY_FALLBACK =
   'https://slingwreck-relay.tung-tung-tung-sahur.workers.dev';
 
@@ -25,6 +27,8 @@ export function lobbyListUrl() {
 export function createNet(handlers = {}) {
   let socket = null;
   let connectionGuard = 0;
+  let pinger = null;
+  let pingTimer = 0;
   let connectionState = 'idle';
   let connectionReason = '';
 
@@ -40,6 +44,13 @@ export function createNet(handlers = {}) {
     return true;
   }
 
+  function stopPing() {
+    clearInterval(pingTimer);
+    pingTimer = 0;
+    pinger?.stop();
+    pinger = null;
+  }
+
   function open(action, room, options = {}) {
     close('superseded');
     const base = relayBase().replace(/^http/, 'ws');
@@ -47,6 +58,13 @@ export function createNet(handlers = {}) {
     url.searchParams.set('room', room);
     const ws = new WebSocket(url.toString());
     socket = ws;
+    // A ping goes once a second while connected, with this client's round trip
+    // and frame rate, for the relay's lag log.
+    const ping = new NetPing();
+    pinger = ping;
+    pingTimer = setInterval(() => {
+      if (connectionState === 'connected') send({ t: 'ping', ...ping.next() });
+    }, 1000);
     setState('connecting');
     let failed = false;
     connectionGuard = setTimeout(() => {
@@ -75,6 +93,7 @@ export function createNet(handlers = {}) {
       if (socket !== ws) return;
       let message;
       try { message = JSON.parse(event.data); } catch { return; }
+      if (message.t === 'pong') { pinger?.pong(message.c); return; }
       if (message.t === 'welcome') setState('connected');
       handlers.onMessage?.(message);
     };
@@ -88,6 +107,7 @@ export function createNet(handlers = {}) {
       connectionGuard = 0;
       if (socket !== ws) return;
       socket = null;
+      stopPing();
       const reason = connectionReason || event.reason ||
         (failed ? 'connection failed' : 'connection closed');
       setState(failed ? 'error' : 'closed', reason);
@@ -96,6 +116,7 @@ export function createNet(handlers = {}) {
   }
 
   function close(reason = '') {
+    stopPing();
     if (!socket) {
       if (connectionState !== 'idle') setState('closed', reason);
       return;

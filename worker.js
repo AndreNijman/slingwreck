@@ -47,6 +47,7 @@ import {
   validate
 } from './build.js?v=20260904-2';
 import { PIG_FLAGS, PIG_FLAG_DECOY, PIG_ID, digestRound } from './sim.js?v=20260904-2';
+import { NetStats, sendNetLog, coloOf } from './netstats.js?v=20260904-2';
 
 const TICK_MS = 250;
 const ROOM_TTL = 45 * 60_000;
@@ -407,6 +408,8 @@ export class SiegeRoom {
     this.result = null;
     this.draftPid = -1;
     this.validateMode = validationMode(env);
+    this.net = null; // lag stats for the match in progress
+    this.colo = '';
     this.ctx.blockConcurrencyWhile(async () => {
       await this.restore();
       if (this.key) this.ensureTimer();
@@ -588,6 +591,7 @@ export class SiegeRoom {
   }
 
   async reset() {
+    this.endNetLog('closed');
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -644,6 +648,7 @@ export class SiegeRoom {
     }
 
     if (message.t === 'ping') {
+      this.net?.ping(session.pid, message.rtt, message.fps, message.frameMax);
       this.send(session.socket, { t: 'pong', c: message.c });
       return;
     }
@@ -848,6 +853,7 @@ export class SiegeRoom {
     record.connected = true;
     record.disconnectedAt = 0;
     record.graceDeadline = 0;
+    this.net?.reconnect(pid);
     session.pid = pid;
     session.ready = true;
     clearTimeout(session.handshakeTimer);
@@ -924,6 +930,7 @@ export class SiegeRoom {
     }
     if (wasHost) this.host = this.players.keys().next().value;
     if (this.phase === 'build') {
+      this.endNetLog('abandoned');
       this.phase = 'lobby';
       this.round = 0;
       this.deadline = 0;
@@ -972,6 +979,7 @@ export class SiegeRoom {
     this.seed = randomSeed();
     this.result = null;
     this.draftPid = -1;
+    this.startNetLog();
     await this.beginBuild(1);
   }
 
@@ -1572,6 +1580,7 @@ export class SiegeRoom {
           pid: record.pid, name: record.name, wins: record.wins
         }))
       });
+      this.endNetLog('finished');
     } else {
       this.beginDraft(winner);
     }
@@ -1638,6 +1647,30 @@ export class SiegeRoom {
     });
     await this.beginBuild(this.round + 1);
     return true;
+  }
+
+  // -- lag log -----------------------------------------------------------
+
+  // One record per match, from the first build to the match result (or until it
+  // is abandoned or the room closes), sent to games-guard's NetLog. The 250 ms
+  // room clock is not a simulation loop and previews are not a steady stream,
+  // so neither feeds the stats.
+  startNetLog() {
+    this.endNetLog('abandoned');
+    this.net = new NetStats();
+    for (const record of this.players.values()) this.net.seat(record.pid, record.name);
+    if (!this.colo) coloOf().then((colo) => { this.colo = colo; });
+  }
+
+  endNetLog(outcome) {
+    const net = this.net;
+    this.net = null;
+    if (!net) return;
+    const record = net.record({
+      code: this.room, mode: `1v1 siege · first to ${TUNE.winsNeeded}`, outcome, colo: this.colo
+    });
+    if (record.runTime < 10) return;
+    sendNetLog(this.env, this.ctx, 'slingwreck', record);
   }
 
   // -- the cheap room clock ----------------------------------------------

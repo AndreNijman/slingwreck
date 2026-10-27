@@ -141,9 +141,12 @@
     {
       "path": "net.js",
       "phase": "P6",
-      "budget": 150,
-      "imports": [],
-      "job": "One websocket. Relay resolution order: ?relay= query, window.SLINGWRECK_RELAY_URL, location.origin on localhost, hardcoded workers.dev fallback."
+      "budget": 170,
+      "imports": [
+        "netping.js"
+      ],
+      "job": "One websocket. Relay resolution order: ?relay= query, window.SLINGWRECK_RELAY_URL, location.origin on localhost, hardcoded workers.dev fallback.",
+      "budgetNote": "Raised from 150 for the lag log: a once-a-second ping per socket (netping.js) and its pong, started and stopped with the socket."
     },
     {
       "path": "worker.js",
@@ -153,7 +156,8 @@
         "data.js",
         "physics.js",
         "sim.js",
-        "relay-audit.js"
+        "relay-audit.js",
+        "netstats.js"
       ],
       "job": "The relay. SiegeRoom and LobbyRegistry Durable Objects, blueprint validation and authoritative settle, shot log, incremental audit replay, preview relaying, reconnect, room passwords, origin allowlist, rate limits.",
       "budgetNote": "Raised from 800 across P6 and from 1600 in P7. Two Durable Objects, the full security surface, relay-authoritative build validation, simultaneous Siege and replay, reconnect, plus the best-of-five, loser-only draft, budgets and timeout defaults all remain one authoritative room state machine. The pure audit and match decisions stay split into relay-audit.js."
@@ -168,6 +172,20 @@
         "sim.js"
       ],
       "job": "Pure Siege audit engine: deterministic bag generation, unconditional score and shot-timing bounds, incremental sim replay, shot-boundary digest verification, and reconnect snapshots."
+    },
+    {
+      "path": "netstats.js",
+      "phase": "P8",
+      "budget": 120,
+      "imports": [],
+      "job": "Relay half of the lag log: per-match ping, frame-rate and reconnect statistics, sent to games-guard's NetLog when a match ends. Shared verbatim by every game relay (copied from bopl); do not edit it here."
+    },
+    {
+      "path": "netping.js",
+      "phase": "P8",
+      "budget": 60,
+      "imports": [],
+      "job": "Client half of the lag log: measures round trip and frame rate and reports both in a once-a-second ping. Shared verbatim by every game client (copied from bopl); do not edit it here."
     }
   ],
   "tools": [

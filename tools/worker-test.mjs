@@ -27,6 +27,7 @@ import {
   previewAllowed,
   roomKey,
   scoreCeiling,
+  SiegeRoom,
   validationMode,
   validateBlueprintSubmission
 } from '../worker.js?v=20260904-2';
@@ -339,4 +340,99 @@ test('a matching digest cannot turn a surviving King into a pop claim', () => {
   } while (result.ok && !result.checks.length && audit.round.stepCount < round.stepCount);
   assert.equal(result.ok, false);
   assert.equal(result.code, 'false-king-pop');
+});
+
+function lagRoom(logs) {
+  const ctx = {
+    blockConcurrencyWhile: (fn) => fn(),
+    waitUntil() {},
+    storage: { get: async () => undefined, put: async () => {}, delete: async () => {}, setAlarm: async () => {} }
+  };
+  const env = { NETLOG: { record: async (game, log) => { logs.push({ game, log }); return { ok: true }; } } };
+  const room = new SiegeRoom(ctx, env);
+  room.colo = 'PER';
+  room.room = 'Paper Crown';
+  room.host = 1;
+  return room;
+}
+
+function lagPlayer(pid, name) {
+  return {
+    pid, name, wins: 0, cards: [], bankedScrap: 0, roundCarry: 0, budget: 0, draft: '',
+    draftOffer: null, blueprint: '', fortressCost: 0, locked: false, autoCompleted: false,
+    connected: true, disconnectedAt: 0, graceDeadline: 0, resumeTokenHash: '', siege: null
+  };
+}
+
+function lagSession(pid, sent = []) {
+  return { pid, ready: true, socket: { readyState: 1, send: (raw) => sent.push(JSON.parse(raw)) } };
+}
+
+test('a finished match sends its lag log to games-guard', async () => {
+  const logs = [];
+  const room = lagRoom(logs);
+  room.players.set(1, lagPlayer(1, 'Andre'));
+  room.players.set(2, lagPlayer(2, 'Rival'));
+  await room.startBuild({ pid: 1 });
+  room.net.startedAt -= 60_000;
+  const sent = [];
+  for (let k = 0; k < 20; k++) {
+    await room.onMessage(lagSession(1, sent), JSON.stringify({ t: 'ping', c: k, rtt: 40 + k, fps: 60, frameMax: 20 }));
+    await room.onMessage(lagSession(2), JSON.stringify({ t: 'ping', c: k, rtt: 300 + k, fps: 58, frameMax: 35 }));
+  }
+  assert.deepEqual(sent.at(-1), { t: 'pong', c: 19 });
+  room.phase = 'siege';
+  room.players.get(1).wins = TUNE.winsNeeded - 1;
+
+  await room.finishRound(1, 'clock');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(room.phase, 'match-over');
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].game, 'slingwreck');
+  const { log } = logs[0];
+  assert.equal(log.outcome, 'finished');
+  assert.equal(log.colo, 'PER');
+  assert.equal(log.code, 'Paper Crown');
+  assert.equal(log.mode, `1v1 siege · first to ${TUNE.winsNeeded}`);
+  assert.deepEqual(log.seats.map((seat) => seat.name), ['Andre', 'Rival']);
+  assert.ok(log.seats[1].rttP95 >= 300 && log.seats[0].rttP95 < 100);
+  assert.equal(log.seats[0].fpsMed, 60);
+  assert.equal(log.seats[1].frameMax, 35);
+  assert.equal(room.net, null);
+
+  await room.reset();
+  assert.equal(logs.length, 1, 'closing the room after the result does not log twice');
+});
+
+test('an abandoned match is logged once, a too-short one not at all', async () => {
+  const logs = [];
+  const room = lagRoom(logs);
+  room.players.set(1, lagPlayer(1, 'Andre'));
+  room.players.set(2, lagPlayer(2, 'Rival'));
+  await room.startBuild({ pid: 1 });
+  await room.drop(lagSession(2));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(room.phase, 'lobby');
+  assert.equal(logs.length, 0, 'a match under 10 s is not logged');
+
+  room.players.set(3, lagPlayer(3, 'Rival'));
+  await room.startBuild({ pid: 1 });
+  room.net.startedAt -= 30_000;
+  await room.drop(lagSession(3));
+  await room.reset();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].log.outcome, 'abandoned');
+
+  room.room = 'Paper Crown';
+  room.host = 1;
+  room.players.set(1, lagPlayer(1, 'Andre'));
+  room.players.set(4, lagPlayer(4, 'Rival'));
+  await room.startBuild({ pid: 1 });
+  room.net.startedAt -= 30_000;
+  await room.reset();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(logs.length, 2);
+  assert.equal(logs[1].log.outcome, 'closed');
 });
