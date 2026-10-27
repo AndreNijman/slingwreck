@@ -2,7 +2,7 @@
 // reconnect: P6.2 will make resume an explicit reconstruction from blueprint,
 // seed, and shot log instead of a retry loop that hides a dropped round.
 
-import { NetPing } from './netping.js?v=20261027-1';
+import { NetPing } from './netping.js?v=20261027-2';
 
 const RELAY_FALLBACK =
   'https://slingwreck-relay.tung-tung-tung-sahur.workers.dev';

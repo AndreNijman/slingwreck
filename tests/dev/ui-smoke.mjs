@@ -23,8 +23,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { encode } from '../../build.js?v=20261027-1';
-import { signDevPass } from '../../netdev.js?v=20261027-1';
+import { encode } from '../../build.js?v=20261027-2';
+import { signDevPass } from '../../netdev.js?v=20261027-2';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SHOTS = path.join(ROOT, 'tests/dev/shots');

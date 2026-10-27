@@ -4,8 +4,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AMMO, AMMO_BY_ID } from '../data.js?v=20261027-1';
-import { LEVELS } from '../levels.js?v=20261027-1';
+import { AMMO, AMMO_BY_ID } from '../data.js?v=20261027-2';
+import { LEVELS } from '../levels.js?v=20261027-2';
 import { chromium } from 'playwright';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');

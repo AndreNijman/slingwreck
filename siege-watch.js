@@ -6,12 +6,12 @@
 // the blueprint, never stepped past the settle, reposed by a PreviewBuffer. A watcher
 // arriving mid-round starts from the relay's sum of the frames so far.
 
-import { makeRound, stepRound } from './sim.js?v=20261027-1';
-import { drawPreview } from './render.js?v=20261027-1';
-import { decode } from './build.js?v=20261027-1';
-import { SETTLE_STEPS } from './relay-audit.js?v=20261027-1';
-import { CARDS_BY_ID, TUNE } from './data.js?v=20261027-1';
-import { PreviewBuffer } from './preview-buffer.js?v=20261027-1';
+import { makeRound, stepRound } from './sim.js?v=20261027-2';
+import { drawPreview } from './render.js?v=20261027-2';
+import { decode } from './build.js?v=20261027-2';
+import { SETTLE_STEPS } from './relay-audit.js?v=20261027-2';
+import { CARDS_BY_ID, TUNE } from './data.js?v=20261027-2';
+import { PreviewBuffer } from './preview-buffer.js?v=20261027-2';
 
 export function createWatch({ onLeave }) {
   const panel = document.querySelector('#siege-watch');

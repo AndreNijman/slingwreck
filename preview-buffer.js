@@ -19,7 +19,7 @@
 // landed into the ground and then snap it back. Holding the newest pose is exact for
 // that case and only wrong for the rare frame later than the delay allows.
 
-import { TUNE } from './data.js?v=20261027-1';
+import { TUNE } from './data.js?v=20261027-2';
 
 // Quantisation for the outgoing preview: the relay closes any socket that sends a message
 // over 8192 bytes (worker.js MAX_MESSAGE), so this has a hard ceiling, not just a bandwidth

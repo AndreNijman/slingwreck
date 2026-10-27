@@ -18,8 +18,8 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { encode } from '../../build.js?v=20261027-1';
-import { signDevPass } from '../../netdev.js?v=20261027-1';
+import { encode } from '../../build.js?v=20261027-2';
+import { signDevPass } from '../../netdev.js?v=20261027-2';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const HOST = 'slingwreck.andrenijman.com';
