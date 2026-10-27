@@ -474,6 +474,7 @@ export function createOnlineSiege(deps) {
     }
     if (ctx.watching) {
       ctx.watching = false;
+      hideConnectionBanner();
       watch.hide();
       lobbyScreen.hidden = false;
     }

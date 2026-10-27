@@ -1096,7 +1096,7 @@ export class SiegeRoom {
   }
 
   // The last player left while devs watch: the room starts over as a lobby under its
-  // name, with the watchers in its seats (the first one hosts).
+  // name, with the watchers in its seats (the first one hosts). Its password stays.
   async reopen() {
     this.endNetLog('closed');
     this.players.clear();
