@@ -21,7 +21,7 @@ import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
-import { decode, encode } from '../build.js?v=20260904-2';
+import { decode, encode } from '../build.js?v=20261027-1';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const startedAt = performance.now();

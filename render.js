@@ -1,4 +1,4 @@
-import { AMMO_BY_ID, TUNE } from './data.js?v=20260904-2';
+import { AMMO_BY_ID, TUNE } from './data.js?v=20261027-1';
 export const PALETTE = Object.freeze({
   ink: '#2B211C', skyTop: '#E8D5B0', skyLow: '#F2C79A',
   hillFar: '#A8B89A', hillNear: '#8FA383',

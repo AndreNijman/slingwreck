@@ -6,10 +6,10 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TUNE } from '../../data.js?v=20260904-2';
-import { previewAllowed, previewInterval } from '../../relay-audit.js?v=20260904-2';
-import { PreviewBuffer } from '../../preview-buffer.js?v=20260904-2';
-import { cleanProbes, previewAccepted, SiegeRoom } from '../../worker.js?v=20260904-2';
+import { TUNE } from '../../data.js?v=20261027-1';
+import { previewAllowed, previewInterval } from '../../relay-audit.js?v=20261027-1';
+import { PreviewBuffer } from '../../preview-buffer.js?v=20261027-1';
+import { cleanProbes, previewAccepted, SiegeRoom } from '../../worker.js?v=20261027-1';
 
 const STEP_MS = TUNE.step * 1000;
 

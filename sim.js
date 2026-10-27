@@ -7,7 +7,7 @@ import {
   SCORE,
   SHAPES,
   TUNE
-} from './data.js?v=20260904-2';
+} from './data.js?v=20261027-1';
 import {
   addBody,
   applyImpulse,
@@ -21,7 +21,7 @@ import {
   rng,
   step,
   wakeBody
-} from './physics.js?v=20260904-2';
+} from './physics.js?v=20261027-1';
 
 export const BLUEPRINT_VERSION = 1;
 

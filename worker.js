@@ -19,7 +19,7 @@
 // empties. Internal routes between objects (/_adopt, /_released) are never
 // forwarded.
 
-import { BUDGET, CARDS_BY_ID, PIGS, SCORE, TUNE } from './data.js?v=20260904-2';
+import { BUDGET, CARDS_BY_ID, PIGS, SCORE, TUNE } from './data.js?v=20261027-1';
 import {
   AUDIT_STEP_BUDGET,
   SETTLE_STEPS,
@@ -43,7 +43,7 @@ import {
   scoreCeiling,
   startSuddenDeath,
   validationMode
-} from './relay-audit.js?v=20260904-2';
+} from './relay-audit.js?v=20261027-1';
 import {
   autoCompleteCandidates,
   budgetFor,
@@ -54,13 +54,13 @@ import {
   settleTest,
   spent,
   validate
-} from './build.js?v=20260904-2';
-import { PIG_FLAGS, PIG_FLAG_DECOY, PIG_ID, digestRound } from './sim.js?v=20260904-2';
-import { NetStats, sendNetLog, coloOf } from './netstats.js?v=20260904-2';
+} from './build.js?v=20261027-1';
+import { PIG_FLAGS, PIG_FLAG_DECOY, PIG_ID, digestRound } from './sim.js?v=20261027-1';
+import { NetStats, sendNetLog, coloOf } from './netstats.js?v=20261027-1';
 import {
   REGIONS, chooseRegion, newShard, playerWhere, regionOfColo, roomStub, shardRegion,
   whereOf, withWhere
-} from './netplace.js?v=20260904-2';
+} from './netplace.js?v=20261027-1';
 
 const TICK_MS = 250;
 const ROOM_TTL = 45 * 60_000;

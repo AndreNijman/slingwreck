@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { encode } from '../../build.js?v=20260904-2';
+import { encode } from '../../build.js?v=20261027-1';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SHOTS = path.join(ROOT, 'tests/latency/shots');

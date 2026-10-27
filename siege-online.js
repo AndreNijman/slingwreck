@@ -16,16 +16,16 @@
 
 import {
   digestRound, isRoundOver, launch, makeRound, remoteDetonate, stepRound, tap
-} from './sim.js?v=20260904-2';
-import { drawPreview } from './render.js?v=20260904-2';
+} from './sim.js?v=20261027-1';
+import { drawPreview } from './render.js?v=20261027-1';
 import {
   autoCompleteCandidates, decode, encode, toBlueprint, validate
-} from './build.js?v=20260904-2';
-import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20260904-2';
-import { CARDS_BY_ID, TUNE } from './data.js?v=20260904-2';
-import { createNet, fetchLobbies, pingAddress } from './net.js?v=20260904-2';
-import { pingUrl, probeRegions, regionLabel } from './netprobe.js?v=20260904-2';
-import { PreviewBuffer, previewFrame } from './preview-buffer.js?v=20260904-2';
+} from './build.js?v=20261027-1';
+import { SETTLE_STEPS, bagForRound, previewAllowed } from './relay-audit.js?v=20261027-1';
+import { CARDS_BY_ID, TUNE } from './data.js?v=20261027-1';
+import { createNet, fetchLobbies, pingAddress } from './net.js?v=20261027-1';
+import { pingUrl, probeRegions, regionLabel } from './netprobe.js?v=20261027-1';
+import { PreviewBuffer, previewFrame } from './preview-buffer.js?v=20261027-1';
 
 const LOBBY_POLL_MS = 3000;
 // How often the in-progress build draft is streamed to the relay (see maybeAutosaveDraft).

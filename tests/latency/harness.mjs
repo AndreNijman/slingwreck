@@ -18,13 +18,13 @@
 //   dropped  share of frames the relay threw away
 //
 //   node tests/latency/harness.mjs   (5 fortresses; 200 ms RTT +-40 ms, then a clean line)
-import { LEVELS } from '../../levels.js?v=20260904-2';
-import { TUNE } from '../../data.js?v=20260904-2';
-import { planShot, shouldTap } from '../../bots.js?v=20260904-2';
-import { launch, makeRound, stepRound, tap, isRoundOver } from '../../sim.js?v=20260904-2';
-import { SETTLE_STEPS, previewAllowed } from '../../relay-audit.js?v=20260904-2';
-import { previewFrame, PreviewBuffer } from '../../preview-buffer.js?v=20260904-2';
-import { previewAccepted } from '../../worker.js?v=20260904-2';
+import { LEVELS } from '../../levels.js?v=20261027-1';
+import { TUNE } from '../../data.js?v=20261027-1';
+import { planShot, shouldTap } from '../../bots.js?v=20261027-1';
+import { launch, makeRound, stepRound, tap, isRoundOver } from '../../sim.js?v=20261027-1';
+import { SETTLE_STEPS, previewAllowed } from '../../relay-audit.js?v=20261027-1';
+import { previewFrame, PreviewBuffer } from '../../preview-buffer.js?v=20261027-1';
+import { previewAccepted } from '../../worker.js?v=20261027-1';
 
 const STEP_MS = TUNE.step * 1000;
 const SECONDS = 40;
