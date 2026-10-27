@@ -29,7 +29,9 @@ const failures = [];
 const runtimeIssues = [];
 let assertion = 0;
 
-const RELAY_PORT = 8799;
+// Overridable so it can run beside other local relays (wrangler's inspector defaults to 9229).
+const RELAY_PORT = Number(process.env.RELAY_PORT) || 8799;
+const INSPECTOR_PORT = process.env.INSPECTOR_PORT || '';
 const relay = `http://127.0.0.1:${RELAY_PORT}`;
 const room = `online-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -409,8 +411,8 @@ async function runUnstableReadyScenario(browser, baseUrl, relay) {
 const server = serve();
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const baseUrl = `http://127.0.0.1:${server.address().port}`;
-const relayProcess = spawn('npx', ['wrangler', 'dev', '--port', String(RELAY_PORT)],
-  { cwd: root, stdio: 'ignore' });
+const relayProcess = spawn('npx', ['wrangler', 'dev', '--port', String(RELAY_PORT),
+  ...(INSPECTOR_PORT ? ['--inspector-port', INSPECTOR_PORT] : [])], { cwd: root, stdio: 'ignore' });
 
 let browser;
 const rounds = [];
