@@ -27,7 +27,9 @@
     "deploy": "wrangler deploy",
     "test:live": "node tools/live-smoke.mjs",
     "test:a11y": "node tools/a11y.mjs",
-    "test:online": "node tools/online-smoke.mjs"
+    "test:online": "node tools/online-smoke.mjs",
+    "test:dev": "node tests/dev/dev-join.test.mjs",
+    "test:dev-ui": "node tests/dev/ui-smoke.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

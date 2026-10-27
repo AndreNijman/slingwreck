@@ -12,6 +12,11 @@
 //   GET /ws?room=<name>[&shard=<shard>&ticket=<t>] - websocket, first message
 //                   must be create, join or reconnect
 //
+// A dev (netdev.js: a pass games-guard signed, sent as `dev` in create or join)
+// may join any room. With a seat free in the lobby they take it, password or
+// not; otherwise (full, or a match on) they watch: both attacks live, from
+// both players' preview frames, and the next free lobby seat is theirs.
+//
 // At match start a room whose two players are far apart may move to a fairer
 // region (netplace.js): its Durable Object hands the room to a fresh one there,
 // its "shard" (`<key>~<shard>`), and gives each player a ticket to reconnect
@@ -61,6 +66,7 @@ import {
   REGIONS, chooseRegion, newShard, playerWhere, regionOfColo, roomStub, shardRegion,
   whereOf, withWhere
 } from './netplace.js?v=20261027-1';
+import { verifyDevPass } from './netdev.js?v=20261027-1';
 
 const TICK_MS = 250;
 const ROOM_TTL = 45 * 60_000;
@@ -78,6 +84,8 @@ const ADOPT_WAIT = 6000; // a moved room starts with whoever reconnected by then
 const MOVE_CLOSE = 1000; // the old sockets close this long after `move`
 const TICKET = /^[a-z0-9]{16}$/;
 const PRODUCTION_ORIGIN = 'https://slingwreck.andrenijman.com';
+const DEV_HOST = 'slingwreck.andrenijman.com'; // the host dev passes are signed for (netdev.js)
+const KEYFRAME_MAX = 512; // blocks remembered per attack for a watcher's snapshot
 const encoder = new TextEncoder();
 
 export {
@@ -472,6 +480,7 @@ export class SiegeRoom {
     this.draftPid = -1;
     this.validateMode = validationMode(env);
     this.net = null; // lag stats for the match in progress
+    this.keyframes = new Map(); // attacker pid -> their preview so far, for watchers
     this.colo = '';
     // Room placement (netplace.js). In a room's own object: `moved` once its
     // room moved to a shard ({ shard, region }, also in storage). In a shard:
@@ -718,6 +727,7 @@ export class SiegeRoom {
     this.result = null;
     this.draftPid = -1;
     this.audits.clear();
+    this.keyframes.clear();
     this.passwordAttempts.clear();
     this.shard = '';
     this.movedFrom = '';
@@ -749,6 +759,10 @@ export class SiegeRoom {
     this.touched = Date.now();
     if (!session.ready) {
       await this.handshake(session, message);
+      return;
+    }
+    if (session.watcher) { // a watcher only watches
+      if (message.t === 'ping') this.send(session.socket, { t: 'pong', c: message.c });
       return;
     }
     const record = this.players.get(session.pid);
@@ -849,6 +863,9 @@ export class SiegeRoom {
       this.reject(session, 'invalid-room', 'lobby names need at least 3 characters');
       return;
     }
+    // Anything but a valid pass for this host is nobody, and the rules below as before.
+    const dev = await verifyDevPass(message.dev, DEV_HOST,
+      { publicKey: this.env?.DEV_TEST_PUBLIC_KEY || undefined });
 
     if (message.t === 'create') {
       if (this.players.size || this.key) {
@@ -869,6 +886,16 @@ export class SiegeRoom {
       // room's own object (which still sends everyone here). Knowing its shard
       // name, it lists itself correctly and releases the name when it empties.
       if (session.routeShard) this.shard = session.routeShard;
+    } else if (dev) {
+      // No password, full or started for a dev: a free lobby seat, else they watch.
+      if (this.key !== key) {
+        this.reject(session, 'room-missing', 'no lobby has that name');
+        return;
+      }
+      if (!this.seatFree()) {
+        this.watch(session, message, dev);
+        return;
+      }
     } else {
       if (!this.players.size || this.key !== key) {
         this.reject(session, 'room-missing', 'no lobby has that name');
@@ -907,14 +934,27 @@ export class SiegeRoom {
 
     const resumeToken = randomToken();
     const resumeTokenHash = await hashPassword(resumeToken);
+    if (message.t === 'join' && dev && !this.seatFree()) {
+      if (this.key === key) this.watch(session, message, dev);
+      else this.reject(session, 'room-missing', 'no lobby has that name');
+      return;
+    }
     if (message.t === 'join' && this.players.size >= MAX_PLAYERS) {
       this.reject(session, 'room-full', 'that lobby is full');
       return;
     }
+    this.seat(session, message.name, resumeToken, resumeTokenHash);
+    if (dev) this.broadcast({ t: 'dev-joined', name: dev.name });
+    await this.persist();
+    await this.syncRegistry();
+  }
+
+  // A seat for `session`, now: the player record, the welcome and the lobby.
+  seat(session, name, resumeToken, resumeTokenHash) {
     const pid = this.nextPid++;
     const record = {
       pid,
-      name: cleanName(message.name),
+      name: cleanName(name),
       wins: 0,
       cards: [],
       bankedScrap: 0,
@@ -952,6 +992,125 @@ export class SiegeRoom {
         maxRounds: TUNE.maxRounds
       }
     });
+    this.sendLobby();
+  }
+
+  seatFree() {
+    return this.phase === 'lobby' && !this.adoption && this.players.size < MAX_PLAYERS;
+  }
+
+  // -- dev watchers ------------------------------------------------------
+
+  // A dev who can't sit down watches. They stay outside this.players, so nothing that
+  // pairs the two players ever sees them: they get every broadcast, a snapshot now and at
+  // each build and siege (sendWatch), and both attackers' preview frames.
+  watch(session, message, dev) {
+    session.pid = -1;
+    session.ready = true;
+    session.watcher = { name: cleanName(message.name) };
+    clearTimeout(session.handshakeTimer);
+    this.send(session.socket, {
+      t: 'welcome', you: -1, spectator: true, room: this.room, host: false,
+      max: MAX_PLAYERS, region: this.region()
+    });
+    this.sendWatch(session);
+    this.broadcast({ t: 'dev-joined', name: dev.name });
+  }
+
+  watchers() {
+    return [...this.sessions.values()].filter((session) => session.watcher && !session.dropped);
+  }
+
+  // What a watcher sees: the room, both players, the clock and, in a siege, both attacks
+  // (each fortress's blueprint and cards, and its preview so far).
+  sendWatch(only = null) {
+    const targets = only ? [only] : this.watchers();
+    if (!targets.length) return;
+    const roster = [...this.players.values()];
+    const message = {
+      t: 'watch',
+      room: this.room,
+      phase: this.adoption ? 'lobby' : this.phase,
+      round: this.round,
+      left: this.deadline ? Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000)) : 0,
+      host: this.host,
+      players: roster.map((record) => ({
+        pid: record.pid, name: record.name, wins: record.wins, locked: record.locked
+      })),
+      result: this.result,
+      attacks: this.phase !== 'siege' ? [] : roster.filter((record) => record.siege)
+        .map((record) => ({
+          pid: record.pid,
+          target: roster.find((other) => other.pid !== record.pid)?.pid ?? -1,
+          seed: record.siege.seed,
+          blueprint: record.siege.blueprint,
+          attackerCards: record.siege.attackerCards,
+          defenderCards: record.siege.defenderCards,
+          ammo: record.siege.bag.length - record.siege.shotCount,
+          frame: this.keyframeOf(record.pid)
+        }))
+    };
+    for (const session of targets) this.send(session.socket, message);
+  }
+
+  // An attack's frames only carry what moved, so the relay keeps their sum: the board as
+  // the defender sees it, the first frame a watcher arriving mid-round plays.
+  remember(pid, frame) {
+    if (!frame || typeof frame !== 'object') return;
+    let sum = this.keyframes.get(pid);
+    if (!sum) this.keyframes.set(pid, sum = { d: new Map(), p: new Set(), s: 0, a: null, k: 0 });
+    for (const entry of Array.isArray(frame.d) ? frame.d : []) {
+      if (!Array.isArray(entry) || entry.length !== 6 || !entry.every(Number.isFinite)) continue;
+      if (sum.d.size >= KEYFRAME_MAX && !sum.d.has(entry[0])) continue;
+      sum.d.set(entry[0], entry);
+    }
+    for (const entry of Array.isArray(frame.p) ? frame.p : []) {
+      if (Array.isArray(entry) && Number.isFinite(entry[0]) && entry[1] && sum.p.size < 64) {
+        sum.p.add(entry[0]);
+      }
+    }
+    if (Number.isFinite(frame.s)) sum.s = frame.s;
+    if (Number.isFinite(frame.a)) sum.a = frame.a;
+    if (Number.isFinite(frame.k)) sum.k = frame.k;
+  }
+
+  keyframeOf(pid) {
+    const sum = this.keyframes.get(pid);
+    return sum ? {
+      d: [...sum.d.values()], p: [...sum.p].map((id) => [id, 1]), s: sum.s, a: sum.a, k: sum.k
+    } : null;
+  }
+
+  // A free lobby seat goes to the longest-waiting watcher, welcomed as a player.
+  async seatWatchers() {
+    for (;;) {
+      const session = this.watchers().find((entry) => entry.socket.readyState === 1);
+      if (!session || !this.seatFree()) return;
+      const resumeToken = randomToken();
+      const resumeTokenHash = await hashPassword(resumeToken);
+      if (!session.watcher || session.dropped || !this.seatFree()) continue;
+      const { name } = session.watcher;
+      session.watcher = null;
+      this.seat(session, name, resumeToken, resumeTokenHash);
+    }
+  }
+
+  // The last player left while devs watch: the room starts over as a lobby under its
+  // name, with the watchers in its seats (the first one hosts).
+  async reopen() {
+    this.endNetLog('closed');
+    this.players.clear();
+    this.host = -1;
+    this.phase = 'lobby';
+    this.round = 0;
+    this.seed = 0;
+    this.deadline = 0;
+    this.result = null;
+    this.draftPid = -1;
+    this.audits.clear();
+    this.keyframes.clear();
+    this.moveTried = false;
+    await this.seatWatchers();
     this.sendLobby();
     await this.persist();
     await this.syncRegistry();
@@ -1041,6 +1200,10 @@ export class SiegeRoom {
     this.players.delete(session.pid);
     if (!this.players.size) {
       if (this.adoption) return; // a moved room waits for the rest of its seats
+      if (this.watchers().length) {
+        await this.reopen();
+        return;
+      }
       if (!this.sessions.size) {
         await this.reset();
       } else {
@@ -1072,6 +1235,7 @@ export class SiegeRoom {
       }
       this.broadcast({ t: 'build-cancelled', m: 'opponent left during build' });
     }
+    await this.seatWatchers();
     this.sendLobby();
     await this.persist();
     await this.syncRegistry();
@@ -1129,6 +1293,7 @@ export class SiegeRoom {
     this.phase = 'build';
     this.round = round;
     this.audits.clear();
+    this.keyframes.clear();
     this.deadline = Date.now() + TUNE.buildSeconds * 1000;
     this.lastClockSecond = TUNE.buildSeconds;
     const leadingWins = Math.max(...[...this.players.values()].map((player) => player.wins));
@@ -1158,6 +1323,7 @@ export class SiegeRoom {
         left: TUNE.buildSeconds
       });
     }
+    this.sendWatch();
     await this.persist();
     await this.syncRegistry();
   }
@@ -1322,6 +1488,7 @@ export class SiegeRoom {
         yourAutoCompleted: player.autoCompleted
       });
     }
+    this.sendWatch();
     // The settle test above is now advisory, so a King can legitimately already be dead by
     // the time Siege starts -- sim.js's stepRound() ends the round the instant it notices,
     // with zero shots fired. There is no way for a client to report that honestly over the
@@ -1468,6 +1635,13 @@ export class SiegeRoom {
       record.pid !== session.pid);
     const target = opponent && this.playerSession(opponent.pid);
     if (target) this.send(target.socket, message);
+    // Watchers get every attack's frames, marked with whose attack it is.
+    this.remember(session.pid, message.frame);
+    const watchers = this.watchers();
+    if (watchers.length) {
+      const tagged = { t: 'preview', frame: message.frame, by: session.pid };
+      for (const watcher of watchers) this.send(watcher.socket, tagged);
+    }
   }
 
   async handleAuditMessage(session, message) {
@@ -1980,7 +2154,8 @@ export class SiegeRoom {
     clearTimeout(adoption.timer);
     this.adoption = null;
     if (!this.players.size) {
-      await this.reset();
+      if (this.watchers().length) await this.reopen();
+      else await this.reset();
       return;
     }
     if (!this.players.has(this.host)) this.host = this.players.keys().next().value;
@@ -1988,6 +2163,7 @@ export class SiegeRoom {
       await this.beginMatch();
       return;
     }
+    await this.seatWatchers();
     this.sendLobby();
     await this.persist();
     await this.syncRegistry();
@@ -2082,7 +2258,8 @@ export class SiegeRoom {
         return;
       }
       if (expired.length && !connected.length) {
-        await this.reset();
+        if (this.watchers().length) await this.reopen();
+        else await this.reset();
         return;
       }
       await this.runAudits(AUDIT_STEP_BUDGET);

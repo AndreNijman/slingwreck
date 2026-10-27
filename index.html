@@ -255,6 +255,31 @@
       </div>
     </section>
 
+    <!-- A dev watching a room they could not sit down in (siege-watch.js): both attacks,
+         each fortress drawn from its attacker's preview frames. -->
+    <section id="siege-watch" class="screen-panel siege-watch" role="dialog" aria-modal="true" aria-labelledby="siege-watch-title" hidden>
+      <div class="panel-card wide">
+        <p class="eyebrow" id="siege-watch-eyebrow">Watching</p>
+        <h2 id="siege-watch-title">Online Siege</h2>
+        <p id="siege-watch-status" class="muted" role="status" aria-live="polite"></p>
+        <div id="siege-watch-boards" class="siege-watch-boards" hidden>
+          <figure class="siege-watch-board">
+            <figcaption id="siege-watch-name-0"></figcaption>
+            <canvas id="siege-watch-canvas-0" width="360" height="208"></canvas>
+            <p id="siege-watch-foot-0" class="siege-watch-foot"></p>
+          </figure>
+          <figure class="siege-watch-board">
+            <figcaption id="siege-watch-name-1"></figcaption>
+            <canvas id="siege-watch-canvas-1" width="360" height="208"></canvas>
+            <p id="siege-watch-foot-1" class="siege-watch-foot"></p>
+          </figure>
+        </div>
+        <div class="row">
+          <button id="siege-watch-leave" class="button ghost" type="button">Leave</button>
+        </div>
+      </div>
+    </section>
+
     <section id="critter-intro" class="screen-panel critter-intro" role="dialog" aria-modal="true" aria-labelledby="critter-intro-name" hidden>
       <div class="panel-card">
         <p class="eyebrow">New critter</p>

@@ -26,6 +26,8 @@ import { CARDS_BY_ID, TUNE } from './data.js?v=20261027-1';
 import { createNet, fetchLobbies, pingAddress } from './net.js?v=20261027-1';
 import { pingUrl, probeRegions, regionLabel } from './netprobe.js?v=20261027-1';
 import { PreviewBuffer, previewFrame } from './preview-buffer.js?v=20261027-1';
+import { clearJoinCode, devPass, joinCode, setPlayer, showDevJoined } from './netdev.js?v=20261027-1';
+import { createWatch } from './siege-watch.js?v=20261027-1';
 
 const LOBBY_POLL_MS = 3000;
 // How often the in-progress build draft is streamed to the relay (see maybeAutosaveDraft).
@@ -33,6 +35,7 @@ const DRAFT_AUTOSAVE_MS = 2000;
 // A listed room is timed once, and again at most this often (the list polls every 3 s).
 const ROOM_PING_MS = 30_000;
 const SHARD = /^[a-z]+-[a-z0-9]{6}$/;
+const NAME_KEY = 'slingwreck-online-name';
 
 export function createOnlineSiege(deps) {
   const {
@@ -115,6 +118,7 @@ export function createOnlineSiege(deps) {
       dial: null,
       shard: '',
       region: '',
+      watching: false, // a dev with no seat (siege-watch.js)
       moving: '',
       movingAt: 0,
       opponent: null,
@@ -160,6 +164,11 @@ export function createOnlineSiege(deps) {
   // ---------------------------------------------------------------- lobby UI
 
   function setStatus(text) { lobbyStatus.textContent = text; }
+
+  const watch = createWatch({ onLeave: () => { if (isActive()) quit(); } });
+  const playerName = () => nameInput.value.trim() || 'Wrecker';
+  try { nameInput.value = localStorage.getItem(NAME_KEY) || nameInput.value; } catch { /* private mode */ }
+  setPlayer(playerName(), '');
 
   function renderLobbyList(lobbies) {
     lobbyList.replaceChildren(...lobbies.map((lobby) => {
@@ -235,6 +244,7 @@ export function createOnlineSiege(deps) {
     if (state === 'connected') { ctx.connected = true; return; }
     ctx.connected = false;
     if (state === 'error') setStatus(`Could not reach the relay: ${reason || 'connection failed'}.`);
+    else if (state === 'closed' && ctx.watching) showConnectionBanner('Connection lost.', false);
     else if (state === 'closed' && ctx.active && ctx.phase !== 'lobby') {
       // net.js deliberately never auto-reconnects (see its header comment) — a dropped
       // socket mid-match is a fact to show, not to silently paper over. Reconnecting is a
@@ -294,8 +304,10 @@ export function createOnlineSiege(deps) {
     siegePreview.hidden = true;
     siegeDraftScreen.hidden = true;
     siegeResultScreen.hidden = true;
+    watch.hide();
     hideConnectionBanner();
     hudPing.hidden = true;
+    setPlayer(playerName(), '');
     // Solo Siege reuses this exact button/banner and never touches its label or the ready
     // pills — leave both the way solo expects to find them, not the way online left them.
     siegeLockButton.textContent = 'Lock in';
@@ -305,14 +317,22 @@ export function createOnlineSiege(deps) {
     showTitle();
   }
 
-  function dial(action, room, options) {
+  // A create or join carries this browser's dev pass, if it has one (netdev.js); the
+  // relay lets a dev into any room. ctx.dial keeps it for a redial after a room move.
+  async function dial(action, room, options) {
+    const session = ctx;
+    if (action === 'create' || action === 'join') {
+      try { localStorage.setItem(NAME_KEY, options.name); } catch { /* private mode */ }
+      options = { ...options, dev: (await devPass())?.pass };
+      if (ctx !== session || !ctx.active) return;
+    }
     ctx.dial = { action, room, options };
     ensureNet().open(action, room, { ...options, shard: ctx.shard });
   }
 
   function handleCreate() {
     ctx.shard = '';
-    dial('create', roomInput.value.trim(), {
+    void dial('create', roomInput.value.trim(), {
       name: nameInput.value.trim(), password: passwordInput.value
     });
     setStatus('Creating room…');
@@ -320,10 +340,10 @@ export function createOnlineSiege(deps) {
 
   function handleJoin() {
     ctx.shard = '';
-    dial('join', roomInput.value.trim(), {
+    setStatus('Joining room…');
+    return dial('join', roomInput.value.trim(), {
       name: nameInput.value.trim(), password: passwordInput.value
     });
-    setStatus('Joining room…');
   }
 
   function handleReconnectClick() {
@@ -382,6 +402,11 @@ export function createOnlineSiege(deps) {
 
   function onNetMessage(message) {
     ctx.lastError = '';
+    if (message.t === 'dev-joined') { showDevJoined(message.name); return; }
+    if (ctx.watching && message.t !== 'welcome' && message.t !== 'move') {
+      watch.onMessage(message);
+      return;
+    }
     switch (message.t) {
       case 'welcome': return onWelcome(message);
       case 'move': return onMove(message);
@@ -437,6 +462,21 @@ export function createOnlineSiege(deps) {
     ctx.resumeToken = message.resumeToken;
     ctx.connected = true;
     if (message.region) ctx.region = message.region;
+    setPlayer(playerName(), ctx.room);
+    if (message.spectator) {
+      // No seat for this dev: watch the room until one frees (a later welcome).
+      ctx.watching = true;
+      hideConnectionBanner();
+      stopLobbyPolling();
+      lobbyScreen.hidden = true;
+      watch.show();
+      return;
+    }
+    if (ctx.watching) {
+      ctx.watching = false;
+      watch.hide();
+      lobbyScreen.hidden = false;
+    }
     sendProbes();
     if (message.reconnected) {
       setStatus('Reconnected.');
@@ -455,7 +495,7 @@ export function createOnlineSiege(deps) {
     ctx.phase = 'lobby';
     stopLobbyPolling();
     lobbyList.replaceChildren();
-    setStatus(`Connected as ${nameInput.value.trim() || 'Wrecker'} in "${ctx.room}".`);
+    setStatus(`Connected as ${playerName()} in "${ctx.room}".`);
   }
 
   // A `lobby` broadcast is lobby-screen data, not match state — the relay only ever sends
@@ -986,7 +1026,8 @@ export function createOnlineSiege(deps) {
   // Escape backs out of the lobby the same way it already does everywhere else (campaign
   // episode/level screens, the editor), guarded the same way game.js guards its own editor
   // shortcuts: a key typed into a field is text input, not a screen-level command.
-  const modalScreens = [lobbyScreen, siegeDraftScreen, siegeResultScreen, document.querySelector('#critter-intro')];
+  const modalScreens = [lobbyScreen, siegeDraftScreen, siegeResultScreen, watch.panel,
+    document.querySelector('#critter-intro')];
   document.addEventListener('keydown', (event) => {
     const typing = event.target instanceof HTMLElement &&
       Boolean(event.target.closest('input, textarea, select, [contenteditable="true"]'));
@@ -1073,9 +1114,19 @@ export function createOnlineSiege(deps) {
       lastRoundOver: ctx.lastRoundOver,
       matchWinner: ctx.matchWinner,
       draftOffer: ctx.draftOffer,
+      watching: ctx.watching ? watch.state() : null,
       lastError: ctx.lastError,
       recentErrors: [...ctx.recentErrors]
     };
+  }
+
+  // The admin page's ?join=CODE link: straight into that room's join, as a dev when this
+  // browser holds a pass, else as anyone (a locked room then asks for its password).
+  const linked = joinCode();
+  if (linked) {
+    open();
+    roomInput.value = linked;
+    void handleJoin().finally(clearJoinCode);
   }
 
   return { open, isActive, snapshot };

@@ -97,7 +97,8 @@ export function createNet(handlers = {}) {
         // create/join ignore unknown fields, so sending them unconditionally is harmless and
         // keeps this one open() entry point for all three handshake kinds.
         pid: options.pid,
-        token: options.token
+        token: options.token,
+        dev: options.dev // a dev pass (netdev.js) on create/join; dropped when undefined
       });
       handlers.onOpen?.();
     };
